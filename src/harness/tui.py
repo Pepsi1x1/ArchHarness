@@ -98,7 +98,7 @@ def _print_agent_status(agent_state):
         )
 
 
-def _monitor_run(orchestrator, task, repo_path, workflow):
+def _monitor_run(orchestrator, task, workspace_path, workflow, workspace_mode="existing-git", project_name=None, init_git=None):
     event_queue = queue.Queue()
     control = RunControl()
     result = {"run_dir": None, "error": None}
@@ -119,8 +119,11 @@ def _monitor_run(orchestrator, task, repo_path, workflow):
         try:
             result["run_dir"] = orchestrator.run(
                 task,
-                repo_path,
+                workspace_path,
                 workflow,
+                workspace_mode=workspace_mode,
+                project_name=project_name,
+                init_git=init_git,
                 event_sink=on_event,
                 control=control,
             )
@@ -130,6 +133,7 @@ def _monitor_run(orchestrator, task, repo_path, workflow):
     thread = threading.Thread(target=_runner, daemon=True)
     thread.start()
     print("\nRun Monitor (controls: p pause/resume, c cancel)")
+    print(f"Workspace type: {workspace_mode}")
     while thread.is_alive():
         saw_event = False
         while not event_queue.empty():
@@ -165,6 +169,19 @@ def run_tui(repo_path, config_path=None):
             try:
                 task = input("Task prompt: ").strip()
                 workflow = input("Workflow [frontend_feature|arch_review_only]: ").strip() or "frontend_feature"
+                workspace_mode = input("Workspace mode [new-project|existing-folder|existing-git]: ").strip() or "existing-git"
+                workspace_path = input(f"Workspace path [{repo_path}]: ").strip() or repo_path
+                git_exists = (Path(workspace_path).resolve() / ".git").exists()
+                print(f"Selected folder contains .git: {'yes' if git_exists else 'no'}")
+                project_name = None
+                if workspace_mode == "new-project":
+                    project_name = input("Project name: ").strip()
+                init_git_prompt = "Initialise Git [Y/n]: " if workspace_mode == "new-project" else "Initialise Git [y/N]: "
+                init_git_raw = input(init_git_prompt).strip().lower()
+                if workspace_mode == "new-project":
+                    init_git = init_git_raw not in {"n", "no", "false", "0"}
+                else:
+                    init_git = init_git_raw in {"y", "yes", "true", "1"}
                 frontend_model = input("Frontend model override (optional): ").strip() or None
                 architecture_model = input("Architecture model override (optional): ").strip() or None
                 builder_model = input("Builder model override (optional): ").strip() or None
@@ -179,7 +196,15 @@ def run_tui(repo_path, config_path=None):
             )
             config = apply_cli_overrides(load_config(config_path), overrides)
             orchestrator = Orchestrator(config)
-            run_dir = _monitor_run(orchestrator, task, repo_path, workflow)
+            run_dir = _monitor_run(
+                orchestrator,
+                task,
+                workspace_path,
+                workflow,
+                workspace_mode=workspace_mode,
+                project_name=project_name,
+                init_git=init_git,
+            )
             print(f"\nRun completed: {run_dir}")
             continue
 

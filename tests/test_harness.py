@@ -35,7 +35,7 @@ class HarnessTests(unittest.TestCase):
             (repo / "file.txt").write_text("sample")
             config = load_config()
             orchestrator = Orchestrator(config)
-            run_dir = orchestrator.run("Build feature", str(repo), "frontend_feature")
+            run_dir = orchestrator.run("Build feature", str(repo), "frontend_feature", workspace_mode="existing-folder")
             self.assertTrue((run_dir / "plan.md").exists())
             self.assertTrue((run_dir / "architecture-review.json").exists())
             self.assertTrue((run_dir / "final-summary.md").exists())
@@ -54,6 +54,28 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(args.command, "tui")
         self.assertEqual(args.repo, "/tmp/demo")
 
+    def test_cli_parser_supports_workspace_mode_flags(self):
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "run",
+                "--task",
+                "Create starter app",
+                "--mode",
+                "new-project",
+                "--path",
+                "/tmp/root",
+                "--project-name",
+                "demo",
+                "--init-git",
+                "false",
+            ]
+        )
+        self.assertEqual(args.mode, "new-project")
+        self.assertEqual(args.project_name, "demo")
+        self.assertEqual(args.path, "/tmp/root")
+        self.assertEqual(args.init_git, "false")
+
     def test_orchestrator_marks_cancelled_status(self):
         class CancelledControl:
             def is_cancelled(self):
@@ -66,9 +88,32 @@ class HarnessTests(unittest.TestCase):
             repo = Path(td)
             (repo / "file.txt").write_text("sample")
             orchestrator = Orchestrator(load_config())
-            run_dir = orchestrator.run("Stop early", str(repo), "frontend_feature", control=CancelledControl())
+            run_dir = orchestrator.run("Stop early", str(repo), "frontend_feature", workspace_mode="existing-folder", control=CancelledControl())
             run_log = json.loads((run_dir / "run-log.json").read_text())
             self.assertEqual(run_log["status"], "cancelled")
+
+    def test_new_project_mode_creates_workspace_and_git_by_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            orchestrator = Orchestrator(load_config())
+            run_dir = orchestrator.run(
+                "Bootstrap",
+                str(root),
+                "frontend_feature",
+                workspace_mode="new-project",
+                project_name="demo-app",
+            )
+            workspace = root / "demo-app"
+            self.assertTrue(workspace.exists())
+            self.assertTrue((workspace / ".git").exists())
+            run_log = json.loads((run_dir / "run-log.json").read_text())
+            self.assertEqual(run_log["workspaceMode"], "new-project")
+
+    def test_existing_git_mode_requires_git_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            orchestrator = Orchestrator(load_config())
+            with self.assertRaisesRegex(ValueError, "existing-git mode requires"):
+                orchestrator.run("x", td, "frontend_feature", workspace_mode="existing-git")
 
 
 if __name__ == "__main__":
