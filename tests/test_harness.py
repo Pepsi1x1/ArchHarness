@@ -5,6 +5,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from src.config.loader import apply_cli_overrides, load_config
+from src.harness.cli import build_parser
 from src.harness.orchestrator import Orchestrator
 
 
@@ -40,6 +41,17 @@ class HarnessTests(unittest.TestCase):
             self.assertTrue((run_dir / "final-summary.md").exists())
             review = json.loads((run_dir / "architecture-review.json").read_text())
             self.assertIn("findings", review)
+            run_log = json.loads((run_dir / "run-log.json").read_text())
+            self.assertEqual(run_log["status"], "completed")
+            events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines() if line.strip()]
+            self.assertTrue(events)
+            self.assertTrue(all("runId" in event and "source" in event and "message" in event for event in events))
+
+    def test_cli_parser_supports_tui(self):
+        parser = build_parser()
+        args = parser.parse_args(["tui", "--repo", "/tmp/demo"])
+        self.assertEqual(args.command, "tui")
+        self.assertEqual(args.repo, "/tmp/demo")
 
 
 if __name__ == "__main__":
