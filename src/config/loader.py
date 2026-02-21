@@ -59,8 +59,10 @@ def apply_cli_overrides(config, args):
         value = getattr(args, arg_name, None)
         if value:
             overrides["agents"][role]["model"] = value
-    if args.max_iterations is not None:
-        overrides["orchestration"] = {"maxIterations": args.max_iterations}
-    if args.output_mode:
-        overrides["output"] = {"mode": args.output_mode}
+    max_iterations = getattr(args, "max_iterations", None)
+    output_mode = getattr(args, "output_mode", None)
+    if max_iterations is not None:
+        overrides["orchestration"] = {"maxIterations": max_iterations}
+    if output_mode:
+        overrides["output"] = {"mode": output_mode}
     return _merge_dict(config, overrides)
