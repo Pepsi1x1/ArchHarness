@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.adapters.repo.adapter import RepoAdapter
+from src.adapters.repo.adapter import FileSystemWorkspaceAdapter, GitWorkspaceAdapter
 from src.agents.roles import ArchitectureAgent, BuilderAgent, FrontendAgent
 
 
@@ -56,19 +56,96 @@ class Orchestrator:
         if control:
             control.wait_if_paused()
 
-    def run(self, task, repo_path, workflow, event_sink=None, control=None):
-        adapter = RepoAdapter(
-            repo_path,
-            include_globs=self.config["repo"]["includeGlobs"],
-            exclude_globs=self.config["repo"]["excludeGlobs"],
-            allowlist=self.config.get("commands", {}).get("allowlist", []),
+    def _prepare_workspace(self, workspace_mode, workspace_path, project_name=None, init_git=None):
+        root = Path(workspace_path).resolve()
+        if workspace_mode == "existing-git":
+            if not (root / ".git").exists():
+                raise ValueError("existing-git mode requires a folder with a .git directory.")
+            adapter = GitWorkspaceAdapter(
+                root,
+                include_globs=self.config["repo"]["includeGlobs"],
+                exclude_globs=self.config["repo"]["excludeGlobs"],
+                allowlist=self.config.get("commands", {}).get("allowlist", []),
+            )
+            adapter.capture_baseline()
+            return adapter
+
+        if workspace_mode == "existing-folder":
+            adapter = FileSystemWorkspaceAdapter(
+                root,
+                include_globs=self.config["repo"]["includeGlobs"],
+                exclude_globs=self.config["repo"]["excludeGlobs"],
+                allowlist=self.config.get("commands", {}).get("allowlist", []),
+            )
+            root.mkdir(parents=True, exist_ok=True)
+            if init_git:
+                adapter.initialize_git()
+                adapter = GitWorkspaceAdapter(
+                    root,
+                    include_globs=self.config["repo"]["includeGlobs"],
+                    exclude_globs=self.config["repo"]["excludeGlobs"],
+                    allowlist=self.config.get("commands", {}).get("allowlist", []),
+                )
+            adapter.capture_baseline()
+            return adapter
+
+        if workspace_mode == "new-project":
+            if not project_name:
+                raise ValueError("new-project mode requires a project name.")
+            root.mkdir(parents=True, exist_ok=True)
+            target = root / project_name
+            if target.exists() and any(target.iterdir()):
+                raise ValueError(f"Refusing to create new project: directory {target} is not empty.")
+            adapter = FileSystemWorkspaceAdapter(
+                root,
+                include_globs=self.config["repo"]["includeGlobs"],
+                exclude_globs=self.config["repo"]["excludeGlobs"],
+                allowlist=self.config.get("commands", {}).get("allowlist", []),
+            )
+            adapter.initialize_project(project_name)
+            if init_git is not False:
+                adapter.initialize_git()
+                adapter = GitWorkspaceAdapter(
+                    adapter.workspace_path,
+                    include_globs=self.config["repo"]["includeGlobs"],
+                    exclude_globs=self.config["repo"]["excludeGlobs"],
+                    allowlist=self.config.get("commands", {}).get("allowlist", []),
+                )
+            adapter.capture_baseline()
+            return adapter
+
+        raise ValueError(f"Unsupported workspace mode: {workspace_mode}")
+
+    def run(
+        self,
+        task,
+        workspace_path,
+        workflow,
+        workspace_mode="existing-git",
+        project_name=None,
+        init_git=None,
+        event_sink=None,
+        control=None,
+    ):
+        adapter = self._prepare_workspace(workspace_mode, workspace_path, project_name, init_git)
+        run_dir = self._run_dir(adapter.workspace_path)
+        metadata = adapter.metadata()
+        self._emit_event(
+            run_dir,
+            "workspace",
+            "workspace.ready",
+            "info",
+            f"Workspace ready (type={workspace_mode}, git={metadata['isGit']}, branch={metadata.get('branch') or '-'})",
+            {"workspaceMode": workspace_mode, **metadata},
+            event_sink=event_sink,
         )
-        run_dir = self._run_dir(repo_path)
-        self._emit_event(run_dir, "orchestrator", "run.started", "info", "Run started", {"workflow": workflow}, event_sink=event_sink)
-        prompt_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
         run_log = {
+            "workspaceMode": workspace_mode,
+            "workspacePath": metadata["workspacePath"],
+            "git": {"isGit": metadata["isGit"], "branch": metadata.get("branch")},
+            "projectName": project_name,
             "workflow": workflow,
-            "promptHash": prompt_hash,
+            "promptHash": hashlib.sha256(task.encode("utf-8")).hexdigest(),
             "agents": [
                 {"role": "frontend", "model": self.frontend.model},
                 {"role": "builder", "model": self.builder.model},
@@ -77,6 +154,10 @@ class Orchestrator:
             "toolCalls": [],
             "status": "running",
         }
+        self._emit_event(run_dir, "orchestrator", "run.started", "info", "Run started", {"workflow": workflow}, event_sink=event_sink)
+        context_files = adapter.list_files()
+        run_log["toolCalls"].append({"type": "context_gather", "filesCount": len(context_files)})
+        self._emit_event(run_dir, "repo", "tool.call", "info", "Context gathered", {"filesCount": len(context_files)}, event_sink=event_sink)
 
         for role, model in [("frontend", self.frontend.model), ("builder", self.builder.model), ("architecture", self.architecture.model)]:
             self._emit_event(
@@ -97,10 +178,6 @@ class Orchestrator:
             self._write_final_summary(run_dir, adapter.changed_files(), [], {"findings": []}, [])
             self._emit_event(run_dir, "orchestrator", "run.cancelled", "warning", "Run cancelled", event_sink=event_sink)
             return run_dir
-        context_files = adapter.list_files()
-        run_log["toolCalls"].append({"type": "context_gather", "filesCount": len(context_files)})
-        self._emit_event(run_dir, "repo", "tool.call", "info", "Context gathered", {"filesCount": len(context_files)}, event_sink=event_sink)
-
         if workflow == "arch_review_only":
             self._emit_event(run_dir, "agent", "agent.status", "info", "architecture running", {"status": "Running", "currentStep": "architecture_review"}, agent_role="architecture", event_sink=event_sink)
             review = self.architecture.review(adapter.diff(), adapter.changed_files())

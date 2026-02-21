@@ -5,13 +5,19 @@ Lightweight CLI harness for deterministic multi-agent orchestration against a ch
 ## Run
 
 ```bash
-./harness run --task "Add a new frontend filter" --repo /absolute/path/to/repo --workflow frontend_feature
+./harness run --task "Add a new frontend filter" --mode existing-git --path /absolute/path/to/repo --workflow frontend_feature
 ```
+
+Workspace modes:
+
+- `existing-git` (default): requires `.git` in `--path` (or legacy `--repo`)
+- `existing-folder`: works without Git; optional `--init-git true|false`
+- `new-project`: creates `<path>/<project-name>`; requires `--project-name`; Git init defaults to enabled unless `--init-git false`
 
 ## TUI
 
 ```bash
-./archharness tui --repo /absolute/path/to/repo
+./archharness tui --path /absolute/path/to/folder
 ```
 
 The TUI provides a run list, interactive run monitor with pause/cancel controls, searchable logs, and per-run artifact browsing.
