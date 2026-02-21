@@ -12,7 +12,7 @@ class WorkspaceAdapter:
         self.include_globs = include_globs or ["**/*"]
         self.exclude_globs = exclude_globs or []
         self.allowlist = allowlist or []
-        self._baseline_snapshot = self._snapshot()
+        self._baseline_snapshot = {}
 
     def _is_included(self, rel_path):
         included = any(fnmatch.fnmatch(rel_path, pattern) for pattern in self.include_globs)
