@@ -7,6 +7,7 @@ from pathlib import Path
 from src.config.loader import apply_cli_overrides, load_config
 from src.harness.cli import _parse_init_git, build_parser
 from src.harness.orchestrator import Orchestrator
+from src.harness.tui import ConversationController, RunRequest
 
 
 class HarnessTests(unittest.TestCase):
@@ -131,6 +132,165 @@ class HarnessTests(unittest.TestCase):
             orchestrator = Orchestrator(load_config())
             with self.assertRaisesRegex(ValueError, "existing-git mode requires"):
                 orchestrator.run("x", td, "frontend_feature", workspace_mode="existing-git")
+
+
+class RunRequestTests(unittest.TestCase):
+    def test_validate_raises_for_missing_task(self):
+        req = RunRequest(
+            workspaceMode="existing-folder",
+            workspacePath="/tmp/foo",
+            workflow="frontend_feature",
+            taskPrompt="",
+        )
+        with self.assertRaisesRegex(ValueError, "taskPrompt is required"):
+            req.validate()
+
+    def test_validate_raises_for_missing_path(self):
+        req = RunRequest(
+            workspaceMode="existing-folder",
+            workspacePath="",
+            workflow="frontend_feature",
+            taskPrompt="Do something",
+        )
+        with self.assertRaisesRegex(ValueError, "workspacePath is required"):
+            req.validate()
+
+    def test_validate_raises_for_new_project_without_name(self):
+        req = RunRequest(
+            workspaceMode="new-project",
+            workspacePath="/tmp/root",
+            workflow="frontend_feature",
+            taskPrompt="Bootstrap app",
+        )
+        with self.assertRaisesRegex(ValueError, "projectName is required"):
+            req.validate()
+
+    def test_validate_passes_for_valid_request(self):
+        req = RunRequest(
+            workspaceMode="existing-folder",
+            workspacePath="/tmp/foo",
+            workflow="frontend_feature",
+            taskPrompt="Add a login page",
+        )
+        req.validate()  # must not raise
+
+    def test_validate_passes_for_new_project_with_name(self):
+        req = RunRequest(
+            workspaceMode="new-project",
+            workspacePath="/tmp/root",
+            workflow="frontend_feature",
+            taskPrompt="Bootstrap app",
+            projectName="MyApp",
+        )
+        req.validate()  # must not raise
+
+
+class ConversationControllerTests(unittest.TestCase):
+    def _make_controller(self):
+        return ConversationController(load_config())
+
+    def test_tui_assistant_config_defaults(self):
+        config = load_config()
+        tui_cfg = config.get("tui", {}).get("assistant", {})
+        self.assertTrue(tui_cfg.get("enabled"))
+        self.assertEqual(tui_cfg.get("model"), "gpt-5-mini")
+        self.assertEqual(tui_cfg.get("temperature"), 0.2)
+        self.assertTrue(tui_cfg.get("redaction", {}).get("enabled"))
+
+    def test_extracts_new_project_intent_and_name(self):
+        ctrl = self._make_controller()
+        response, complete = ctrl.process_message(
+            "Create a new React app called ClaimsPortal and add a login page."
+        )
+        self.assertEqual(ctrl._slots.get("workspaceMode"), "new-project")
+        self.assertEqual(ctrl._slots.get("projectName"), "ClaimsPortal")
+        self.assertIn("taskPrompt", ctrl._slots)
+
+    def test_asks_for_missing_workspace_path(self):
+        ctrl = self._make_controller()
+        response, complete = ctrl.process_message("Add a login page")
+        self.assertFalse(complete)
+        self.assertIn("path", response.lower())
+
+    def test_extracts_path_and_sets_mode(self):
+        with tempfile.TemporaryDirectory() as td:
+            ctrl = self._make_controller()
+            response, complete = ctrl.process_message(
+                f"Implement the feature in {td}"
+            )
+            self.assertEqual(ctrl._slots.get("workspacePath"), str(Path(td).resolve()))
+            self.assertIn(ctrl._slots.get("workspaceMode"), ("existing-folder", "existing-git"))
+
+    def test_arch_review_sets_workflow(self):
+        ctrl = self._make_controller()
+        ctrl.process_message("Architecture review of ./my-repo")
+        self.assertEqual(ctrl._slots.get("workflow"), "arch_review_only")
+
+    def test_model_override_via_use_sentence(self):
+        ctrl = self._make_controller()
+        ctrl.process_message("Use opus-4.6 for architecture review")
+        overrides = ctrl._slots.get("modelOverrides") or {}
+        self.assertIn("architectureModel", overrides)
+
+    def test_inline_set_command_updates_path(self):
+        ctrl = self._make_controller()
+        with tempfile.TemporaryDirectory() as td:
+            ctrl.update_slot("taskPrompt", "Add feature")
+            ctrl.update_slot("workspacePath", "/tmp/old")
+            ctrl.process_message(f"set workspace to {td}")
+            self.assertEqual(ctrl._slots.get("workspacePath"), str(Path(td).resolve()))
+
+    def test_build_run_request_returns_valid_object(self):
+        with tempfile.TemporaryDirectory() as td:
+            ctrl = self._make_controller()
+            ctrl.update_slot("taskPrompt", "Add a login page")
+            ctrl.update_slot("workspacePath", td)
+            ctrl.update_slot("workspaceMode", "existing-folder")
+            req = ctrl.build_run_request()
+            self.assertIsInstance(req, RunRequest)
+            self.assertEqual(req.taskPrompt, "Add a login page")
+            self.assertEqual(req.workspacePath, td)
+            self.assertIsNotNone(req.safety)
+            self.assertEqual(req.safety["writeScopeRoot"], td)
+
+    def test_summary_contains_key_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            ctrl = self._make_controller()
+            ctrl.update_slot("taskPrompt", "Build feature")
+            ctrl.update_slot("workspacePath", td)
+            ctrl.update_slot("workspaceMode", "existing-folder")
+            summary = ctrl.summary()
+            self.assertIn("Build feature", summary)
+            self.assertIn("existing-folder", summary)
+            self.assertIn("gpt-5-mini", summary)
+
+    def test_complete_flow_in_two_messages(self):
+        """Simulate typical ≤3 interaction run: provide task+path upfront."""
+        with tempfile.TemporaryDirectory() as td:
+            ctrl = self._make_controller()
+            # Message 1: everything in one shot
+            response, complete = ctrl.process_message(
+                f"Add a login page to the app in {td}"
+            )
+            self.assertTrue(complete, f"Expected complete, got response: {response}")
+            req = ctrl.build_run_request()
+            req.validate()
+
+    def test_run_tui_accepts_no_path(self):
+        """run_tui signature allows repo_path=None (archharness tui with no args)."""
+        from src.harness.tui import run_tui
+        import inspect
+        sig = inspect.signature(run_tui)
+        param = sig.parameters["repo_path"]
+        self.assertIsNone(param.default)
+
+    def test_cli_tui_command_path_is_optional(self):
+        """archharness tui with no --path should parse successfully."""
+        parser = build_parser()
+        args = parser.parse_args(["tui"])
+        self.assertEqual(args.command, "tui")
+        self.assertIsNone(args.path)
+        self.assertIsNone(args.repo)
 
 
 if __name__ == "__main__":
