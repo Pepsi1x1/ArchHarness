@@ -43,7 +43,8 @@ class HarnessTests(unittest.TestCase):
             self.assertIn("findings", review)
             run_log = json.loads((run_dir / "run-log.json").read_text())
             self.assertEqual(run_log["status"], "completed")
-            events = [json.loads(line) for line in (run_dir / "events.jsonl").read_text().splitlines() if line.strip()]
+            with (run_dir / "events.jsonl").open() as f:
+                events = [json.loads(line) for line in f if line.strip()]
             self.assertTrue(events)
             self.assertTrue(all("runId" in event and "source" in event and "message" in event for event in events))
 
@@ -52,6 +53,22 @@ class HarnessTests(unittest.TestCase):
         args = parser.parse_args(["tui", "--repo", "/tmp/demo"])
         self.assertEqual(args.command, "tui")
         self.assertEqual(args.repo, "/tmp/demo")
+
+    def test_orchestrator_marks_cancelled_status(self):
+        class CancelledControl:
+            def is_cancelled(self):
+                return True
+
+            def wait_if_paused(self):
+                return
+
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            (repo / "file.txt").write_text("sample")
+            orchestrator = Orchestrator(load_config())
+            run_dir = orchestrator.run("Stop early", str(repo), "frontend_feature", control=CancelledControl())
+            run_log = json.loads((run_dir / "run-log.json").read_text())
+            self.assertEqual(run_log["status"], "cancelled")
 
 
 if __name__ == "__main__":

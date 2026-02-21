@@ -10,6 +10,10 @@ from types import SimpleNamespace
 from src.config.loader import apply_cli_overrides, load_config
 from src.harness.orchestrator import Orchestrator
 
+AGENT_ROLES = ["frontend", "builder", "architecture"]
+MAX_DISPLAYED_LOGS = 50
+INPUT_POLL_TIMEOUT = 0.2
+
 
 class RunControl:
     def __init__(self):
@@ -50,7 +54,7 @@ def _read_events(run_dir):
 
 def _show_artifacts(run_dir):
     files = sorted(p.name for p in Path(run_dir).iterdir() if p.is_file())
-    print(f"\nArtefacts in {run_dir}:")
+    print(f"\nArtifacts in {run_dir}:")
     for name in files:
         print(f" - {name}")
 
@@ -68,7 +72,7 @@ def _show_logs(run_dir):
             continue
         matched.append(event)
     print(f"\nLogs ({len(matched)} event(s))")
-    for event in matched[-50:]:
+    for event in matched[-MAX_DISPLAYED_LOGS:]:
         role = event.get("agentRole") or "-"
         print(f"[{event['timestamp']}] {event['level']} {event['source']} {role} {event['message']}")
 
@@ -86,7 +90,7 @@ def _print_run_list(repo_path):
 
 def _print_agent_status(agent_state):
     print("\nAgents")
-    for role in ["frontend", "builder", "architecture"]:
+    for role in AGENT_ROLES:
         state = agent_state.get(role, {})
         print(
             f" - {role:<12} model={state.get('model', '-'):<10} status={state.get('status', 'Idle'):<9} "
@@ -107,7 +111,7 @@ def _monitor_run(orchestrator, task, repo_path, workflow):
             data = event.get("data") or {}
             agent_state.setdefault(role, {}).update(data)
             if "model" not in agent_state[role]:
-                for agent in ["frontend", "builder", "architecture"]:
+                for agent in AGENT_ROLES:
                     if agent == role:
                         agent_state[role]["model"] = getattr(orchestrator, agent).model
 
@@ -121,7 +125,7 @@ def _monitor_run(orchestrator, task, repo_path, workflow):
                 control=control,
             )
         except Exception as exc:  # pragma: no cover - surfaced to user
-            result["error"] = str(exc)
+            result["error"] = f"{type(exc).__name__}: {exc}"
 
     thread = threading.Thread(target=_runner, daemon=True)
     thread.start()
@@ -134,7 +138,7 @@ def _monitor_run(orchestrator, task, repo_path, workflow):
             saw_event = True
         if saw_event:
             _print_agent_status(agent_state)
-        if select.select([sys.stdin], [], [], 0.2)[0]:
+        if select.select([sys.stdin], [], [], INPUT_POLL_TIMEOUT)[0]:
             command = sys.stdin.readline().strip().lower()
             if command == "p":
                 control.toggle_pause()
@@ -150,7 +154,7 @@ def run_tui(repo_path, config_path=None):
     repo_path = str(Path(repo_path).resolve())
     while True:
         runs = _print_run_list(repo_path)
-        print("\nCommands: n(new run), a <n>(artefacts), l <n>(logs), q(quit)")
+        print("\nCommands: n(new run), a <n>(artifacts), l <n>(logs), q(quit)")
         try:
             raw = input("> ").strip()
         except EOFError:
