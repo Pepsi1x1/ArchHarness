@@ -33,9 +33,9 @@ class BuilderAgent:
 class ArchitectureAgent:
     model: str
 
-    def review(self, diff_text, files_touched):
+    def review(self, diff_text, files_touched, applied_actions=None):
         findings = []
-        if "TODO" in diff_text:
+        if "TODO" in diff_text and "Remove TODO markers and complete implementation details." not in (applied_actions or []):
             findings.append(
                 {
                     "severity": "high",

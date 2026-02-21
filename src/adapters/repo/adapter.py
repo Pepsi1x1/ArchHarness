@@ -1,4 +1,5 @@
 import fnmatch
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -27,13 +28,13 @@ class RepoAdapter:
     def run_command(self, command):
         if not command:
             return {"command": command, "skipped": True, "stdout": "", "stderr": ""}
-        first = command.split()[0]
+        cmd = shlex.split(command)
+        first = Path(cmd[0]).name if cmd else ""
         if self.allowlist and first not in self.allowlist:
             return {"command": command, "skipped": True, "stdout": "", "stderr": "Command not allowlisted"}
         proc = subprocess.run(
-            command,
+            cmd,
             cwd=self.repo_path,
-            shell=True,
             check=False,
             capture_output=True,
             text=True,
@@ -48,9 +49,8 @@ class RepoAdapter:
 
     def diff(self):
         proc = subprocess.run(
-            "git --no-pager diff -- .",
+            ["git", "--no-pager", "diff", "--", "."],
             cwd=self.repo_path,
-            shell=True,
             check=False,
             capture_output=True,
             text=True,
@@ -59,9 +59,8 @@ class RepoAdapter:
 
     def changed_files(self):
         proc = subprocess.run(
-            "git --no-pager diff --name-only -- .",
+            ["git", "--no-pager", "diff", "--name-only", "--", "."],
             cwd=self.repo_path,
-            shell=True,
             check=False,
             capture_output=True,
             text=True,

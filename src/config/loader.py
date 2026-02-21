@@ -50,13 +50,15 @@ def load_config(config_path=None):
 
 
 def apply_cli_overrides(config, args):
-    overrides = {
-        "agents": {
-            "frontend": {"model": args.frontend_model} if args.frontend_model else {},
-            "architecture": {"model": args.architecture_model} if args.architecture_model else {},
-            "builder": {"model": args.builder_model} if args.builder_model else {},
-        }
-    }
+    overrides = {"agents": {"frontend": {}, "architecture": {}, "builder": {}}}
+    for role, arg_name in [
+        ("frontend", "frontend_model"),
+        ("architecture", "architecture_model"),
+        ("builder", "builder_model"),
+    ]:
+        value = getattr(args, arg_name, None)
+        if value:
+            overrides["agents"][role]["model"] = value
     if args.max_iterations is not None:
         overrides["orchestration"] = {"maxIterations": args.max_iterations}
     if args.output_mode:

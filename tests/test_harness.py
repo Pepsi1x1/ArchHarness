@@ -1,18 +1,11 @@
 import json
 import tempfile
 import unittest
+from argparse import Namespace
 from pathlib import Path
 
 from src.config.loader import apply_cli_overrides, load_config
 from src.harness.orchestrator import Orchestrator
-
-
-class Args:
-    frontend_model = None
-    architecture_model = None
-    builder_model = None
-    max_iterations = None
-    output_mode = None
 
 
 class HarnessTests(unittest.TestCase):
@@ -25,8 +18,13 @@ class HarnessTests(unittest.TestCase):
             self.assertEqual(loaded["agents"]["architecture"]["model"], "opus-4.6")
             self.assertEqual(loaded["agents"]["builder"]["model"], "codex-5.3")
 
-            args = Args()
-            args.builder_model = "cli-builder"
+            args = Namespace(
+                frontend_model=None,
+                architecture_model=None,
+                builder_model="cli-builder",
+                max_iterations=None,
+                output_mode=None,
+            )
             merged = apply_cli_overrides(loaded, args)
             self.assertEqual(merged["agents"]["builder"]["model"], "cli-builder")
 

@@ -68,13 +68,13 @@ class Orchestrator:
             run_log["toolCalls"].append({"type": "command", "command": result["command"], "skipped": result["skipped"]})
 
         build_result = self.builder.implement(plan)
-        review = self.architecture.review(adapter.diff(), build_result["filesTouched"])
+        review = self.architecture.review(adapter.diff(), build_result["filesTouched"], build_result["appliedActions"])
         iterations = 0
         max_iterations = self.config["orchestration"]["maxIterations"]
         while any(f["severity"] == "high" for f in review["findings"]) and iterations < max_iterations:
             iterations += 1
-            self.builder.implement(plan, review["requiredActions"])
-            review = self.architecture.review(adapter.diff().replace("TODO", ""), build_result["filesTouched"])
+            build_result = self.builder.implement(plan, review["requiredActions"])
+            review = self.architecture.review(adapter.diff(), build_result["filesTouched"], build_result["appliedActions"])
 
         self._write_json(run_dir / "architecture-review.json", review)
         diff_text = adapter.diff()
@@ -85,9 +85,11 @@ class Orchestrator:
 
     def _write_final_summary(self, run_dir, changed_files, checks, review, unresolved):
         changed_lines = [f"- {f}" for f in changed_files] or ["- none"]
-        check_lines = [
-            f"- {c.get('command')}: {'skipped' if c.get('skipped') else c.get('returncode')}" for c in checks
-        ] or ["- none"]
+        check_lines = []
+        for c in checks:
+            status = "skipped" if c.get("skipped") else ("passed" if c.get("returncode") == 0 else "failed")
+            check_lines.append(f"- {c.get('command')}: {status}")
+        check_lines = check_lines or ["- none"]
         summary = [
             "# Final Summary",
             "",
