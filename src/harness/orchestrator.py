@@ -26,7 +26,7 @@ class Orchestrator:
 
     def _redact(self, value):
         if isinstance(value, str):
-            return re.sub(r"(ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})", "***REDACTED***", value)
+            return re.sub(r"(ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|A(?:KIA|SIA)[0-9A-Z]{16})", "***REDACTED***", value)
         if isinstance(value, list):
             return [self._redact(v) for v in value]
         if isinstance(value, dict):

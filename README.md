@@ -14,7 +14,7 @@ Lightweight CLI harness for deterministic multi-agent orchestration against a ch
 ./archharness tui --repo /absolute/path/to/repo
 ```
 
-The TUI provides a run list, interactive run monitor with pause/cancel controls, searchable logs, and per-run artefact browsing.
+The TUI provides a run list, interactive run monitor with pause/cancel controls, searchable logs, and per-run artifact browsing.
 
 ## Config
 
