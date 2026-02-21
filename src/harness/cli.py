@@ -7,6 +7,10 @@ from src.harness.orchestrator import Orchestrator
 from src.harness.tui import run_tui
 
 
+def _parse_init_git(value):
+    return None if value is None else value == "true"
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="archharness")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -46,7 +50,7 @@ def main(argv=None):
         parser.error("--path is required when --mode existing-folder.")
     if args.mode == "existing-git" and not (Path(workspace_path) / ".git").exists():
         parser.error("existing-git mode requires --path/--repo to point to a folder containing .git.")
-    init_git = None if args.init_git is None else args.init_git == "true"
+    init_git = _parse_init_git(args.init_git)
     config = apply_cli_overrides(load_config(args.config), args)
     orchestrator = Orchestrator(config)
     run_dir = orchestrator.run(

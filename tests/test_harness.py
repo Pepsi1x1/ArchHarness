@@ -5,7 +5,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from src.config.loader import apply_cli_overrides, load_config
-from src.harness.cli import build_parser
+from src.harness.cli import _parse_init_git, build_parser
 from src.harness.orchestrator import Orchestrator
 
 
@@ -75,6 +75,9 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(args.project_name, "demo")
         self.assertEqual(args.path, "/tmp/root")
         self.assertEqual(args.init_git, "false")
+        self.assertFalse(_parse_init_git(args.init_git))
+        self.assertTrue(_parse_init_git("true"))
+        self.assertIsNone(_parse_init_git(None))
 
     def test_orchestrator_marks_cancelled_status(self):
         class CancelledControl:
@@ -108,6 +111,20 @@ class HarnessTests(unittest.TestCase):
             self.assertTrue((workspace / ".git").exists())
             run_log = json.loads((run_dir / "run-log.json").read_text())
             self.assertEqual(run_log["workspaceMode"], "new-project")
+
+    def test_new_project_mode_can_skip_git_initialization(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            orchestrator = Orchestrator(load_config())
+            orchestrator.run(
+                "Bootstrap",
+                str(root),
+                "frontend_feature",
+                workspace_mode="new-project",
+                project_name="demo-app",
+                init_git=False,
+            )
+            self.assertFalse((root / "demo-app" / ".git").exists())
 
     def test_existing_git_mode_requires_git_directory(self):
         with tempfile.TemporaryDirectory() as td:

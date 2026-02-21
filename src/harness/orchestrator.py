@@ -95,7 +95,7 @@ class Orchestrator:
             root.mkdir(parents=True, exist_ok=True)
             target = root / project_name
             if target.exists() and any(target.iterdir()):
-                raise ValueError("Refusing to create new project in a non-empty directory.")
+                raise ValueError(f"Refusing to create new project: directory {target} is not empty.")
             adapter = FileSystemWorkspaceAdapter(
                 root,
                 include_globs=self.config["repo"]["includeGlobs"],
@@ -155,8 +155,6 @@ class Orchestrator:
             "status": "running",
         }
         self._emit_event(run_dir, "orchestrator", "run.started", "info", "Run started", {"workflow": workflow}, event_sink=event_sink)
-        prompt_hash = hashlib.sha256(task.encode("utf-8")).hexdigest()
-        run_log["promptHash"] = prompt_hash
         context_files = adapter.list_files()
         run_log["toolCalls"].append({"type": "context_gather", "filesCount": len(context_files)})
         self._emit_event(run_dir, "repo", "tool.call", "info", "Context gathered", {"filesCount": len(context_files)}, event_sink=event_sink)
