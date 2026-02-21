@@ -4,10 +4,11 @@ from pathlib import Path
 
 from src.config.loader import apply_cli_overrides, load_config
 from src.harness.orchestrator import Orchestrator
+from src.harness.tui import run_tui
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog="harness")
+    parser = argparse.ArgumentParser(prog="archharness")
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run")
     run.add_argument("--task", required=True)
@@ -19,12 +20,18 @@ def build_parser():
     run.add_argument("--builder-model")
     run.add_argument("--max-iterations", type=int)
     run.add_argument("--output-mode", choices=["patch", "branch"])
+    tui = sub.add_parser("tui")
+    tui.add_argument("--repo", required=True)
+    tui.add_argument("--config")
     return parser
 
 
 def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command == "tui":
+        run_tui(args.repo, args.config)
+        return
     config = apply_cli_overrides(load_config(args.config), args)
     orchestrator = Orchestrator(config)
     run_dir = orchestrator.run(args.task, args.repo, args.workflow)

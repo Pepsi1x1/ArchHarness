@@ -8,6 +8,14 @@ Lightweight CLI harness for deterministic multi-agent orchestration against a ch
 ./harness run --task "Add a new frontend filter" --repo /absolute/path/to/repo --workflow frontend_feature
 ```
 
+## TUI
+
+```bash
+./archharness tui --repo /absolute/path/to/repo
+```
+
+The TUI provides a run list, interactive run monitor with pause/cancel controls, searchable logs, and per-run artefact browsing.
+
 ## Config
 
 Provide JSON or YAML config. Default models:
