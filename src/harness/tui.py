@@ -1,11 +1,14 @@
 import json
 import queue
+import re
 import select
 import sys
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Dict, List, Optional
 
 from src.config.loader import apply_cli_overrides, load_config
 from src.harness.orchestrator import Orchestrator
@@ -13,6 +16,271 @@ from src.harness.orchestrator import Orchestrator
 AGENT_ROLES = ["frontend", "builder", "architecture"]
 MAX_DISPLAYED_LOGS = 50
 INPUT_POLL_TIMEOUT = 0.2
+
+# ---------------------------------------------------------------------------
+# RunRequest – typed configuration contract produced by ConversationController
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RunRequest:
+    """Fully resolved run configuration produced by the ConversationController."""
+
+    workspaceMode: str  # new-project | existing-folder | existing-git
+    workspacePath: str
+    workflow: str
+    taskPrompt: str
+    projectName: Optional[str] = None
+    modelOverrides: Optional[Dict[str, str]] = None
+    commands: Optional[Dict[str, Optional[str]]] = None
+    safety: Optional[Dict] = None
+
+    def validate(self):
+        """Raise ValueError if required fields are missing or inconsistent."""
+        if not self.workspaceMode:
+            raise ValueError("workspaceMode is required.")
+        if not self.workspacePath:
+            raise ValueError("workspacePath is required.")
+        if not self.taskPrompt:
+            raise ValueError("taskPrompt is required.")
+        if self.workspaceMode == "new-project" and not self.projectName:
+            raise ValueError("projectName is required for new-project mode.")
+
+
+# ---------------------------------------------------------------------------
+# ConversationController – chat-driven slot-filling and config builder
+# ---------------------------------------------------------------------------
+
+_NEW_PROJECT_RE = re.compile(r"\bnew\s+(?:\w+\s+)?(?:project|app|application)\b", re.I)
+_PROJECT_NAME_RE = re.compile(r"\b(?:called|named)\s+([A-Za-z][A-Za-z0-9_\-]+)", re.I)
+_ARCH_REVIEW_RE = re.compile(r"\barch(?:itecture)?\s+review\b|\breview\s+only\b", re.I)
+_PATH_RE = re.compile(r"(?<!\S)((?:\.{1,2})[\\/][^\s,;]*|/[^\s,;]+|~[\\/][^\s,;]*)")
+_SET_CMD_RE = re.compile(
+    r"\b(?:set|change)\s+(?:the\s+)?(?P<field>[\w]+(?:\s+[\w]+)?)\s+(?:model\s+)?to\s+(?P<value>\S+)",
+    re.I,
+)
+_USE_MODEL_RE = re.compile(
+    r"\buse\s+(?P<model>\S+)\s+(?:for\s+|as\s+)?(?P<role>frontend|builder|architect(?:ure)?|tui)(?:\s+(?:model|review|agent))?",
+    re.I,
+)
+_ROLE_TO_KEY: Dict[str, str] = {
+    "frontend": "frontendModel",
+    "builder": "builderModel",
+    "architecture": "architectureModel",
+    "architect": "architectureModel",
+    "tui": "tuiAssistantModel",
+}
+_INLINE_EDIT_RE = re.compile(
+    r"\b(?:set|change|update)\s+(?:the\s+)?(?:workspace|path|folder|project\s+name|workflow|model)\b",
+    re.I,
+)
+
+
+class ConversationController:
+    """Chat-driven configuration builder for ArchHarness runs.
+
+    Uses pattern matching and heuristics to extract slot values from free-form
+    natural-language messages.  The ``tui.assistant.model`` config key names
+    the model that would drive this layer in a connected deployment; this
+    implementation uses deterministic parsing so that no external API is
+    required at configuration time.
+
+    Responsibilities
+    ----------------
+    * Maintain conversation state (slot filling).
+    * Convert chat messages into a typed ``RunRequest``.
+    * Validate against rules (e.g. new-project requires a project name).
+    * Persist the "draft configuration" as the user edits.
+    * Provide an "explain what you will do" summary before execution.
+    """
+
+    _REQUIRED_SLOTS = ("taskPrompt", "workspacePath")
+
+    def __init__(self, config: dict):
+        self.config = config
+        self._slots: Dict = {}
+        self._history: List = []  # list of (role, text) tuples
+
+    # ------------------------------------------------------------------
+    # Slot-extraction helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_workspace_mode(path_str: str) -> str:
+        """Auto-detect workspaceMode from a resolved path."""
+        p = Path(path_str).resolve()
+        if (p / ".git").exists():
+            return "existing-git"
+        return "existing-folder"
+
+    @staticmethod
+    def _extract_path(text: str) -> Optional[str]:
+        """Return the first path-like token from *text*, or None."""
+        m = _PATH_RE.search(text)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _extract_project_name(text: str) -> Optional[str]:
+        m = _PROJECT_NAME_RE.search(text)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _extract_workflow(text: str) -> str:
+        if _ARCH_REVIEW_RE.search(text):
+            return "arch_review_only"
+        return "frontend_feature"
+
+    def _apply_model_override(self, role_kw: str, model_value: str) -> None:
+        key = _ROLE_TO_KEY.get(role_kw.lower())
+        if key:
+            self._slots.setdefault("modelOverrides", {})[key] = model_value
+
+    def _parse_message(self, text: str) -> None:
+        """Parse *text* and update ``_slots`` in-place."""
+        low = text.lower()
+
+        # ---- inline "set/change X to Y" commands -------------------------
+        m = _SET_CMD_RE.search(text)
+        if m:
+            field_text = m.group("field").strip().lower()
+            value = m.group("value").strip()
+            if any(kw in field_text for kw in ("workspace", "path", "folder")):
+                resolved = str(Path(value).resolve())
+                self._slots["workspacePath"] = resolved
+                if "workspaceMode" not in self._slots:
+                    self._slots["workspaceMode"] = self._detect_workspace_mode(resolved)
+                return
+            if "project" in field_text and "name" in field_text:
+                self._slots["projectName"] = value
+                return
+            if "workflow" in field_text:
+                self._slots["workflow"] = value
+                return
+            for role_kw in _ROLE_TO_KEY:
+                if role_kw in field_text:
+                    self._apply_model_override(role_kw, value)
+                    return
+
+        # ---- "use <model> for/as <role>" model overrides ------------------
+        for mo in _USE_MODEL_RE.finditer(text):
+            self._apply_model_override(mo.group("role").lower(), mo.group("model"))
+
+        # ---- workflow -----------------------------------------------------
+        if "workflow" not in self._slots:
+            self._slots["workflow"] = self._extract_workflow(text)
+
+        # ---- new-project intent ------------------------------------------
+        if _NEW_PROJECT_RE.search(text):
+            self._slots["workspaceMode"] = "new-project"
+            name = self._extract_project_name(text)
+            if name:
+                self._slots["projectName"] = name
+
+        # ---- path detection ----------------------------------------------
+        raw_path = self._extract_path(text)
+        if raw_path and not self._slots.get("workspacePath"):
+            resolved = str(Path(raw_path).resolve())
+            self._slots["workspacePath"] = resolved
+            if "workspaceMode" not in self._slots:
+                self._slots["workspaceMode"] = self._detect_workspace_mode(resolved)
+
+        # ---- task prompt -------------------------------------------------
+        if "taskPrompt" not in self._slots:
+            # Strip path tokens for a cleaner task description.
+            task = _PATH_RE.sub("", text).strip()
+            if task:
+                self._slots["taskPrompt"] = task
+        elif not _INLINE_EDIT_RE.search(text) and not _USE_MODEL_RE.search(text):
+            # Pure free-form message after task is set → treat as task update.
+            self._slots["taskPrompt"] = text.strip()
+
+    def _missing_slots(self) -> List[str]:
+        missing = []
+        if not self._slots.get("taskPrompt"):
+            missing.append("taskPrompt")
+        if not self._slots.get("workspacePath"):
+            missing.append("workspacePath")
+        if self._slots.get("workspaceMode") == "new-project" and not self._slots.get("projectName"):
+            missing.append("projectName")
+        return missing
+
+    def _clarify(self, missing: List[str]) -> str:
+        questions = {
+            "taskPrompt": "What would you like the agents to do? Please describe the task.",
+            "workspacePath": (
+                "Which folder should I use? Please provide a path "
+                "(e.g. ./my-project or /absolute/path)."
+            ),
+            "projectName": "What should the new project be called?",
+        }
+        return questions.get(missing[0], f"Please provide: {missing[0]}")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def process_message(self, text: str):
+        """Consume *text*, update state, and return ``(response, is_complete)``."""
+        self._history.append(("user", text))
+        self._parse_message(text)
+        missing = self._missing_slots()
+        if missing:
+            response = self._clarify(missing)
+            self._history.append(("assistant", response))
+            return response, False
+        response = self.summary()
+        self._history.append(("assistant", response))
+        return response, True
+
+    def update_slot(self, key: str, value) -> None:
+        """Directly update a draft slot (for programmatic inline edits)."""
+        self._slots[key] = value
+        if key == "workspacePath" and "workspaceMode" not in self._slots:
+            self._slots["workspaceMode"] = self._detect_workspace_mode(value)
+
+    def summary(self) -> str:
+        """Return a human-readable run summary (the confirmation step)."""
+        mode = self._slots.get("workspaceMode", "existing-folder")
+        init_git = (self._slots.get("safety") or {}).get("initGit", mode == "new-project")
+        lines = [
+            "┌─ Run Summary ─────────────────────────────────────────",
+            f"│  Task:           {self._slots.get('taskPrompt', '—')}",
+            f"│  Workspace mode: {mode}",
+            f"│  Path:           {self._slots.get('workspacePath', '—')}",
+        ]
+        if self._slots.get("projectName"):
+            lines.append(f"│  Project name:   {self._slots['projectName']}")
+        lines.append(f"│  Workflow:       {self._slots.get('workflow', 'frontend_feature')}")
+        overrides = self._slots.get("modelOverrides") or {}
+        for k, v in overrides.items():
+            lines.append(f"│  {k:<18} {v}")
+        assistant_model = self.config.get("tui", {}).get("assistant", {}).get("model", "gpt-5-mini")
+        lines.append(f"│  TUI assistant:  {assistant_model}")
+        lines.append(f"│  Write scope:    {self._slots.get('workspacePath', '—')}")
+        lines.append(f"│  Init git:       {init_git}")
+        lines.append("└───────────────────────────────────────────────────────")
+        lines.append("\nType 'run' to start, or describe what to change.")
+        return "\n".join(lines)
+
+    def build_run_request(self) -> RunRequest:
+        """Build and return a validated :class:`RunRequest` from current draft state."""
+        mode = self._slots.get("workspaceMode", "existing-folder")
+        path = self._slots.get("workspacePath", ".")
+        safety = self._slots.get("safety") or {
+            "writeScopeRoot": path,
+            "initGit": mode == "new-project",
+        }
+        req = RunRequest(
+            workspaceMode=mode,
+            workspacePath=path,
+            workflow=self._slots.get("workflow", "frontend_feature"),
+            taskPrompt=self._slots.get("taskPrompt", ""),
+            projectName=self._slots.get("projectName"),
+            modelOverrides=self._slots.get("modelOverrides"),
+            commands=self._slots.get("commands"),
+            safety=safety,
+        )
+        req.validate()
+        return req
 
 
 class RunControl:
@@ -154,11 +422,84 @@ def _monitor_run(orchestrator, task, workspace_path, workflow, workspace_mode="e
     return result["run_dir"]
 
 
-def run_tui(repo_path, config_path=None):
-    repo_path = str(Path(repo_path).resolve())
+def _chat_new_run(config):
+    """Interactive chat-driven run configuration.
+
+    Guides the user through a conversation to build a :class:`RunRequest` that
+    the orchestrator can execute.  Returns the completed ``RunRequest``, or
+    ``None`` if the user cancels.
+    """
+    assistant_cfg = config.get("tui", {}).get("assistant", {})
+    model_name = assistant_cfg.get("model", "gpt-5-mini")
+    controller = ConversationController(config)
+
+    print(f"\nArchHarness Chat  [TUI assistant: {model_name}]")
+    print("Describe what you want to do.  Examples:")
+    print("  • Create a new React app called ClaimsPortal and add a login page.")
+    print("  • Use my existing folder ./MyApp and implement the feature.")
+    print("  • Use Opus for architecture review of ./my-repo")
+    print("Quick actions: [N]ew project  [E]xisting folder  [R]eview diff  [C]ancel\n")
+
     while True:
-        runs = _print_run_list(repo_path)
-        print("\nCommands: n(new run), a <n>(artifacts), l <n>(logs), q(quit)")
+        try:
+            raw = input("You: ").strip()
+        except EOFError:
+            return None
+
+        if not raw:
+            continue
+
+        low = raw.lower()
+        if low in ("cancel", "c", "q", "quit"):
+            return None
+
+        # Quick-action shortcuts
+        if low in ("n", "new project"):
+            raw = "Create a new project"
+        elif low in ("e", "existing folder"):
+            raw = "Use an existing folder"
+        elif low in ("r", "review diff"):
+            raw = "Architecture review only"
+
+        response, complete = controller.process_message(raw)
+        print(f"\nAssistant:\n{response}\n")
+
+        if complete:
+            try:
+                confirm = input("[R]un / [E]dit / [C]ancel: ").strip().lower()
+            except EOFError:
+                return None
+            if confirm in ("r", "run", ""):
+                try:
+                    return controller.build_run_request()
+                except ValueError as exc:
+                    print(f"Configuration error: {exc}\n")
+                    continue
+            elif confirm in ("e", "edit"):
+                print("Describe what to change (e.g. 'set workspace to ./other'):\n")
+                continue
+            else:
+                return None
+
+
+def run_tui(repo_path=None, config_path=None):
+    """Launch the TUI.
+
+    When *repo_path* is provided the run list for that workspace is displayed
+    alongside the usual commands.  When omitted (``archharness tui`` with no
+    ``--path``), the chat-driven interface is offered immediately so the user
+    can configure and start a run without supplying any CLI parameters.
+    """
+    if repo_path:
+        repo_path = str(Path(repo_path).resolve())
+    while True:
+        if repo_path:
+            runs = _print_run_list(repo_path)
+            print("\nCommands: n(new chat run), a <n>(artifacts), l <n>(logs), q(quit)")
+        else:
+            runs = []
+            print("\nNo workspace specified.")
+            print("Commands: n(new chat run), q(quit)")
         try:
             raw = input("> ").strip()
         except EOFError:
@@ -166,46 +507,32 @@ def run_tui(repo_path, config_path=None):
         if raw == "q":
             return
         if raw == "n":
-            try:
-                task = input("Task prompt: ").strip()
-                workflow = input("Workflow [frontend_feature|arch_review_only]: ").strip() or "frontend_feature"
-                workspace_mode = input("Workspace mode [new-project|existing-folder|existing-git]: ").strip() or "existing-git"
-                workspace_path = input(f"Workspace path [{repo_path}]: ").strip() or repo_path
-                git_exists = (Path(workspace_path).resolve() / ".git").exists()
-                print(f"Selected folder contains .git: {'yes' if git_exists else 'no'}")
-                project_name = None
-                if workspace_mode == "new-project":
-                    project_name = input("Project name: ").strip()
-                init_git_prompt = "Initialise Git [Y/n]: " if workspace_mode == "new-project" else "Initialise Git [y/N]: "
-                init_git_raw = input(init_git_prompt).strip().lower()
-                if workspace_mode == "new-project":
-                    init_git = init_git_raw not in {"n", "no", "false", "0"}
-                else:
-                    init_git = init_git_raw in {"y", "yes", "true", "1"}
-                frontend_model = input("Frontend model override (optional): ").strip() or None
-                architecture_model = input("Architecture model override (optional): ").strip() or None
-                builder_model = input("Builder model override (optional): ").strip() or None
-            except EOFError:
-                return
+            config = load_config(config_path)
+            run_request = _chat_new_run(config)
+            if run_request is None:
+                continue
             overrides = SimpleNamespace(
-                frontend_model=frontend_model,
-                architecture_model=architecture_model,
-                builder_model=builder_model,
+                frontend_model=(run_request.modelOverrides or {}).get("frontendModel"),
+                architecture_model=(run_request.modelOverrides or {}).get("architectureModel"),
+                builder_model=(run_request.modelOverrides or {}).get("builderModel"),
                 max_iterations=None,
                 output_mode=None,
             )
-            config = apply_cli_overrides(load_config(config_path), overrides)
+            config = apply_cli_overrides(config, overrides)
             orchestrator = Orchestrator(config)
+            init_git = (run_request.safety or {}).get("initGit")
             run_dir = _monitor_run(
                 orchestrator,
-                task,
-                workspace_path,
-                workflow,
-                workspace_mode=workspace_mode,
-                project_name=project_name,
+                run_request.taskPrompt,
+                run_request.workspacePath,
+                run_request.workflow,
+                workspace_mode=run_request.workspaceMode,
+                project_name=run_request.projectName,
                 init_git=init_git,
             )
             print(f"\nRun completed: {run_dir}")
+            if not repo_path:
+                repo_path = run_request.workspacePath
             continue
 
         if raw.startswith(("a ", "l ")):

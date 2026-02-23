@@ -39,7 +39,7 @@ def main(argv=None):
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "tui":
-        run_tui(args.path or args.repo or ".", args.config)
+        run_tui(args.path or args.repo, args.config)
         return
     workspace_path = args.path or args.repo
     if not workspace_path:
