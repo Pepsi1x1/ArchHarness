@@ -14,6 +14,14 @@ DEFAULT_CONFIG = {
     "commands": {"format": None, "lint": None, "test": None, "allowlist": []},
     "output": {"mode": "patch"},
     "logging": {"level": "info"},
+    "tui": {
+        "assistant": {
+            "enabled": True,
+            "model": "gpt-5-mini",
+            "temperature": 0.2,
+            "redaction": {"enabled": True},
+        }
+    },
 }
 
 
