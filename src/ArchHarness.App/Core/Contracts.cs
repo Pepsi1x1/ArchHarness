@@ -6,10 +6,11 @@ public sealed record RunRequest(
     string WorkspaceMode,
     string Workflow,
     string? ProjectName,
-    IDictionary<string, string>? ModelOverrides
+    IDictionary<string, string>? ModelOverrides,
+    string? BuildCommand
 );
 
-public sealed record ExecutionPlanStep(int Id, string Agent, string Objective);
+public sealed record ExecutionPlanStep(int Id, string Agent, string Objective, IReadOnlyList<int>? DependsOnStepIds = null);
 
 public sealed record IterationStrategy(int MaxIterations, bool ReviewRequired);
 
@@ -24,3 +25,7 @@ public sealed record ArchitectureFinding(string Severity, string Rule, string? F
 public sealed record ArchitectureReview(IReadOnlyList<ArchitectureFinding> Findings, IReadOnlyList<string> RequiredActions);
 
 public sealed record RunArtefacts(string RunId, string RunDirectory);
+
+public sealed record CopilotModelUsage(string Model, int Calls, int PromptCharacters, int CompletionCharacters);
+
+public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string Source, string Message, string? Prompt = null);

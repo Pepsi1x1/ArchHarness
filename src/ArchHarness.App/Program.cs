@@ -9,8 +9,17 @@ using Microsoft.Extensions.Hosting;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("agents"));
+builder.Services.Configure<CopilotOptions>(builder.Configuration.GetSection("copilot"));
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IDiscoveredModelCatalog, DiscoveredModelCatalog>();
+builder.Services.AddSingleton<ICopilotGovernancePolicy, CopilotGovernancePolicy>();
+builder.Services.AddSingleton<IUserInputState, UserInputState>();
+builder.Services.AddSingleton<ICopilotUserInputBridge, ConsoleCopilotUserInputBridge>();
+builder.Services.AddSingleton<IModelResolver, ModelResolver>();
+builder.Services.AddSingleton<IStartupPreflightValidator, CopilotStartupPreflightValidator>();
 builder.Services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
 builder.Services.AddSingleton<ICopilotClient, CopilotClient>();
+builder.Services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStream>();
 builder.Services.AddSingleton<OrchestrationAgent>();
 builder.Services.AddSingleton<FrontendAgent>();
 builder.Services.AddSingleton<BuilderAgent>();
@@ -18,6 +27,7 @@ builder.Services.AddSingleton<ArchitectureAgent>();
 builder.Services.AddSingleton<IRunStore, RunStore>();
 builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();
 builder.Services.AddSingleton<OrchestratorRuntime>();
+builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();
 
 using var host = builder.Build();

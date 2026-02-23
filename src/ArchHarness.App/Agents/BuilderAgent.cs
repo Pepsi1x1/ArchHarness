@@ -1,25 +1,64 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using ArchHarness.App.Workspace;
-using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
 public sealed class BuilderAgent : AgentBase
 {
-    public BuilderAgent(ICopilotClient copilotClient, IOptions<AgentsOptions> options)
-        : base(copilotClient, options.Value.Builder.Model) { }
+    private const string BuilderInstructions = """
+        You are the Builder/Implementation Agent.
+        Execute the delegated prompt using agent-mode built-in tools.
+        Create and edit workspace files directly where required.
+        Add or update tests when applicable.
+        Return a concise completion summary and list key changed files.
+        """;
 
-    public async Task<IReadOnlyList<string>> ImplementAsync(IWorkspaceAdapter workspace, string objective, IReadOnlyList<string>? requiredActions = null, CancellationToken cancellationToken = default)
+    public BuilderAgent(ICopilotClient copilotClient, IModelResolver modelResolver)
+        : base(copilotClient, modelResolver, "builder") { }
+
+    public async Task<IReadOnlyList<string>> ImplementAsync(
+        IWorkspaceAdapter workspace,
+        string objective,
+        IDictionary<string, string>? modelOverrides,
+        IReadOnlyList<string>? requiredActions = null,
+        CancellationToken cancellationToken = default)
     {
-        _ = await CopilotClient.CompleteAsync(Model, $"Implement objective: {objective}", cancellationToken);
+        var touched = new List<string>();
+        var model = ResolveModel(modelOverrides);
+
         if (requiredActions is { Count: > 0 })
         {
             await workspace.WriteTextAsync("ARCHITECTURE_ACTIONS.md", string.Join(Environment.NewLine, requiredActions), cancellationToken);
-            return new[] { "ARCHITECTURE_ACTIONS.md" };
+            touched.Add("ARCHITECTURE_ACTIONS.md");
         }
 
-        await workspace.WriteTextAsync("IMPLEMENTATION_NOTE.md", $"Implemented: {objective}", cancellationToken);
-        return new[] { "IMPLEMENTATION_NOTE.md" };
+        var generationPrompt = BuildGenerationPrompt(workspace, objective, requiredActions);
+        _ = await CopilotClient.CompleteAsync(model, generationPrompt, cancellationToken);
+
+        return touched.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static string BuildGenerationPrompt(IWorkspaceAdapter workspace, string objective, IReadOnlyList<string>? requiredActions)
+    {
+        var actions = requiredActions is { Count: > 0 }
+            ? string.Join(" | ", requiredActions)
+            : "none";
+
+                return string.Join(Environment.NewLine,
+                new[]
+                {
+                        BuilderInstructions,
+                        string.Empty,
+                    $"WorkspaceRoot: {workspace.RootPath}",
+                    "Write boundaries: Do not modify files outside WorkspaceRoot.",
+                    "Execution mode: use built-in file and terminal tools as needed.",
+                    string.Empty,
+                        "DelegatedPrompt:",
+                        objective,
+                        string.Empty,
+                        "RequiredActions:",
+                        actions
+                });
     }
 }

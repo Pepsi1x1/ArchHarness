@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
 
@@ -22,5 +23,9 @@ public sealed class RunStore : IRunStore
     }
 
     public Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken)
-        => File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), JsonSerializer.Serialize(payload, IndentedJsonOptions), cancellationToken);
+    {
+        var serialized = JsonSerializer.Serialize(payload, IndentedJsonOptions);
+        var redacted = Redaction.RedactSecrets(serialized);
+        return File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), redacted, cancellationToken);
+    }
 }

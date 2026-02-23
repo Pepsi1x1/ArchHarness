@@ -7,8 +7,8 @@ public sealed class AgentModelOptions
 
 public sealed class AgentsOptions
 {
-    public AgentModelOptions Orchestration { get; set; } = new() { Model = "sonnet-4.6" };
-    public AgentModelOptions Frontend { get; set; } = new() { Model = "sonnet-4.6" };
-    public AgentModelOptions Builder { get; set; } = new() { Model = "codex-5.3" };
-    public AgentModelOptions Architecture { get; set; } = new() { Model = "opus-4.6" };
+    public AgentModelOptions Orchestration { get; set; } = new() { Model = "claude-sonnet-4.6" };
+    public AgentModelOptions Frontend { get; set; } = new() { Model = "claude-sonnet-4.6" };
+    public AgentModelOptions Builder { get; set; } = new() { Model = "gpt-5.3-codex" };
+    public AgentModelOptions Architecture { get; set; } = new() { Model = "claude-opus-4.6" };
 }
