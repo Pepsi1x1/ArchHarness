@@ -13,7 +13,7 @@ public sealed class RunStore
 
     public string CreateRunDirectory()
     {
-        var runId = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssZ");
+        var runId = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff");
         var runDir = Path.Combine(_root, runId);
         Directory.CreateDirectory(runDir);
         return runDir;

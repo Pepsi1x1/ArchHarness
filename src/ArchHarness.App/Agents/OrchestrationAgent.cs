@@ -7,6 +7,7 @@ public sealed class OrchestrationAgent
 {
     private readonly CopilotClient _copilotClient;
     private readonly string _model;
+    public string Model => _model;
 
     public OrchestrationAgent(CopilotClient copilotClient, string model)
     {

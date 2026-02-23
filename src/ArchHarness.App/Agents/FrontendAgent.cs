@@ -6,6 +6,7 @@ public sealed class FrontendAgent
 {
     private readonly CopilotClient _copilotClient;
     private readonly string _model;
+    public string Model => _model;
 
     public FrontendAgent(CopilotClient copilotClient, string model)
     {
