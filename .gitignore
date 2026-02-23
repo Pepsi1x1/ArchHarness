@@ -1,3 +1,5 @@
 .agent-harness/
 __pycache__/
 .pytest_cache/
+bin/
+obj/
