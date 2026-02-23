@@ -7,6 +7,7 @@ public sealed class BuilderAgent
 {
     private readonly CopilotClient _copilotClient;
     private readonly string _model;
+    public string Model => _model;
 
     public BuilderAgent(CopilotClient copilotClient, string model)
     {

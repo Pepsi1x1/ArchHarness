@@ -86,10 +86,10 @@ public sealed class OrchestratorRuntime
             request.Workflow,
             agents = new[]
             {
-                new { role = "orchestration", model = "sonnet-4.6" },
-                new { role = "frontend", model = "sonnet-4.6" },
-                new { role = "builder", model = "codex-5.3" },
-                new { role = "architecture", model = "opus-4.6" }
+                new { role = "orchestration", model = _orchestrationAgent.Model },
+                new { role = "frontend", model = _frontendAgent.Model },
+                new { role = "builder", model = _builderAgent.Model },
+                new { role = "architecture", model = _architectureAgent.Model }
             }
         }, cancellationToken);
 
