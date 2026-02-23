@@ -1,23 +1,22 @@
 using ArchHarness.App.Agents;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using ArchHarness.App.Storage;
 using ArchHarness.App.Tui;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-var orchestrationModel = builder.Configuration["agents:orchestration:model"] ?? "sonnet-4.6";
-var frontendModel = builder.Configuration["agents:frontend:model"] ?? "sonnet-4.6";
-var builderModel = builder.Configuration["agents:builder:model"] ?? "codex-5.3";
-var architectureModel = builder.Configuration["agents:architecture:model"] ?? "opus-4.6";
-
-builder.Services.AddSingleton<CopilotSessionFactory>();
-builder.Services.AddSingleton<CopilotClient>();
-builder.Services.AddSingleton(sp => new OrchestrationAgent(sp.GetRequiredService<CopilotClient>(), orchestrationModel));
-builder.Services.AddSingleton(sp => new FrontendAgent(sp.GetRequiredService<CopilotClient>(), frontendModel));
-builder.Services.AddSingleton(sp => new BuilderAgent(sp.GetRequiredService<CopilotClient>(), builderModel));
-builder.Services.AddSingleton(sp => new ArchitectureAgent(sp.GetRequiredService<CopilotClient>(), architectureModel));
+builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("agents"));
+builder.Services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
+builder.Services.AddSingleton<ICopilotClient, CopilotClient>();
+builder.Services.AddSingleton<OrchestrationAgent>();
+builder.Services.AddSingleton<FrontendAgent>();
+builder.Services.AddSingleton<BuilderAgent>();
+builder.Services.AddSingleton<ArchitectureAgent>();
+builder.Services.AddSingleton<IRunStore, RunStore>();
+builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();
 builder.Services.AddSingleton<OrchestratorRuntime>();
 builder.Services.AddSingleton<ChatTerminal>();
 

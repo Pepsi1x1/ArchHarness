@@ -1,19 +1,14 @@
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
-public sealed class FrontendAgent
+public sealed class FrontendAgent : AgentBase
 {
-    private readonly CopilotClient _copilotClient;
-    private readonly string _model;
-    public string Model => _model;
-
-    public FrontendAgent(CopilotClient copilotClient, string model)
-    {
-        _copilotClient = copilotClient;
-        _model = model;
-    }
+    public FrontendAgent(ICopilotClient copilotClient, IOptions<AgentsOptions> options)
+        : base(copilotClient, options.Value.Frontend.Model) { }
 
     public Task<string> CreatePlanAsync(string taskPrompt, CancellationToken cancellationToken = default)
-        => _copilotClient.CompleteAsync(_model, $"Generate frontend plan: {taskPrompt}", cancellationToken);
+        => CopilotClient.CompleteAsync(Model, $"Generate frontend plan: {taskPrompt}", cancellationToken);
 }

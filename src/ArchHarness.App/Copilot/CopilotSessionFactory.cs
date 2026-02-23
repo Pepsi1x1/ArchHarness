@@ -1,6 +1,11 @@
 namespace ArchHarness.App.Copilot;
 
-public sealed class CopilotSessionFactory
+public interface ICopilotSessionFactory
+{
+    ICopilotSession Create(string model);
+}
+
+public sealed class CopilotSessionFactory : ICopilotSessionFactory
 {
     public ICopilotSession Create(string model) => new InMemoryCopilotSession(model);
 

@@ -1,23 +1,18 @@
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using ArchHarness.App.Workspace;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
-public sealed class BuilderAgent
+public sealed class BuilderAgent : AgentBase
 {
-    private readonly CopilotClient _copilotClient;
-    private readonly string _model;
-    public string Model => _model;
-
-    public BuilderAgent(CopilotClient copilotClient, string model)
-    {
-        _copilotClient = copilotClient;
-        _model = model;
-    }
+    public BuilderAgent(ICopilotClient copilotClient, IOptions<AgentsOptions> options)
+        : base(copilotClient, options.Value.Builder.Model) { }
 
     public async Task<IReadOnlyList<string>> ImplementAsync(IWorkspaceAdapter workspace, string objective, IReadOnlyList<string>? requiredActions = null, CancellationToken cancellationToken = default)
     {
-        _ = await _copilotClient.CompleteAsync(_model, $"Implement objective: {objective}", cancellationToken);
+        _ = await CopilotClient.CompleteAsync(Model, $"Implement objective: {objective}", cancellationToken);
         if (requiredActions is { Count: > 0 })
         {
             await workspace.WriteTextAsync("ARCHITECTURE_ACTIONS.md", string.Join(Environment.NewLine, requiredActions), cancellationToken);

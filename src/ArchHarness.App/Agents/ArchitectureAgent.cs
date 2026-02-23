@@ -1,23 +1,17 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
-public sealed class ArchitectureAgent
+public sealed class ArchitectureAgent : AgentBase
 {
-    private readonly CopilotClient _copilotClient;
-    private readonly string _model;
-    public string Model => _model;
-
-    public ArchitectureAgent(CopilotClient copilotClient, string model)
-    {
-        _copilotClient = copilotClient;
-        _model = model;
-    }
+    public ArchitectureAgent(ICopilotClient copilotClient, IOptions<AgentsOptions> options)
+        : base(copilotClient, options.Value.Architecture.Model) { }
 
     public async Task<ArchitectureReview> ReviewAsync(string diff, IReadOnlyList<string> filesTouched, CancellationToken cancellationToken = default)
     {
-        _ = await _copilotClient.CompleteAsync(_model, "Run architecture review", cancellationToken);
+        _ = await CopilotClient.CompleteAsync(Model, "Run architecture review", cancellationToken);
 
         if (diff.Contains("TODO", StringComparison.OrdinalIgnoreCase))
         {

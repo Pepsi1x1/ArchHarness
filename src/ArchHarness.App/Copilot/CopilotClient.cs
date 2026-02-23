@@ -1,10 +1,15 @@
 namespace ArchHarness.App.Copilot;
 
-public sealed class CopilotClient
+public interface ICopilotClient
 {
-    private readonly CopilotSessionFactory _sessionFactory;
+    Task<string> CompleteAsync(string model, string prompt, CancellationToken cancellationToken = default);
+}
 
-    public CopilotClient(CopilotSessionFactory sessionFactory)
+public sealed class CopilotClient : ICopilotClient
+{
+    private readonly ICopilotSessionFactory _sessionFactory;
+
+    public CopilotClient(ICopilotSessionFactory sessionFactory)
     {
         _sessionFactory = sessionFactory;
     }

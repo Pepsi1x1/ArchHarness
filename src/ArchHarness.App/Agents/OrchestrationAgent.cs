@@ -1,23 +1,17 @@
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
-public sealed class OrchestrationAgent
+public sealed class OrchestrationAgent : AgentBase
 {
-    private readonly CopilotClient _copilotClient;
-    private readonly string _model;
-    public string Model => _model;
-
-    public OrchestrationAgent(CopilotClient copilotClient, string model)
-    {
-        _copilotClient = copilotClient;
-        _model = model;
-    }
+    public OrchestrationAgent(ICopilotClient copilotClient, IOptions<AgentsOptions> options)
+        : base(copilotClient, options.Value.Orchestration.Model) { }
 
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(RunRequest request, CancellationToken cancellationToken = default)
     {
-        _ = await _copilotClient.CompleteAsync(_model, $"Create execution plan for: {request.TaskPrompt}", cancellationToken);
+        _ = await CopilotClient.CompleteAsync(Model, $"Create execution plan for: {request.TaskPrompt}", cancellationToken);
         var steps = new List<ExecutionPlanStep>
         {
             new(1, "Frontend", "Define UI architecture"),
@@ -38,7 +32,7 @@ public sealed class OrchestrationAgent
 
     public async Task<bool> ValidateCompletionAsync(ArchitectureReview review, CancellationToken cancellationToken = default)
     {
-        _ = await _copilotClient.CompleteAsync(_model, "Validate completion", cancellationToken);
+        _ = await CopilotClient.CompleteAsync(Model, "Validate completion", cancellationToken);
         return review.Findings.All(f => !string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
     }
 }

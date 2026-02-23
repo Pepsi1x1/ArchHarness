@@ -10,17 +10,23 @@ public sealed class OrchestratorRuntime
     private readonly FrontendAgent _frontendAgent;
     private readonly BuilderAgent _builderAgent;
     private readonly ArchitectureAgent _architectureAgent;
+    private readonly IRunStore _runStore;
+    private readonly IArtefactStore _artefactStore;
 
     public OrchestratorRuntime(
         OrchestrationAgent orchestrationAgent,
         FrontendAgent frontendAgent,
         BuilderAgent builderAgent,
-        ArchitectureAgent architectureAgent)
+        ArchitectureAgent architectureAgent,
+        IRunStore runStore,
+        IArtefactStore artefactStore)
     {
         _orchestrationAgent = orchestrationAgent;
         _frontendAgent = frontendAgent;
         _builderAgent = builderAgent;
         _architectureAgent = architectureAgent;
+        _runStore = runStore;
+        _artefactStore = artefactStore;
     }
 
     public async Task<RunArtefacts> RunAsync(RunRequest request, CancellationToken cancellationToken = default)
@@ -29,14 +35,12 @@ public sealed class OrchestratorRuntime
         var initGit = request.WorkspaceMode is "new-project" or "existing-git";
         await adapter.InitializeAsync(request.WorkspaceMode == "new-project" ? request.ProjectName : null, initGit, cancellationToken);
 
-        var runStore = new RunStore(adapter.RootPath);
-        var artefactStore = new ArtefactStore();
-        var runDirectory = runStore.CreateRunDirectory();
+        var runDirectory = _runStore.CreateRunDirectory(adapter.RootPath);
         var runId = Path.GetFileName(runDirectory);
 
-        await artefactStore.AppendEventAsync(runDirectory, new { runId, source = "orchestrator", message = "Run started" }, cancellationToken);
+        await _artefactStore.AppendEventAsync(runDirectory, new { runId, source = "orchestrator", message = "Run started" }, cancellationToken);
         var plan = await _orchestrationAgent.BuildExecutionPlanAsync(request, cancellationToken);
-        await artefactStore.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
+        await _artefactStore.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
 
         string frontendPlan = string.Empty;
         IReadOnlyList<string> filesTouched = Array.Empty<string>();
@@ -44,7 +48,7 @@ public sealed class OrchestratorRuntime
 
         foreach (var step in plan.Steps)
         {
-            await artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
+            await _artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
             switch (step.Agent)
             {
                 case "Frontend":
@@ -69,7 +73,7 @@ public sealed class OrchestratorRuntime
             review = await _architectureAgent.ReviewAsync(await adapter.DiffAsync(cancellationToken), filesTouched, cancellationToken);
         }
 
-        await artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
+        await _artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
         var completed = await _orchestrationAgent.ValidateCompletionAsync(review, cancellationToken);
         var summary = $"""
             # Final Summary
@@ -77,9 +81,9 @@ public sealed class OrchestratorRuntime
             - FrontendPlan: {frontendPlan}
             - FilesTouched: {string.Join(", ", filesTouched)}
             """;
-        await artefactStore.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
+        await _artefactStore.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 
-        await runStore.WriteRunLogAsync(runDirectory, new
+        await _runStore.WriteRunLogAsync(runDirectory, new
         {
             status = completed ? "completed" : "incomplete",
             request.WorkspaceMode,
@@ -93,7 +97,7 @@ public sealed class OrchestratorRuntime
             }
         }, cancellationToken);
 
-        await artefactStore.AppendEventAsync(runDirectory, new { runId, source = "orchestrator", message = "Run completed" }, cancellationToken);
+        await _artefactStore.AppendEventAsync(runDirectory, new { runId, source = "orchestrator", message = "Run completed" }, cancellationToken);
         return new RunArtefacts(runId, runDirectory);
     }
 }
