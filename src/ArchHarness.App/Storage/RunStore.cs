@@ -11,8 +11,6 @@ public interface IRunStore
 
 public sealed class RunStore : IRunStore
 {
-    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
-
     public string CreateRunDirectory(string workspaceRoot)
     {
         var root = Path.Combine(workspaceRoot, ".agent-harness", "runs");
@@ -24,7 +22,7 @@ public sealed class RunStore : IRunStore
 
     public Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken)
     {
-        var serialized = JsonSerializer.Serialize(payload, IndentedJsonOptions);
+        var serialized = JsonSerializer.Serialize(payload, JsonDefaults.Indented);
         var redacted = Redaction.RedactSecrets(serialized);
         return File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), redacted, cancellationToken);
     }

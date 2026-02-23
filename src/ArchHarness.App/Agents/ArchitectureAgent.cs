@@ -81,20 +81,19 @@ public sealed class ArchitectureAgent : AgentBase
         var touched = filesTouched.Count == 0 ? "(none)" : string.Join(", ", filesTouched);
         var diffPreview = diff.Length <= 4000 ? diff : diff[..4000];
 
-        return string.Join(Environment.NewLine,
-        [
-            ArchitectureInstructions,
-            string.Empty,
-            $"WorkspaceRoot: {workspaceRoot}",
-            "Write boundaries: Do not modify outside WorkspaceRoot.",
-            string.Empty,
-            "DelegatedPrompt:",
-            delegatedPrompt,
-            string.Empty,
-            $"FilesTouched: {touched}",
-            "CurrentDiffSnapshot:",
-            diffPreview
-        ]);
+        return $"""
+            {ArchitectureInstructions}
+
+            WorkspaceRoot: {workspaceRoot}
+            Write boundaries: Do not modify outside WorkspaceRoot.
+
+            DelegatedPrompt:
+            {delegatedPrompt}
+
+            FilesTouched: {touched}
+            CurrentDiffSnapshot:
+            {diffPreview}
+            """;
     }
 
     private static List<string> ResolveCandidateFiles(string diff, string workspaceRoot)

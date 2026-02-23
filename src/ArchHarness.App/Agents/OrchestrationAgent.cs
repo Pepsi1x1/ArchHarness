@@ -13,33 +13,32 @@ public sealed class OrchestrationAgent : AgentBase
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(RunRequest request, string workspaceRoot, CancellationToken cancellationToken = default)
     {
         var model = ResolveModel(request.ModelOverrides);
-        var planningPrompt = string.Join(Environment.NewLine,
-        new[]
-        {
-            "You are the orchestration planner. Return ONLY strict JSON with this schema:",
-            "{",
-            "  \"steps\": [{\"id\":1,\"agent\":\"Frontend|Builder|Architecture\",\"objective\":\"string\",\"dependsOn\":[0]}],",
-            "  \"iterationStrategy\": {\"maxIterations\": 2, \"reviewRequired\": true},",
-            "  \"completionCriteria\": [\"string\"]",
-            "}",
-            string.Empty,
-            "Constraints:",
-            "- Always include at least one Builder and one Architecture step.",
-            "- Include Frontend when UI/UX work is implied.",
-            "- Architecture must be a single final review/enforcement step only.",
-            "- Never use Architecture for solution design/spec generation/planning.",
-            "- Use dependsOn to encode step dependencies when a step requires outputs from prior steps.",
-            "- All filesystem paths in objectives must be under WorkspaceRoot.",
-            "- Do not use directories relative to process CWD; always anchor to WorkspaceRoot.",
-            "- Keep 3-6 steps total.",
-            "- completionCriteria must include architecture and build verification.",
-            "- Each objective must be a concrete delegated prompt the target agent can execute directly.",
-            string.Empty,
-            $"TaskPrompt: {request.TaskPrompt}",
-            $"WorkspaceRoot: {workspaceRoot}",
-            $"WorkspaceMode: {request.WorkspaceMode}",
-            $"BuildCommand: {request.BuildCommand ?? "(none)"}"
-        });
+        var buildCommand = request.BuildCommand ?? "(none)";
+        var planningPrompt = $$"""
+            You are the orchestration planner. Return ONLY strict JSON with this schema:
+            {
+              "steps": [{"id":1,"agent":"Frontend|Builder|Architecture","objective":"string","dependsOn":[0]}],
+              "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+              "completionCriteria": ["string"]
+            }
+
+            Constraints:
+            - Always include at least one Builder and one Architecture step.
+            - Include Frontend when UI/UX work is implied.
+            - Architecture must be a single final review/enforcement step only.
+            - Never use Architecture for solution design/spec generation/planning.
+            - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
+            - All filesystem paths in objectives must be under WorkspaceRoot.
+            - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
+            - Keep 3-6 steps total.
+            - completionCriteria must include architecture and build verification.
+            - Each objective must be a concrete delegated prompt the target agent can execute directly.
+
+            TaskPrompt: {{request.TaskPrompt}}
+            WorkspaceRoot: {{workspaceRoot}}
+            WorkspaceMode: {{request.WorkspaceMode}}
+            BuildCommand: {{buildCommand}}
+            """;
 
         var planningResponse = await CopilotClient.CompleteAsync(model, planningPrompt, cancellationToken);
         if (TryBuildExecutionPlan(planningResponse, workspaceRoot, out var parsedPlan))
@@ -59,20 +58,19 @@ public sealed class OrchestrationAgent : AgentBase
     {
         var model = ResolveModel(request.ModelOverrides);
         var reviewSummary = string.Join(Environment.NewLine, review.RequiredActions.Select(x => $"- {x}"));
-        var prompt = string.Join(Environment.NewLine,
-        new[]
-        {
-            "You are the orchestration planner.",
-            "Generate a single delegated prompt for the Architecture agent.",
-            "Focus only on remediation actions from architecture review.",
-            "Return plain text only (no markdown, no JSON).",
-            string.Empty,
-            $"Iteration: {iteration}",
-            $"OriginalTask: {request.TaskPrompt}",
-            $"WorkspaceRoot: {workspaceRoot}",
-            "RequiredActions:",
-            string.IsNullOrWhiteSpace(reviewSummary) ? "- none" : reviewSummary
-        });
+        var actionsText = string.IsNullOrWhiteSpace(reviewSummary) ? "- none" : reviewSummary;
+        var prompt = $"""
+            You are the orchestration planner.
+            Generate a single delegated prompt for the Architecture agent.
+            Focus only on remediation actions from architecture review.
+            Return plain text only (no markdown, no JSON).
+
+            Iteration: {iteration}
+            OriginalTask: {request.TaskPrompt}
+            WorkspaceRoot: {workspaceRoot}
+            RequiredActions:
+            {actionsText}
+            """;
 
         var response = await CopilotClient.CompleteAsync(model, prompt, cancellationToken);
         return string.IsNullOrWhiteSpace(response)
@@ -154,9 +152,8 @@ public sealed class OrchestrationAgent : AgentBase
                 var maxIterations = itEl.TryGetProperty("maxIterations", out var maxEl) && maxEl.TryGetInt32(out var val)
                     ? Math.Clamp(val, 1, 8)
                     : 2;
-                var reviewRequired = itEl.TryGetProperty("reviewRequired", out var reviewEl) && reviewEl.ValueKind is JsonValueKind.True or JsonValueKind.False
-                    ? reviewEl.GetBoolean()
-                    : true;
+                var reviewRequired = !itEl.TryGetProperty("reviewRequired", out var reviewEl) || reviewEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+                    || reviewEl.GetBoolean();
                 iteration = new IterationStrategy(maxIterations, reviewRequired);
             }
 

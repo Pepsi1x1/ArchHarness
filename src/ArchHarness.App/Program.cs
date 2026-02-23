@@ -26,6 +26,7 @@ builder.Services.AddSingleton<BuilderAgent>();
 builder.Services.AddSingleton<ArchitectureAgent>();
 builder.Services.AddSingleton<IRunStore, RunStore>();
 builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();
+builder.Services.AddSingleton<IBuildRunner, BuildRunner>();
 builder.Services.AddSingleton<OrchestratorRuntime>();
 builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();

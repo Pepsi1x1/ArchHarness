@@ -202,9 +202,15 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
                             lastEventAt);
                     }
 
-                    var wait = absoluteRemaining == Timeout.InfiniteTimeSpan
-                        ? inactivityRemaining
-                        : (inactivityRemaining < absoluteRemaining ? inactivityRemaining : absoluteRemaining);
+                    TimeSpan wait;
+                    if (absoluteRemaining == Timeout.InfiniteTimeSpan)
+                    {
+                        wait = inactivityRemaining;
+                    }
+                    else
+                    {
+                        wait = inactivityRemaining < absoluteRemaining ? inactivityRemaining : absoluteRemaining;
+                    }
 
                     var completedTask = await Task.WhenAny(done.Task, Task.Delay(wait, cancellationToken));
                     if (completedTask == done.Task)

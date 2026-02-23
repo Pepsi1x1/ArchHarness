@@ -2,7 +2,6 @@ using ArchHarness.App.Agents;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
-using System.Diagnostics;
 
 namespace ArchHarness.App.Core;
 
@@ -17,6 +16,7 @@ public sealed class OrchestratorRuntime
     private readonly IArtefactStore _artefactStore;
     private readonly ICopilotClient _copilotClient;
     private readonly ICopilotSessionEventStream _sessionEventStream;
+    private readonly IBuildRunner _buildRunner;
 
     public OrchestratorRuntime(
         OrchestrationAgent orchestrationAgent,
@@ -26,7 +26,8 @@ public sealed class OrchestratorRuntime
         IRunStore runStore,
         IArtefactStore artefactStore,
         ICopilotClient copilotClient,
-        ICopilotSessionEventStream sessionEventStream)
+        ICopilotSessionEventStream sessionEventStream,
+        IBuildRunner buildRunner)
     {
         _orchestrationAgent = orchestrationAgent;
         _frontendAgent = frontendAgent;
@@ -36,6 +37,7 @@ public sealed class OrchestratorRuntime
         _artefactStore = artefactStore;
         _copilotClient = copilotClient;
         _sessionEventStream = sessionEventStream;
+        _buildRunner = buildRunner;
     }
 
     public async Task<RunArtefacts> RunAsync(
@@ -135,7 +137,7 @@ public sealed class OrchestratorRuntime
 
         await _artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
 
-        var buildResult = await RunBuildIfConfiguredAsync(request.BuildCommand, adapter.RootPath, cancellationToken);
+        var buildResult = await _buildRunner.RunAsync(request.BuildCommand, adapter.RootPath, cancellationToken);
         await _artefactStore.WriteBuildResultAsync(runDirectory, buildResult, cancellationToken);
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "build", buildResult.Passed ? "Build passed" : "Build failed or not executed"));
 
@@ -226,43 +228,5 @@ public sealed class OrchestratorRuntime
         }
 
         return true;
-    }
-
-    private static async Task<BuildResult> RunBuildIfConfiguredAsync(string? buildCommand, string workingDirectory, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(buildCommand))
-        {
-            return BuildResult.NotExecuted("Build command was not configured.");
-        }
-
-        var trimmed = buildCommand.Trim();
-        if (!trimmed.StartsWith("dotnet build", StringComparison.OrdinalIgnoreCase))
-        {
-            return BuildResult.NotExecuted("Build command is not allow-listed. Only 'dotnet build ...' is supported.");
-        }
-
-        var args = trimmed.Length == "dotnet".Length ? string.Empty : trimmed["dotnet".Length..].TrimStart();
-        var info = new ProcessStartInfo("dotnet", args)
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = new Process { StartInfo = info };
-        process.Start();
-        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-
-        var output = string.Join(Environment.NewLine, new[] { stdout, stderr }.Where(x => !string.IsNullOrWhiteSpace(x)));
-        return new BuildResult(Executed: true, Passed: process.ExitCode == 0, ExitCode: process.ExitCode, Output: Redaction.RedactSecrets(output));
-    }
-
-    private sealed record BuildResult(bool Executed, bool Passed, int? ExitCode, string Output)
-    {
-        public static BuildResult NotExecuted(string reason) => new(Executed: false, Passed: false, ExitCode: null, Output: reason);
     }
 }

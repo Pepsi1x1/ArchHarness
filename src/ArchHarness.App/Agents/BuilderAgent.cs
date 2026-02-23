@@ -45,20 +45,18 @@ public sealed class BuilderAgent : AgentBase
             ? string.Join(" | ", requiredActions)
             : "none";
 
-                return string.Join(Environment.NewLine,
-                new[]
-                {
-                        BuilderInstructions,
-                        string.Empty,
-                    $"WorkspaceRoot: {workspace.RootPath}",
-                    "Write boundaries: Do not modify files outside WorkspaceRoot.",
-                    "Execution mode: use built-in file and terminal tools as needed.",
-                    string.Empty,
-                        "DelegatedPrompt:",
-                        objective,
-                        string.Empty,
-                        "RequiredActions:",
-                        actions
-                });
+        return $"""
+            {BuilderInstructions}
+
+            WorkspaceRoot: {workspace.RootPath}
+            Write boundaries: Do not modify files outside WorkspaceRoot.
+            Execution mode: use built-in file and terminal tools as needed.
+
+            DelegatedPrompt:
+            {objective}
+
+            RequiredActions:
+            {actions}
+            """;
     }
 }
