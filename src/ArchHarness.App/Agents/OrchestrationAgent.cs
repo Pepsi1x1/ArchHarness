@@ -17,7 +17,7 @@ public sealed class OrchestrationAgent : AgentBase
         var planningPrompt = $$"""
             You are the orchestration planner. Return ONLY strict JSON with this schema:
             {
-              "steps": [{"id":1,"agent":"Frontend|Builder|Architecture","objective":"string","dependsOn":[0]}],
+                            "steps": [{"id":1,"agent":"Frontend|Builder|Architecture","objective":"string","dependsOn":[0],"languages":["dotnet","vue3"]}],
               "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
               "completionCriteria": ["string"]
             }
@@ -28,6 +28,7 @@ public sealed class OrchestrationAgent : AgentBase
             - Architecture must be a single final review/enforcement step only.
             - Never use Architecture for solution design/spec generation/planning.
             - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
+            - Use languages on Architecture steps to declare review scope (dotnet and/or vue3) for monorepos.
             - All filesystem paths in objectives must be under WorkspaceRoot.
             - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
             - Keep 3-6 steps total.
@@ -114,6 +115,7 @@ public sealed class OrchestrationAgent : AgentBase
             }
 
             var steps = new List<ExecutionPlanStep>();
+            var workspaceLanguages = DetectWorkspaceLanguages(workspaceRoot);
             var idx = 1;
             foreach (var step in stepsElement.EnumerateArray())
             {
@@ -135,7 +137,8 @@ public sealed class OrchestrationAgent : AgentBase
 
                 var sanitizedObjective = EnforceWorkspaceRootInObjective(objective, workspaceRoot);
                 var dependsOn = ParseDependsOn(step);
-                steps.Add(new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, dependsOn));
+                var languages = ParseLanguages(step);
+                steps.Add(new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, dependsOn, languages));
                 idx++;
             }
 
@@ -144,7 +147,7 @@ public sealed class OrchestrationAgent : AgentBase
                 return false;
             }
 
-            steps = NormalizeStepOrdering(steps);
+            steps = NormalizeStepOrdering(steps, workspaceLanguages);
 
             var iteration = new IterationStrategy(MaxIterations: 2, ReviewRequired: true);
             if (root.TryGetProperty("iterationStrategy", out var itEl))
@@ -204,7 +207,7 @@ public sealed class OrchestrationAgent : AgentBase
         return null;
     }
 
-    private static List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps)
+    private static List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
     {
         var nonArchitecture = steps.Where(s => s.Agent != "Architecture").ToList();
         var architecture = steps
@@ -223,11 +226,17 @@ public sealed class OrchestrationAgent : AgentBase
                 Id: 0,
                 Agent: "Architecture",
                 Objective: "Review completed implementation and enforce SOLID/DRY/separation-of-concerns standards; apply required corrections directly.",
-                DependsOnStepIds: null));
+                DependsOnStepIds: null,
+                Languages: workspaceLanguages));
         }
 
         // Keep exactly one final architecture step.
-        var finalArchitecture = architecture[^1];
+        var finalArchitecture = architecture[^1] with
+        {
+            Languages = architecture[^1].Languages is { Count: > 0 }
+                ? architecture[^1].Languages
+                : workspaceLanguages
+        };
 
         var reordered = nonArchitecture
             .Concat(new[] { finalArchitecture with { Id = 0, DependsOnStepIds = null } })
@@ -290,6 +299,50 @@ public sealed class OrchestrationAgent : AgentBase
             .ToArray();
 
         return deps.Length == 0 ? null : deps;
+    }
+
+    private static IReadOnlyList<string>? ParseLanguages(JsonElement step)
+    {
+        if (!step.TryGetProperty("languages", out var languagesEl) || languagesEl.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var languages = languagesEl.EnumerateArray()
+            .Select(x => x.GetString())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!.Trim().ToLowerInvariant())
+            .Where(x => x is "dotnet" or "vue3")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return languages.Length == 0 ? null : languages;
+    }
+
+    private static IReadOnlyList<string> DetectWorkspaceLanguages(string workspaceRoot)
+    {
+        var output = new List<string>();
+
+        var hasDotnet = Directory.GetFiles(workspaceRoot, "*.csproj", SearchOption.AllDirectories).Length > 0
+            || Directory.GetFiles(workspaceRoot, "*.cs", SearchOption.AllDirectories).Length > 0;
+        if (hasDotnet)
+        {
+            output.Add("dotnet");
+        }
+
+        var hasVue = Directory.GetFiles(workspaceRoot, "*.vue", SearchOption.AllDirectories).Length > 0
+            || File.Exists(Path.Combine(workspaceRoot, "package.json"));
+        if (hasVue)
+        {
+            output.Add("vue3");
+        }
+
+        if (output.Count == 0)
+        {
+            output.Add("dotnet");
+        }
+
+        return output;
     }
 
     private static bool IsArchitectureReviewObjective(string objective)

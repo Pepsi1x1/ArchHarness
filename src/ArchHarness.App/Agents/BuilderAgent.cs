@@ -44,9 +44,13 @@ public sealed class BuilderAgent : AgentBase
         var actions = requiredActions is { Count: > 0 }
             ? string.Join(" | ", requiredActions)
             : "none";
+        var builderGuidelines = LoadBuilderGuidelines();
 
         return $"""
             {BuilderInstructions}
+
+            Apply the following builder guidelines:
+            {builderGuidelines}
 
             WorkspaceRoot: {workspace.RootPath}
             Write boundaries: Do not modify files outside WorkspaceRoot.
@@ -58,5 +62,21 @@ public sealed class BuilderAgent : AgentBase
             RequiredActions:
             {actions}
             """;
+    }
+
+    private static string LoadBuilderGuidelines()
+    {
+        const string fileName = "backend-builder-agent.md";
+        var searchRoots = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
+        foreach (var root in searchRoots)
+        {
+            var path = Path.Combine(root, "Guidelines", "Builder", fileName);
+            if (File.Exists(path))
+            {
+                return File.ReadAllText(path);
+            }
+        }
+
+        return "No builder guideline file found. Follow strict backend implementation standards and add tests.";
     }
 }

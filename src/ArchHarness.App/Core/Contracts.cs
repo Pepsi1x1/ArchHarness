@@ -10,7 +10,12 @@ public sealed record RunRequest(
     string? BuildCommand
 );
 
-public sealed record ExecutionPlanStep(int Id, string Agent, string Objective, IReadOnlyList<int>? DependsOnStepIds = null);
+public sealed record ExecutionPlanStep(
+    int Id,
+    string Agent,
+    string Objective,
+    IReadOnlyList<int>? DependsOnStepIds = null,
+    IReadOnlyList<string>? Languages = null);
 
 public sealed record IterationStrategy(int MaxIterations, bool ReviewRequired);
 

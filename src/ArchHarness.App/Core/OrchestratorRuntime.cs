@@ -106,7 +106,7 @@ public sealed class OrchestratorRuntime
                     filesTouched = await _builderAgent.ImplementAsync(adapter, step.Objective, request.ModelOverrides, cancellationToken: cancellationToken);
                     break;
                 case "Architecture":
-                    review = await _architectureAgent.ReviewAsync(step.Objective, await adapter.DiffAsync(cancellationToken), adapter.RootPath, filesTouched, request.ModelOverrides, cancellationToken);
+                    review = await _architectureAgent.ReviewAsync(step.Objective, await adapter.DiffAsync(cancellationToken), adapter.RootPath, filesTouched, step.Languages, request.ModelOverrides, cancellationToken);
                     break;
             }
 
@@ -115,6 +115,7 @@ public sealed class OrchestratorRuntime
         }
 
         var iteration = 0;
+         var architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
         while (plan.IterationStrategy.ReviewRequired &&
                review.Findings.Any(f => f.Severity.Equals("high", StringComparison.OrdinalIgnoreCase)) &&
                iteration < plan.IterationStrategy.MaxIterations)
@@ -125,7 +126,7 @@ public sealed class OrchestratorRuntime
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", remediationPrompt));
 
             var latestDiff = await adapter.DiffAsync(cancellationToken);
-            review = await _architectureAgent.ReviewAsync(remediationPrompt, latestDiff, adapter.RootPath, filesTouched, request.ModelOverrides, cancellationToken);
+            review = await _architectureAgent.ReviewAsync(remediationPrompt, latestDiff, adapter.RootPath, filesTouched, architectureLanguages, request.ModelOverrides, cancellationToken);
 
             // Refresh touched files snapshot after architecture enforcement pass.
             filesTouched = latestDiff
