@@ -17,21 +17,37 @@ public sealed class ArchitectureAgent : AgentBase
         Keep changes inside WorkspaceRoot and update tests when behavior changes.
         Return a concise completion summary after applying changes.
         """;
-
-    public ArchitectureAgent(ICopilotClient copilotClient, IModelResolver modelResolver)
-        : base(copilotClient, modelResolver, "architecture") { }
+    public ArchitectureAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
+        : base(copilotClient, modelResolver, toolPolicyProvider, "architecture", Guid.NewGuid().ToString("N")) { }
 
     public async Task<ArchitectureReview> ReviewAsync(
         string delegatedPrompt,
         string diff,
         string workspaceRoot,
         IReadOnlyList<string> filesTouched,
+        IReadOnlyList<string>? languageScope,
         IDictionary<string, string>? modelOverrides,
+        string? agentId = null,
+        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
         var model = ResolveModel(modelOverrides);
+        var guidance = BuildGuidanceContext(workspaceRoot, filesTouched, diff, languageScope);
+        var systemPrompt = BuildSystemPrompt(guidance.Guidelines, guidance.LanguageLabel);
         var enforcementPrompt = BuildEnforcementPrompt(delegatedPrompt, workspaceRoot, filesTouched, diff);
-        _ = await CopilotClient.CompleteAsync(model, enforcementPrompt, cancellationToken);
+        var options = ApplyToolPolicy(new CopilotCompletionOptions
+        {
+            SystemMessage = systemPrompt,
+            SystemMessageMode = CopilotSystemMessageMode.Append
+        });
+
+        _ = await CopilotClient.CompleteAsync(
+            model,
+            enforcementPrompt,
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
 
         var findings = new List<ArchitectureFinding>();
         var requiredActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -82,10 +98,8 @@ public sealed class ArchitectureAgent : AgentBase
         var diffPreview = diff.Length <= 4000 ? diff : diff[..4000];
 
         return $"""
-            {ArchitectureInstructions}
-
             WorkspaceRoot: {workspaceRoot}
-            Write boundaries: Do not modify outside WorkspaceRoot.
+            Write boundaries: You may modify any file or directory under WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
 
             DelegatedPrompt:
             {delegatedPrompt}
@@ -94,6 +108,108 @@ public sealed class ArchitectureAgent : AgentBase
             CurrentDiffSnapshot:
             {diffPreview}
             """;
+    }
+
+    private static (string LanguageLabel, string Guidelines) BuildGuidanceContext(
+        string workspaceRoot,
+        IReadOnlyList<string> filesTouched,
+        string diff,
+        IReadOnlyList<string>? languageScope)
+    {
+        var languages = ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
+        var languageLabel = string.Join(", ", languages);
+        var guidelines = LoadGuidelinesForLanguages(languages);
+        return (languageLabel, guidelines);
+    }
+
+    private static string BuildSystemPrompt(string guidelines, string languageLabel)
+        => $"""
+            {ArchitectureInstructions}
+
+            LanguageContext: {languageLabel}
+            Apply the following architecture guidelines for this language:
+            {guidelines}
+            """;
+
+    private static IReadOnlyList<string> ResolveLanguages(
+        string workspaceRoot,
+        IReadOnlyList<string> filesTouched,
+        string diff,
+        IReadOnlyList<string>? languageScope)
+    {
+        if (languageScope is { Count: > 0 })
+        {
+            return languageScope
+                .Select(x => x.Trim().ToLowerInvariant())
+                .Where(x => x is "dotnet" or "vue3")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        static bool LooksLikeVueFile(string path)
+            => path.EndsWith(".vue", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".ts", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".tsx", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".jsx", StringComparison.OrdinalIgnoreCase);
+
+        var output = new List<string>();
+
+        if (filesTouched.Any(LooksLikeVueFile) || diff.Contains(".vue", StringComparison.OrdinalIgnoreCase))
+        {
+            output.Add("vue3");
+        }
+
+        var hasCsproj = Directory.GetFiles(workspaceRoot, "*.csproj", SearchOption.AllDirectories).Length > 0;
+        var hasCs = Directory.GetFiles(workspaceRoot, "*.cs", SearchOption.AllDirectories).Length > 0;
+        if (hasCsproj || hasCs || filesTouched.Any(x => x.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
+        {
+            output.Add("dotnet");
+        }
+
+        var hasPackageJson = File.Exists(Path.Combine(workspaceRoot, "package.json"));
+        if (hasPackageJson)
+        {
+            output.Add("vue3");
+        }
+
+        if (output.Count == 0)
+        {
+            output.Add("dotnet");
+        }
+
+        return output.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static string LoadGuidelinesForLanguages(IReadOnlyList<string> languages)
+    {
+        var sections = new List<string>();
+        foreach (var language in languages)
+        {
+            var fileName = language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+                ? "vue3-architecture-review-agent.md"
+                : "dotnet-architecture-review-agent.md";
+
+            var text = TryLoadGuidelineFile(fileName);
+            sections.Add($"=== {language.ToUpperInvariant()} GUIDELINES ==={Environment.NewLine}{text}");
+        }
+
+        return string.Join(Environment.NewLine + Environment.NewLine, sections);
+    }
+
+    private static string TryLoadGuidelineFile(string fileName)
+    {
+        var searchRoots = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
+        foreach (var root in searchRoots)
+        {
+            var path = Path.Combine(root, "Guidelines", "Architecture Review", fileName);
+            if (File.Exists(path))
+            {
+                return File.ReadAllText(path);
+            }
+        }
+
+        return "No guideline file found. Apply strict SOLID/DRY review and enforce architecture consistency.";
     }
 
     private static List<string> ResolveCandidateFiles(string diff, string workspaceRoot)

@@ -6,6 +6,15 @@ namespace ArchHarness.App.Core;
 public sealed class ConversationController
 {
     private const string NoneText = "(none)";
+    private const string ExistingFolderMode = "existing-folder";
+    private const string NewProjectMode = "new-project";
+    private const string ExistingGitMode = "existing-git";
+
+    private const string WorkspaceModeField = "WorkspaceMode";
+    private const string WorkspacePathField = "WorkspacePath";
+
+    private static string? _validationError;
+
     private readonly ICopilotClient _copilotClient;
     private readonly IModelResolver _modelResolver;
 
@@ -33,6 +42,15 @@ public sealed class ConversationController
         }
 
         var requestInteractive = BuildInteractiveRequest();
+        var setupSelection = BuildCommandInference.Select(
+            requestInteractive.WorkspacePath,
+            requestInteractive.BuildCommand,
+            requestInteractive.WorkspaceMode,
+            requestInteractive.ProjectName);
+        if (!string.Equals(setupSelection.Command, requestInteractive.BuildCommand, StringComparison.Ordinal))
+        {
+            requestInteractive = requestInteractive with { BuildCommand = setupSelection.Command };
+        }
 
         Console.Clear();
         Console.WriteLine("Preparing run configuration...");
@@ -69,7 +87,7 @@ public sealed class ConversationController
         {
             TaskPrompt = "Implement requested change",
             WorkspacePath = Directory.GetCurrentDirectory(),
-            WorkspaceMode = "existing-folder"
+            WorkspaceMode = ExistingFolderMode
         };
 
         var selectedIndex = 0;
@@ -81,42 +99,92 @@ public sealed class ConversationController
                 selectedIndex = fields.Count - 1;
             }
 
-            RenderSetupForm(fields, selectedIndex);
+            SetupFormRenderer.RenderSetupForm(fields, selectedIndex, _validationError);
             var key = Console.ReadKey(intercept: true);
+            _validationError = null;
 
-            switch (key.Key)
+            if (TryHandleNavigation(key.Key, fields.Count, ref selectedIndex))
             {
-                case ConsoleKey.UpArrow:
-                    selectedIndex = selectedIndex == 0 ? fields.Count - 1 : selectedIndex - 1;
-                    break;
-                case ConsoleKey.DownArrow:
-                    selectedIndex = selectedIndex == fields.Count - 1 ? 0 : selectedIndex + 1;
-                    break;
-                case ConsoleKey.LeftArrow:
-                case ConsoleKey.RightArrow:
-                    if (fields[selectedIndex].Id == "WorkspaceMode")
-                    {
-                        draft.WorkspaceMode = NextMode(draft.WorkspaceMode, key.Key == ConsoleKey.RightArrow ? 1 : -1);
-                    }
-                    break;
-                case ConsoleKey.Enter:
-                    ApplyEdit(fields[selectedIndex].Id, draft);
-                    break;
-                case ConsoleKey.F5:
-                    var workspacePath = string.IsNullOrWhiteSpace(draft.WorkspacePath) ? Directory.GetCurrentDirectory() : draft.WorkspacePath;
-                    EnsureWorkspaceExists(workspacePath);
-                    return new RunRequest(
-                        TaskPrompt: string.IsNullOrWhiteSpace(draft.TaskPrompt) ? "Implement requested change" : draft.TaskPrompt,
-                        WorkspacePath: workspacePath,
-                        WorkspaceMode: string.IsNullOrWhiteSpace(draft.WorkspaceMode) ? "existing-folder" : draft.WorkspaceMode,
-                        Workflow: "auto",
-                        ProjectName: string.IsNullOrWhiteSpace(draft.ProjectName) ? null : draft.ProjectName,
-                        ModelOverrides: ParseOverrides(draft.ModelOverrides),
-                        BuildCommand: string.IsNullOrWhiteSpace(draft.BuildCommand) ? null : draft.BuildCommand);
-                case ConsoleKey.Escape:
-                    throw new OperationCanceledException("Run setup canceled by user.");
+                continue;
+            }
+
+            if (TryHandleModeToggle(key.Key, fields[selectedIndex], draft))
+            {
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.Enter)
+            {
+                ApplyEdit(fields[selectedIndex].Id, draft);
+                SetupFormRenderer.FlashSaved();
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.F5)
+            {
+                var errorFieldId = ValidateRequiredFields(draft);
+                if (errorFieldId != null)
+                {
+                    _validationError = errorFieldId;
+                    continue;
+                }
+
+                return BuildRequestFromDraft(draft);
+            }
+
+            if (key.Key == ConsoleKey.Escape)
+            {
+                throw new OperationCanceledException("Run setup canceled by user.");
             }
         }
+    }
+
+    private static bool TryHandleNavigation(ConsoleKey key, int fieldCount, ref int selectedIndex)
+    {
+        if (key == ConsoleKey.UpArrow)
+        {
+            selectedIndex = selectedIndex == 0 ? fieldCount - 1 : selectedIndex - 1;
+            return true;
+        }
+
+        if (key == ConsoleKey.DownArrow)
+        {
+            selectedIndex = selectedIndex == fieldCount - 1 ? 0 : selectedIndex + 1;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryHandleModeToggle(ConsoleKey key, SetupField field, SetupDraft draft)
+    {
+        if (key is not (ConsoleKey.LeftArrow or ConsoleKey.RightArrow))
+        {
+            return false;
+        }
+
+        if (field.Id != WorkspaceModeField)
+        {
+            return false;
+        }
+
+        draft.WorkspaceMode = NextMode(draft.WorkspaceMode, key == ConsoleKey.RightArrow ? 1 : -1);
+        return true;
+    }
+
+    private static RunRequest BuildRequestFromDraft(SetupDraft draft)
+    {
+        var workspacePath = string.IsNullOrWhiteSpace(draft.WorkspacePath) ? Directory.GetCurrentDirectory() : draft.WorkspacePath;
+        EnsureWorkspaceExists(workspacePath);
+
+        return new RunRequest(
+            TaskPrompt: string.IsNullOrWhiteSpace(draft.TaskPrompt) ? "Implement requested change" : draft.TaskPrompt,
+            WorkspacePath: workspacePath,
+            WorkspaceMode: string.IsNullOrWhiteSpace(draft.WorkspaceMode) ? ExistingFolderMode : draft.WorkspaceMode,
+            Workflow: "auto",
+            ProjectName: string.IsNullOrWhiteSpace(draft.ProjectName) ? null : draft.ProjectName,
+            ModelOverrides: ParseOverrides(draft.ModelOverrides),
+            BuildCommand: string.IsNullOrWhiteSpace(draft.BuildCommand) ? null : draft.BuildCommand);
     }
 
     private static List<SetupField> BuildFields(SetupDraft draft)
@@ -130,7 +198,7 @@ public sealed class ConversationController
             new("BuildCommand", "Build Command", string.IsNullOrWhiteSpace(draft.BuildCommand) ? NoneText : draft.BuildCommand)
         };
 
-        if (string.Equals(draft.WorkspaceMode, "new-project", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(draft.WorkspaceMode, NewProjectMode, StringComparison.OrdinalIgnoreCase))
         {
             fields.Insert(3, new SetupField("ProjectName", "Project Name", string.IsNullOrWhiteSpace(draft.ProjectName) ? NoneText : draft.ProjectName));
         }
@@ -138,25 +206,17 @@ public sealed class ConversationController
         return fields;
     }
 
-    private static void RenderSetupForm(IReadOnlyList<SetupField> fields, int selectedIndex)
-    {
-        Console.Clear();
-        Console.WriteLine("=== Chat / Setup ===");
-        Console.WriteLine("Use Up/Down to navigate, Enter to edit, Left/Right to change mode, F5 to run, Esc to cancel.");
-        Console.WriteLine("Workspace Path editor supports Tab completion.");
-        Console.WriteLine();
 
-        for (var i = 0; i < fields.Count; i++)
-        {
-            var field = fields[i];
-            var marker = i == selectedIndex ? ">" : " ";
-            Console.WriteLine($"{marker} {field.Label,-16}: {field.Value}");
-        }
+
+    // Returns the field ID of the first failing required field, or null if all pass.
+    private static string? ValidateRequiredFields(SetupDraft draft)
+    {
+        return string.IsNullOrWhiteSpace(draft.TaskPrompt) ? "TaskPrompt" : null;
     }
 
     private static void ApplyEdit(string fieldId, SetupDraft draft)
     {
-        if (fieldId == "WorkspaceMode")
+        if (fieldId == WorkspaceModeField)
         {
             draft.WorkspaceMode = NextMode(draft.WorkspaceMode, 1);
             return;
@@ -164,8 +224,8 @@ public sealed class ConversationController
 
         Console.SetCursorPosition(0, Console.CursorTop + 2);
         Console.Write($"Edit {fieldId}> ");
-        var value = fieldId == "WorkspacePath"
-            ? ReadPathWithTabCompletion(draft.WorkspacePath)
+        var value = fieldId == WorkspacePathField
+            ? PathInputHandler.ReadPathWithTabCompletion(draft.WorkspacePath)
             : Console.ReadLine();
         if (value is null)
         {
@@ -195,7 +255,7 @@ public sealed class ConversationController
 
     private static string NextMode(string currentMode, int delta)
     {
-        var modes = new[] { "new-project", "existing-folder", "existing-git" };
+        var modes = new[] { NewProjectMode, ExistingFolderMode, ExistingGitMode };
         var currentIndex = Array.FindIndex(modes, m => string.Equals(m, currentMode, StringComparison.OrdinalIgnoreCase));
         if (currentIndex < 0)
         {
@@ -206,99 +266,6 @@ public sealed class ConversationController
         return modes[next];
     }
 
-    private static string ReadPathWithTabCompletion(string currentValue)
-    {
-        var buffer = new StringBuilder(currentValue ?? string.Empty);
-        Console.Write(buffer.ToString());
-
-        while (true)
-        {
-            var key = Console.ReadKey(intercept: true);
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                return buffer.ToString();
-            }
-
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                if (buffer.Length > 0)
-                {
-                    buffer.Length--;
-                    Console.Write("\b \b");
-                }
-                continue;
-            }
-
-            if (key.Key == ConsoleKey.Tab)
-            {
-                var completed = TryCompletePath(buffer.ToString());
-                if (!string.Equals(completed, buffer.ToString(), StringComparison.Ordinal))
-                {
-                    while (buffer.Length > 0)
-                    {
-                        buffer.Length--;
-                        Console.Write("\b \b");
-                    }
-
-                    buffer.Append(completed);
-                    Console.Write(completed);
-                }
-                continue;
-            }
-
-            if (!char.IsControl(key.KeyChar))
-            {
-                buffer.Append(key.KeyChar);
-                Console.Write(key.KeyChar);
-            }
-        }
-    }
-
-    private static string TryCompletePath(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return input;
-        }
-
-        try
-        {
-            var expanded = Environment.ExpandEnvironmentVariables(input);
-            var directoryPart = expanded;
-            var prefix = string.Empty;
-
-            if (!Directory.Exists(expanded))
-            {
-                directoryPart = Path.GetDirectoryName(expanded) ?? Directory.GetCurrentDirectory();
-                prefix = Path.GetFileName(expanded) ?? string.Empty;
-            }
-
-            if (!Directory.Exists(directoryPart))
-            {
-                return input;
-            }
-
-            var matches = Directory.GetDirectories(directoryPart)
-                .Where(d => Path.GetFileName(d).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            if (matches.Length == 0)
-            {
-                return input;
-            }
-
-            var match = matches[0];
-            return match.EndsWith(Path.DirectorySeparatorChar)
-                ? match
-                : match + Path.DirectorySeparatorChar;
-        }
-        catch
-        {
-            return input;
-        }
-    }
 
     private static void EnsureWorkspaceExists(string workspacePath)
     {
@@ -318,7 +285,7 @@ public sealed class ConversationController
             ProjectName: {request.ProjectName ?? NoneText}
             BuildCommand: {request.BuildCommand ?? NoneText}
             """;
-        _ = await _copilotClient.CompleteAsync(model, prompt, cancellationToken);
+        _ = await _copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
     }
 
     private async Task<string> GenerateSetupSummaryAsync(RunRequest request, CancellationToken cancellationToken)
@@ -335,7 +302,7 @@ public sealed class ConversationController
             Overrides: {FormatOverrides(request.ModelOverrides)}
             """;
 
-        var completion = await _copilotClient.CompleteAsync(model, prompt, cancellationToken);
+        var completion = await _copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
         return Redaction.RedactSecrets(completion);
     }
 
@@ -392,11 +359,9 @@ public sealed class ConversationController
     {
         public string TaskPrompt { get; set; } = string.Empty;
         public string WorkspacePath { get; set; } = string.Empty;
-        public string WorkspaceMode { get; set; } = "existing-folder";
+        public string WorkspaceMode { get; set; } = ExistingFolderMode;
         public string? ProjectName { get; set; }
         public string? ModelOverrides { get; set; }
         public string? BuildCommand { get; set; }
     }
-
-    private sealed record SetupField(string Id, string Label, string Value);
 }

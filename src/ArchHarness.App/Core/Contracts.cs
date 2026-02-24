@@ -10,7 +10,12 @@ public sealed record RunRequest(
     string? BuildCommand
 );
 
-public sealed record ExecutionPlanStep(int Id, string Agent, string Objective, IReadOnlyList<int>? DependsOnStepIds = null);
+public sealed record ExecutionPlanStep(
+    int Id,
+    string Agent,
+    string Objective,
+    IReadOnlyList<int>? DependsOnStepIds = null,
+    IReadOnlyList<string>? Languages = null);
 
 public sealed record IterationStrategy(int MaxIterations, bool ReviewRequired);
 
@@ -29,3 +34,9 @@ public sealed record RunArtefacts(string RunId, string RunDirectory);
 public sealed record CopilotModelUsage(string Model, int Calls, int PromptCharacters, int CompletionCharacters);
 
 public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string Source, string Message, string? Prompt = null);
+
+public sealed record AgentStreamDeltaEvent(
+    DateTimeOffset TimestampUtc,
+    string AgentId,
+    string AgentRole,
+    string DeltaContent);

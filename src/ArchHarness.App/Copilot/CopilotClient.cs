@@ -6,7 +6,13 @@ namespace ArchHarness.App.Copilot;
 
 public interface ICopilotClient
 {
-    Task<string> CompleteAsync(string model, string prompt, CancellationToken cancellationToken = default);
+    Task<string> CompleteAsync(
+        string model,
+        string prompt,
+        CopilotCompletionOptions? options = null,
+        string? agentId = null,
+        string? agentRole = null,
+        CancellationToken cancellationToken = default);
     IReadOnlyList<CopilotModelUsage> GetUsageSnapshot();
 }
 
@@ -27,7 +33,13 @@ public sealed class CopilotClient : ICopilotClient
         _options = options.Value;
     }
 
-    public async Task<string> CompleteAsync(string model, string prompt, CancellationToken cancellationToken = default)
+    public async Task<string> CompleteAsync(
+        string model,
+        string prompt,
+        CopilotCompletionOptions? options = null,
+        string? agentId = null,
+        string? agentRole = null,
+        CancellationToken cancellationToken = default)
     {
         _modelResolver.ValidateOrThrow(model);
         var boundedPrompt = BoundLength(prompt, _options.MaxPromptCharacters);
@@ -37,7 +49,7 @@ public sealed class CopilotClient : ICopilotClient
         {
             try
             {
-                var session = _sessionFactory.Create(model);
+                var session = _sessionFactory.Create(model, options, agentId, agentRole);
                 var completion = await session.CompleteAsync(boundedPrompt, cancellationToken);
                 var boundedCompletion = BoundLength(completion, _options.MaxCompletionCharacters);
                 TrackUsage(model, boundedPrompt.Length, boundedCompletion.Length);
