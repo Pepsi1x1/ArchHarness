@@ -18,6 +18,8 @@ builder.Services.AddSingleton<ICopilotUserInputBridge, ConsoleCopilotUserInputBr
 builder.Services.AddSingleton<IModelResolver, ModelResolver>();
 builder.Services.AddSingleton<IStartupPreflightValidator, CopilotStartupPreflightValidator>();
 builder.Services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
+builder.Services.AddSingleton<CopilotClientProvider>();
+builder.Services.AddSingleton<CopilotSessionFactory.CopilotSessionContext>();
 builder.Services.AddSingleton<ICopilotClient, CopilotClient>();
 builder.Services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStream>();
 builder.Services.AddSingleton<IAgentStreamEventStream, AgentStreamEventStream>();
@@ -33,10 +35,21 @@ builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();
 builder.Services.AddSingleton<IBuildRunner, BuildRunner>();
 builder.Services.AddSingleton<OrchestratorRuntime.OrchestratorAgentDependencies>();
 builder.Services.AddSingleton<OrchestratorRuntime.OrchestratorServiceDependencies>();
+builder.Services.AddSingleton<ArchitectureReviewLoop>();
+builder.Services.AddSingleton<AgentStepExecutor>();
 builder.Services.AddSingleton<OrchestratorRuntime>();
 builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();
 
 using var host = builder.Build();
+var sessionFactory = host.Services.GetRequiredService<ICopilotSessionFactory>() as CopilotSessionFactory;
+if (sessionFactory is not null)
+{
+    var orchestrationAgent = host.Services.GetRequiredService<OrchestrationAgent>();
+    _ = sessionFactory.WarmUpAsync(
+        orchestrationAgent.DefaultModel,
+        orchestrationAgent.GetWarmUpCompletionOptions());
+}
+
 var terminal = host.Services.GetRequiredService<ChatTerminal>();
 await terminal.RunAsync(args);

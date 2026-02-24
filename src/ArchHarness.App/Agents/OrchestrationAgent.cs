@@ -29,6 +29,9 @@ public sealed class OrchestrationAgent : AgentBase
     public OrchestrationAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
         : base(copilotClient, modelResolver, toolPolicyProvider, "orchestration", Guid.NewGuid().ToString("N")) { }
 
+    internal CopilotCompletionOptions GetWarmUpCompletionOptions()
+        => ApplyToolPolicy(OrchestrationCompletionOptions);
+
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(
         RunRequest request,
         string workspaceRoot,
@@ -121,16 +124,12 @@ public sealed class OrchestrationAgent : AgentBase
     }
 
     public async Task<bool> ValidateCompletionAsync(
-        ExecutionPlan plan,
-        ArchitectureReview review,
-        bool buildPassed,
-        bool buildCommandConfigured,
-        IDictionary<string, string>? modelOverrides,
+        CompletionValidationRequest request,
         string? agentId = null,
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var model = ResolveModel(modelOverrides);
+        var model = ResolveModel(request.ModelOverrides);
         var options = ApplyToolPolicy(OrchestrationCompletionOptions);
         _ = await CopilotClient.CompleteAsync(
             model,
@@ -140,9 +139,9 @@ public sealed class OrchestrationAgent : AgentBase
             agentRole: agentRole ?? this.Role,
             cancellationToken);
 
-        var hasHighFindings = review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-        var buildRequired = buildCommandConfigured && plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
-        return !hasHighFindings && (!buildRequired || buildPassed);
+        var hasHighFindings = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        var buildRequired = request.BuildCommandConfigured && request.Plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
+        return !hasHighFindings && (!buildRequired || request.BuildPassed);
     }
 
     private static bool TryBuildExecutionPlan(string raw, string workspaceRoot, out ExecutionPlan plan)

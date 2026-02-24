@@ -29,6 +29,28 @@ public sealed record ArchitectureFinding(string Severity, string Rule, string? F
 
 public sealed record ArchitectureReview(IReadOnlyList<ArchitectureFinding> Findings, IReadOnlyList<string> RequiredActions);
 
+public sealed record ArchitectureReviewRequest(
+    string DelegatedPrompt,
+    string Diff,
+    string WorkspaceRoot,
+    IReadOnlyList<string> FilesTouched,
+    IReadOnlyList<string>? LanguageScope,
+    IDictionary<string, string>? ModelOverrides);
+
+public sealed record CompletionValidationRequest(
+    ExecutionPlan Plan,
+    ArchitectureReview Review,
+    bool BuildPassed,
+    bool BuildCommandConfigured,
+    IDictionary<string, string>? ModelOverrides);
+
+public sealed record ArchitectureLoopRequest(
+    IterationStrategy IterationStrategy,
+    ArchitectureReview InitialReview,
+    IReadOnlyList<string> FilesTouched,
+    IReadOnlyList<string>? ArchitectureLanguages,
+    RunRequest RunRequest);
+
 public sealed record RunArtefacts(string RunId, string RunDirectory);
 
 public sealed record CopilotModelUsage(string Model, int Calls, int PromptCharacters, int CompletionCharacters);

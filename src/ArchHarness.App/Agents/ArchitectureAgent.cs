@@ -21,20 +21,15 @@ public sealed class ArchitectureAgent : AgentBase
         : base(copilotClient, modelResolver, toolPolicyProvider, "architecture", Guid.NewGuid().ToString("N")) { }
 
     public async Task<ArchitectureReview> ReviewAsync(
-        string delegatedPrompt,
-        string diff,
-        string workspaceRoot,
-        IReadOnlyList<string> filesTouched,
-        IReadOnlyList<string>? languageScope,
-        IDictionary<string, string>? modelOverrides,
+        ArchitectureReviewRequest request,
         string? agentId = null,
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var model = ResolveModel(modelOverrides);
-        var guidance = BuildGuidanceContext(workspaceRoot, filesTouched, diff, languageScope);
+        var model = ResolveModel(request.ModelOverrides);
+        var guidance = BuildGuidanceContext(request.WorkspaceRoot, request.FilesTouched, request.Diff, request.LanguageScope);
         var systemPrompt = BuildSystemPrompt(guidance.Guidelines, guidance.LanguageLabel);
-        var enforcementPrompt = BuildEnforcementPrompt(delegatedPrompt, workspaceRoot, filesTouched, diff);
+        var enforcementPrompt = BuildEnforcementPrompt(request.DelegatedPrompt, request.WorkspaceRoot, request.FilesTouched, request.Diff);
         var options = ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
@@ -52,13 +47,13 @@ public sealed class ArchitectureAgent : AgentBase
         var findings = new List<ArchitectureFinding>();
         var requiredActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (diff.Contains("TODO", StringComparison.OrdinalIgnoreCase))
+        if (request.Diff.Contains("TODO", StringComparison.OrdinalIgnoreCase))
         {
-            findings.Add(new ArchitectureFinding(SeverityHigh, "Completeness", filesTouched.FirstOrDefault(), "TODO", "TODO marker found in implementation."));
+            findings.Add(new ArchitectureFinding(SeverityHigh, "Completeness", request.FilesTouched.FirstOrDefault(), "TODO", "TODO marker found in implementation."));
             requiredActions.Add("Remove TODO markers and complete implementation details.");
         }
 
-        var candidateFiles = ResolveCandidateFiles(diff, workspaceRoot);
+        var candidateFiles = ResolveCandidateFiles(request.Diff, request.WorkspaceRoot);
         if (candidateFiles.Count == 0)
         {
             return new ArchitectureReview(findings, requiredActions.ToArray());
@@ -71,14 +66,14 @@ public sealed class ArchitectureAgent : AgentBase
         AnalyzeOpenClosedAndLiskov(parsedFiles, findings, requiredActions);
         AnalyzeDry(parsedFiles, findings, requiredActions);
 
-        var hasTests = filesTouched.Any(f => f.Contains("test", StringComparison.OrdinalIgnoreCase))
+        var hasTests = request.FilesTouched.Any(f => f.Contains("test", StringComparison.OrdinalIgnoreCase))
             || candidateFiles.Any(f => f.Contains("test", StringComparison.OrdinalIgnoreCase));
         if (!hasTests && candidateFiles.Any(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
         {
             findings.Add(new ArchitectureFinding(
                 SeverityMedium,
                 "SeparationOfConcerns",
-                Path.GetRelativePath(workspaceRoot, candidateFiles[0]),
+                Path.GetRelativePath(request.WorkspaceRoot, candidateFiles[0]),
                 "Tests",
                 "Code changes were detected without corresponding tests."
             ));

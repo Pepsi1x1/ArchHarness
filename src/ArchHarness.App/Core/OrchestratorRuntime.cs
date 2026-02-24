@@ -18,10 +18,14 @@ public sealed class OrchestratorRuntime
     private readonly ICopilotSessionEventStream _sessionEventStream;
     private readonly IBuildRunner _buildRunner;
     private readonly IRunContextAccessor _runContextAccessor;
+    private readonly ArchitectureReviewLoop _architectureReviewLoop;
+    private readonly AgentStepExecutor _agentStepExecutor;
 
     public OrchestratorRuntime(
         OrchestratorAgentDependencies agentDependencies,
-        OrchestratorServiceDependencies serviceDependencies)
+        OrchestratorServiceDependencies serviceDependencies,
+        ArchitectureReviewLoop architectureReviewLoop,
+        AgentStepExecutor agentStepExecutor)
     {
         _orchestrationAgent = agentDependencies.OrchestrationAgent;
         _frontendAgent = agentDependencies.FrontendAgent;
@@ -33,6 +37,8 @@ public sealed class OrchestratorRuntime
         _sessionEventStream = serviceDependencies.SessionEventStream;
         _buildRunner = serviceDependencies.BuildRunner;
         _runContextAccessor = serviceDependencies.RunContextAccessor;
+        _architectureReviewLoop = architectureReviewLoop;
+        _agentStepExecutor = agentStepExecutor;
     }
 
     public async Task<RunArtefacts> RunAsync(
@@ -94,113 +100,30 @@ public sealed class OrchestratorRuntime
                 cancellationToken);
             await _artefactStore.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
 
-        string frontendPlan = string.Empty;
-        IReadOnlyList<string> filesTouched = Array.Empty<string>();
-        ArchitectureReview review = new(Array.Empty<ArchitectureFinding>(), Array.Empty<string>());
+        var stepResult = await _agentStepExecutor.ExecuteAsync(
+            plan,
+            adapter,
+            request,
+            runId,
+            runDirectory,
+            progress,
+            cancellationToken);
 
-        Dictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies = new Dictionary<string, Func<ExecutionPlanStep, Task>>
-        {
-            ["Frontend"] = async (ExecutionPlanStep s) =>
-            {
-                frontendPlan = await _frontendAgent.CreatePlanAsync(
-                    adapter,
-                    s.Objective,
-                    request.ModelOverrides,
-                    _frontendAgent.Id,
-                    _frontendAgent.Role,
-                    cancellationToken);
-            },
-            ["Builder"] = async (ExecutionPlanStep s) =>
-            {
-                filesTouched = await _builderAgent.ImplementAsync(
-                    adapter,
-                    s.Objective,
-                    request.ModelOverrides,
-                    null,
-                    _builderAgent.Id,
-                    _builderAgent.Role,
-                    cancellationToken);
-            },
-            ["Architecture"] = async (ExecutionPlanStep s) =>
-            {
-                review = await _architectureAgent.ReviewAsync(
-                    s.Objective,
-                    await adapter.DiffAsync(cancellationToken),
-                    adapter.RootPath,
-                    filesTouched,
-                    s.Languages,
-                    request.ModelOverrides,
-                    _architectureAgent.Id,
-                    _architectureAgent.Role,
-                    cancellationToken);
-            }
-        };
+        string frontendPlan = stepResult.FrontendPlan;
+        IReadOnlyList<string> filesTouched = stepResult.FilesTouched;
+        ArchitectureReview review = stepResult.Review;
 
-        var pendingSteps = plan.Steps.ToDictionary(s => s.Id);
-        var completedStepIds = new HashSet<int>();
-        while (pendingSteps.Count > 0)
-        {
-            var step = pendingSteps.Values
-                .OrderBy(s => s.Id)
-                .FirstOrDefault(s => DependenciesSatisfied(s, completedStepIds, pendingSteps));
-
-            if (step is null)
-            {
-                step = pendingSteps.Values.OrderBy(s => s.Id).First();
-                await _artefactStore.AppendEventAsync(runDirectory, new
-                {
-                    runId,
-                    source = OrchestratorSource,
-                    message = $"Dependency deadlock detected; force-executing step {step.Id}."
-                }, cancellationToken);
-            }
-
-            await _artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, step.Agent, "Delegated prompt started", step.Objective));
-            if (!agentStrategies.TryGetValue(step.Agent, out Func<ExecutionPlanStep, Task>? strategy))
-            {
-                throw new InvalidOperationException($"Unrecognized agent role: '{step.Agent}'.");
-            }
-
-            await strategy(step);
-
-                    completedStepIds.Add(step.Id);
-                    pendingSteps.Remove(step.Id);
-        }
-
-        var iteration = 0;
-         var architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
-        while (plan.IterationStrategy.ReviewRequired &&
-               review.Findings.Any(f => f.Severity.Equals("high", StringComparison.OrdinalIgnoreCase)) &&
-               iteration < plan.IterationStrategy.MaxIterations)
-        {
-            iteration++;
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", $"Review iteration {iteration}"));
-            var remediationPrompt = await _orchestrationAgent.BuildRemediationPromptAsync(
-                request,
-                adapter.RootPath,
-                review,
-                iteration,
-                _orchestrationAgent.Id,
-                _orchestrationAgent.Role,
-                cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", remediationPrompt));
-
-            var latestDiff = await adapter.DiffAsync(cancellationToken);
-            review = await _architectureAgent.ReviewAsync(
-                remediationPrompt,
-                latestDiff,
-                adapter.RootPath,
-                filesTouched,
-                architectureLanguages,
-                request.ModelOverrides,
-                _architectureAgent.Id,
-                _architectureAgent.Role,
-                cancellationToken);
-
-            // Refresh touched files snapshot after architecture enforcement pass.
-            filesTouched = ParseTouchedFiles(latestDiff);
-        }
+        var architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
+        (review, filesTouched) = await _architectureReviewLoop.RunAsync(
+            new ArchitectureLoopRequest(
+                IterationStrategy: plan.IterationStrategy,
+                InitialReview: review,
+                FilesTouched: filesTouched,
+                ArchitectureLanguages: architectureLanguages,
+                RunRequest: request),
+            adapter,
+            progress,
+            cancellationToken);
 
         await _artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
 
@@ -225,11 +148,12 @@ public sealed class OrchestratorRuntime
 
         var buildCommandConfigured = !string.IsNullOrWhiteSpace(request.BuildCommand);
         var completed = await _orchestrationAgent.ValidateCompletionAsync(
-            plan,
-            review,
-            buildResult.Passed,
-            buildCommandConfigured,
-            request.ModelOverrides,
+            new CompletionValidationRequest(
+                Plan: plan,
+                Review: review,
+                BuildPassed: buildResult.Passed,
+                BuildCommandConfigured: buildCommandConfigured,
+                ModelOverrides: request.ModelOverrides),
             _orchestrationAgent.Id,
             _orchestrationAgent.Role,
             cancellationToken);
@@ -297,46 +221,6 @@ public sealed class OrchestratorRuntime
         {
             // Expected on run shutdown when stopping event pump.
         }
-    }
-
-    private static IReadOnlyList<string> ParseTouchedFiles(string? diff)
-    {
-        if (string.IsNullOrWhiteSpace(diff))
-        {
-            return Array.Empty<string>();
-        }
-
-        return diff
-            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(line => line.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private static bool DependenciesSatisfied(
-        ExecutionPlanStep step,
-        ISet<int> completedStepIds,
-        IReadOnlyDictionary<int, ExecutionPlanStep> pendingSteps)
-    {
-        if (step.DependsOnStepIds is null || step.DependsOnStepIds.Count == 0)
-        {
-            return true;
-        }
-
-        foreach (var dep in step.DependsOnStepIds)
-        {
-            if (pendingSteps.ContainsKey(dep))
-            {
-                return false;
-            }
-
-            if (!completedStepIds.Contains(dep))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     public sealed class OrchestratorAgentDependencies

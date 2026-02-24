@@ -61,9 +61,10 @@ public sealed class ChatTerminal
     /// <param name="cancellationToken">Token to signal cancellation.</param>
     public async Task RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
+        Task<PreflightValidationResult> preflightTask = this._preflightValidator.ValidateAsync(cancellationToken);
         ContentScreenRenderer.RenderSplash();
 
-        PreflightValidationResult preflight = await this._preflightValidator.ValidateAsync(cancellationToken);
+        PreflightValidationResult preflight = await preflightTask;
         if (!preflight.IsSuccess)
         {
             RunResultRenderer.RenderPreflightFailure(preflight);

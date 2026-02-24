@@ -113,30 +113,48 @@ public sealed class ConversationController
                 continue;
             }
 
-            if (key.Key == ConsoleKey.Enter)
+            if (TryHandleActionKey(key.Key, fields[selectedIndex].Id, draft, out var completedRequest))
             {
-                ApplyEdit(fields[selectedIndex].Id, draft);
-                SetupFormRenderer.FlashSaved();
-                continue;
-            }
-
-            if (key.Key == ConsoleKey.F5)
-            {
-                var errorFieldId = ValidateRequiredFields(draft);
-                if (errorFieldId != null)
+                if (completedRequest is not null)
                 {
-                    _validationError = errorFieldId;
-                    continue;
+                    return completedRequest;
                 }
 
-                return BuildRequestFromDraft(draft);
-            }
-
-            if (key.Key == ConsoleKey.Escape)
-            {
-                throw new OperationCanceledException("Run setup canceled by user.");
+                continue;
             }
         }
+    }
+
+    private static bool TryHandleActionKey(ConsoleKey key, string fieldId, SetupDraft draft, out RunRequest? completedRequest)
+    {
+        completedRequest = null;
+
+        if (key == ConsoleKey.Enter)
+        {
+            ApplyEdit(fieldId, draft);
+            SetupFormRenderer.FlashSaved();
+            return true;
+        }
+
+        if (key == ConsoleKey.F5)
+        {
+            var errorFieldId = ValidateRequiredFields(draft);
+            if (errorFieldId != null)
+            {
+                _validationError = errorFieldId;
+                return true;
+            }
+
+            completedRequest = BuildRequestFromDraft(draft);
+            return true;
+        }
+
+        if (key == ConsoleKey.Escape)
+        {
+            throw new OperationCanceledException("Run setup canceled by user.");
+        }
+
+        return false;
     }
 
     private static bool TryHandleNavigation(ConsoleKey key, int fieldCount, ref int selectedIndex)
@@ -222,34 +240,42 @@ public sealed class ConversationController
             return;
         }
 
-        Console.SetCursorPosition(0, Console.CursorTop + 2);
-        Console.Write($"Edit {fieldId}> ");
-        var value = fieldId == WorkspacePathField
-            ? PathInputHandler.ReadPathWithTabCompletion(draft.WorkspacePath)
-            : Console.ReadLine();
-        if (value is null)
+        try
         {
-            return;
-        }
+            Console.CursorVisible = true;
+            Console.SetCursorPosition(0, Console.CursorTop + 2);
+            Console.Write($"Edit {fieldId}> ");
+            var value = fieldId == WorkspacePathField
+                ? PathInputHandler.ReadPathWithTabCompletion(draft.WorkspacePath)
+                : Console.ReadLine();
+            if (value is null)
+            {
+                return;
+            }
 
-        switch (fieldId)
+            switch (fieldId)
+            {
+                case "TaskPrompt":
+                    draft.TaskPrompt = value;
+                    break;
+                case "WorkspacePath":
+                    draft.WorkspacePath = value;
+                    break;
+                case "ProjectName":
+                    draft.ProjectName = value;
+                    break;
+                case "Workflow":
+                case "ModelOverrides":
+                    draft.ModelOverrides = value;
+                    break;
+                case "BuildCommand":
+                    draft.BuildCommand = value;
+                    break;
+            }
+        }
+        finally
         {
-            case "TaskPrompt":
-                draft.TaskPrompt = value;
-                break;
-            case "WorkspacePath":
-                draft.WorkspacePath = value;
-                break;
-            case "ProjectName":
-                draft.ProjectName = value;
-                break;
-            case "Workflow":
-            case "ModelOverrides":
-                draft.ModelOverrides = value;
-                break;
-            case "BuildCommand":
-                draft.BuildCommand = value;
-                break;
+            Console.CursorVisible = false;
         }
     }
 
