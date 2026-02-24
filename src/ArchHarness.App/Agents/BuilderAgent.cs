@@ -14,14 +14,16 @@ public sealed class BuilderAgent : AgentBase
         Return a concise completion summary and list key changed files.
         """;
 
-    public BuilderAgent(ICopilotClient copilotClient, IModelResolver modelResolver)
-        : base(copilotClient, modelResolver, "builder") { }
+    public BuilderAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
+        : base(copilotClient, modelResolver, toolPolicyProvider, "builder", Guid.NewGuid().ToString("N")) { }
 
     public async Task<IReadOnlyList<string>> ImplementAsync(
         IWorkspaceAdapter workspace,
         string objective,
         IDictionary<string, string>? modelOverrides,
         IReadOnlyList<string>? requiredActions = null,
+        string? agentId = null,
+        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
         var touched = new List<string>();
@@ -34,33 +36,49 @@ public sealed class BuilderAgent : AgentBase
         }
 
         var generationPrompt = BuildGenerationPrompt(workspace, objective, requiredActions);
-        _ = await CopilotClient.CompleteAsync(model, generationPrompt, cancellationToken);
+        var systemPrompt = BuildSystemPrompt();
+        var options = ApplyToolPolicy(new CopilotCompletionOptions
+        {
+            SystemMessage = systemPrompt,
+            SystemMessageMode = CopilotSystemMessageMode.Append
+        });
+
+        _ = await CopilotClient.CompleteAsync(
+            model,
+            generationPrompt,
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
 
         return touched.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private static string BuildGenerationPrompt(IWorkspaceAdapter workspace, string objective, IReadOnlyList<string>? requiredActions)
     {
-        var actions = requiredActions is { Count: > 0 }
-            ? string.Join(" | ", requiredActions)
-            : "none";
-        var builderGuidelines = LoadBuilderGuidelines();
+        var requiredActionsSection = requiredActions is { Count: > 0 }
+            ? $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{string.Join(" | ", requiredActions)}"
+            : string.Empty;
 
+        return $"""
+            WorkspaceRoot: {workspace.RootPath}
+            Write boundaries: You may modify any file or directory contained in WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
+            Execution mode: use built-in file and terminal tools as needed.
+
+            DelegatedPrompt:
+            {objective}
+            {requiredActionsSection}
+            """;
+    }
+
+    private static string BuildSystemPrompt()
+    {
+        var builderGuidelines = LoadBuilderGuidelines();
         return $"""
             {BuilderInstructions}
 
             Apply the following builder guidelines:
             {builderGuidelines}
-
-            WorkspaceRoot: {workspace.RootPath}
-            Write boundaries: Do not modify files outside WorkspaceRoot.
-            Execution mode: use built-in file and terminal tools as needed.
-
-            DelegatedPrompt:
-            {objective}
-
-            RequiredActions:
-            {actions}
             """;
     }
 

@@ -7,10 +7,34 @@ namespace ArchHarness.App.Agents;
 
 public sealed class OrchestrationAgent : AgentBase
 {
-    public OrchestrationAgent(ICopilotClient copilotClient, IModelResolver modelResolver)
-        : base(copilotClient, modelResolver, "orchestration") { }
+    private const string FrontendAgentName = "Frontend";
+    private const string BuilderAgentName = "Builder";
+    private const string ArchitectureAgentName = "Architecture";
 
-    public async Task<ExecutionPlan> BuildExecutionPlanAsync(RunRequest request, string workspaceRoot, CancellationToken cancellationToken = default)
+    private const string OrchestrationSystemInstructions = """
+        You are the orchestration planner.
+        Your role is planning and delegation only.
+        Never modify workspace files directly and never perform implementation work.
+        Never invoke file editing tools, including edit_file, this is the delegated agents job.
+        Produce delegated prompts and validation outputs for specialized agents.
+        """;
+
+    private static readonly CopilotCompletionOptions OrchestrationCompletionOptions = new()
+    {
+        SystemMessage = OrchestrationSystemInstructions,
+        SystemMessageMode = CopilotSystemMessageMode.Append,
+        ExcludedTools = new[] { "edit_file" }
+    };
+
+    public OrchestrationAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
+        : base(copilotClient, modelResolver, toolPolicyProvider, "orchestration", Guid.NewGuid().ToString("N")) { }
+
+    public async Task<ExecutionPlan> BuildExecutionPlanAsync(
+        RunRequest request,
+        string workspaceRoot,
+        string? agentId = null,
+        string? agentRole = null,
+        CancellationToken cancellationToken = default)
     {
         var model = ResolveModel(request.ModelOverrides);
         var buildCommand = request.BuildCommand ?? "(none)";
@@ -41,7 +65,14 @@ public sealed class OrchestrationAgent : AgentBase
             BuildCommand: {{buildCommand}}
             """;
 
-        var planningResponse = await CopilotClient.CompleteAsync(model, planningPrompt, cancellationToken);
+        var options = ApplyToolPolicy(OrchestrationCompletionOptions);
+        var planningResponse = await CopilotClient.CompleteAsync(
+            model,
+            planningPrompt,
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
         if (TryBuildExecutionPlan(planningResponse, workspaceRoot, out var parsedPlan))
         {
             return parsedPlan;
@@ -55,11 +86,15 @@ public sealed class OrchestrationAgent : AgentBase
         string workspaceRoot,
         ArchitectureReview review,
         int iteration,
+        string? agentId = null,
+        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
         var model = ResolveModel(request.ModelOverrides);
         var reviewSummary = string.Join(Environment.NewLine, review.RequiredActions.Select(x => $"- {x}"));
-        var actionsText = string.IsNullOrWhiteSpace(reviewSummary) ? "- none" : reviewSummary;
+        var requiredActionsSection = string.IsNullOrWhiteSpace(reviewSummary)
+            ? string.Empty
+            : $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{reviewSummary}";
         var prompt = $"""
             You are the orchestration planner.
             Generate a single delegated prompt for the Architecture agent.
@@ -69,11 +104,17 @@ public sealed class OrchestrationAgent : AgentBase
             Iteration: {iteration}
             OriginalTask: {request.TaskPrompt}
             WorkspaceRoot: {workspaceRoot}
-            RequiredActions:
-            {actionsText}
+            {requiredActionsSection}
             """;
 
-        var response = await CopilotClient.CompleteAsync(model, prompt, cancellationToken);
+        var options = ApplyToolPolicy(OrchestrationCompletionOptions);
+        var response = await CopilotClient.CompleteAsync(
+            model,
+            prompt,
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
         return string.IsNullOrWhiteSpace(response)
             ? $"Enforce all architecture required actions for iteration {iteration} directly in workspace files and re-check SOLID/DRY compliance."
             : response.Trim();
@@ -85,10 +126,19 @@ public sealed class OrchestrationAgent : AgentBase
         bool buildPassed,
         bool buildCommandConfigured,
         IDictionary<string, string>? modelOverrides,
+        string? agentId = null,
+        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
         var model = ResolveModel(modelOverrides);
-        _ = await CopilotClient.CompleteAsync(model, "Validate completion", cancellationToken);
+        var options = ApplyToolPolicy(OrchestrationCompletionOptions);
+        _ = await CopilotClient.CompleteAsync(
+            model,
+            "Validate completion",
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
 
         var hasHighFindings = review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         var buildRequired = buildCommandConfigured && plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
@@ -108,88 +158,13 @@ public sealed class OrchestrationAgent : AgentBase
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-
-            if (!root.TryGetProperty("steps", out var stepsElement) || stepsElement.ValueKind != JsonValueKind.Array)
+            if (!TryParseAndNormalizeSteps(root, workspaceRoot, out var steps))
             {
                 return false;
             }
 
-            var steps = new List<ExecutionPlanStep>();
-            var workspaceLanguages = DetectWorkspaceLanguages(workspaceRoot);
-            var idx = 1;
-            foreach (var step in stepsElement.EnumerateArray())
-            {
-                var parsedId = step.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var idVal) ? idVal : idx;
-                var agent = step.TryGetProperty("agent", out var agentEl) ? agentEl.GetString() : null;
-                var objective = step.TryGetProperty("objective", out var objEl) ? objEl.GetString() : null;
-                if (string.IsNullOrWhiteSpace(agent) || string.IsNullOrWhiteSpace(objective))
-                {
-                    idx++;
-                    continue;
-                }
-
-                var normalizedAgent = NormalizeAgent(agent);
-                if (normalizedAgent is null)
-                {
-                    idx++;
-                    continue;
-                }
-
-                var sanitizedObjective = EnforceWorkspaceRootInObjective(objective, workspaceRoot);
-                var dependsOn = ParseDependsOn(step);
-                var languages = ParseLanguages(step);
-                steps.Add(new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, dependsOn, languages));
-                idx++;
-            }
-
-            if (!steps.Any(s => s.Agent == "Builder") || !steps.Any(s => s.Agent == "Architecture"))
-            {
-                return false;
-            }
-
-            steps = NormalizeStepOrdering(steps, workspaceLanguages);
-
-            var iteration = new IterationStrategy(MaxIterations: 2, ReviewRequired: true);
-            if (root.TryGetProperty("iterationStrategy", out var itEl))
-            {
-                var maxIterations = itEl.TryGetProperty("maxIterations", out var maxEl) && maxEl.TryGetInt32(out var val)
-                    ? Math.Clamp(val, 1, 8)
-                    : 2;
-                var reviewRequired = !itEl.TryGetProperty("reviewRequired", out var reviewEl) || reviewEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-                    || reviewEl.GetBoolean();
-                iteration = new IterationStrategy(maxIterations, reviewRequired);
-            }
-
-            var criteria = new List<string>
-            {
-                "No high severity architecture findings",
-                "Build passes (if command configured)"
-            };
-
-            if (root.TryGetProperty("completionCriteria", out var criteriaEl) && criteriaEl.ValueKind == JsonValueKind.Array)
-            {
-                var parsedCriteria = criteriaEl.EnumerateArray()
-                    .Select(x => x.GetString())
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Cast<string>()
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                if (parsedCriteria.Count > 0)
-                {
-                    criteria = parsedCriteria;
-                    if (!criteria.Any(c => c.Contains("architecture", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        criteria.Add("No high severity architecture findings");
-                    }
-
-                    if (!criteria.Any(c => c.Contains("build", StringComparison.OrdinalIgnoreCase)))
-                    {
-                        criteria.Add("Build passes (if command configured)");
-                    }
-                }
-            }
-
+            var iteration = ParseIterationStrategy(root);
+            var criteria = ParseCompletionCriteria(root);
             plan = new ExecutionPlan(steps, iteration, criteria);
             return true;
         }
@@ -201,17 +176,127 @@ public sealed class OrchestrationAgent : AgentBase
 
     private static string? NormalizeAgent(string raw)
     {
-        if (raw.Equals("frontend", StringComparison.OrdinalIgnoreCase)) return "Frontend";
-        if (raw.Equals("builder", StringComparison.OrdinalIgnoreCase) || raw.Equals("implementation", StringComparison.OrdinalIgnoreCase)) return "Builder";
-        if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return "Architecture";
+        if (raw.Equals("frontend", StringComparison.OrdinalIgnoreCase)) return FrontendAgentName;
+        if (raw.Equals("builder", StringComparison.OrdinalIgnoreCase) || raw.Equals("implementation", StringComparison.OrdinalIgnoreCase)) return BuilderAgentName;
+        if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ArchitectureAgentName;
         return null;
+    }
+
+    private static bool TryParseAndNormalizeSteps(JsonElement root, string workspaceRoot, out List<ExecutionPlanStep> steps)
+    {
+        steps = new List<ExecutionPlanStep>();
+        if (!root.TryGetProperty("steps", out var stepsElement) || stepsElement.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var workspaceLanguages = DetectWorkspaceLanguages(workspaceRoot);
+        var index = 1;
+        foreach (var step in stepsElement.EnumerateArray())
+        {
+            if (TryParseStep(step, workspaceRoot, index, out var parsed))
+            {
+                steps.Add(parsed);
+            }
+
+            index++;
+        }
+
+        if (!ContainsRequiredAgents(steps))
+        {
+            return false;
+        }
+
+        steps = NormalizeStepOrdering(steps, workspaceLanguages);
+        return true;
+    }
+
+    private static bool TryParseStep(JsonElement step, string workspaceRoot, int fallbackId, out ExecutionPlanStep parsed)
+    {
+        parsed = default!;
+        var parsedId = step.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var idVal) ? idVal : fallbackId;
+        var agent = step.TryGetProperty("agent", out var agentEl) ? agentEl.GetString() : null;
+        var objective = step.TryGetProperty("objective", out var objEl) ? objEl.GetString() : null;
+
+        if (string.IsNullOrWhiteSpace(agent) || string.IsNullOrWhiteSpace(objective))
+        {
+            return false;
+        }
+
+        var normalizedAgent = NormalizeAgent(agent);
+        if (normalizedAgent is null)
+        {
+            return false;
+        }
+
+        var sanitizedObjective = EnforceWorkspaceRootInObjective(objective, workspaceRoot);
+        parsed = new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, ParseDependsOn(step), ParseLanguages(step));
+        return true;
+    }
+
+    private static bool ContainsRequiredAgents(IEnumerable<ExecutionPlanStep> steps)
+        => steps.Any(s => s.Agent == BuilderAgentName) && steps.Any(s => s.Agent == ArchitectureAgentName);
+
+    private static IterationStrategy ParseIterationStrategy(JsonElement root)
+    {
+        var iteration = new IterationStrategy(MaxIterations: 2, ReviewRequired: true);
+        if (!root.TryGetProperty("iterationStrategy", out var itEl))
+        {
+            return iteration;
+        }
+
+        var maxIterations = itEl.TryGetProperty("maxIterations", out var maxEl) && maxEl.TryGetInt32(out var val)
+            ? Math.Clamp(val, 1, 8)
+            : 2;
+        var reviewRequired = !itEl.TryGetProperty("reviewRequired", out var reviewEl) || reviewEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || reviewEl.GetBoolean();
+        return new IterationStrategy(maxIterations, reviewRequired);
+    }
+
+    private static List<string> ParseCompletionCriteria(JsonElement root)
+    {
+        var criteria = new List<string>
+        {
+            "No high severity architecture findings",
+            "Build passes (if command configured)"
+        };
+
+        if (!root.TryGetProperty("completionCriteria", out var criteriaEl) || criteriaEl.ValueKind != JsonValueKind.Array)
+        {
+            return criteria;
+        }
+
+        var parsedCriteria = criteriaEl.EnumerateArray()
+            .Select(x => x.GetString())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (parsedCriteria.Count == 0)
+        {
+            return criteria;
+        }
+
+        criteria = parsedCriteria;
+        EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
+        EnsureCriteriaContains(criteria, "build", "Build passes (if command configured)");
+        return criteria;
+    }
+
+    private static void EnsureCriteriaContains(ICollection<string> criteria, string token, string requiredCriterion)
+    {
+        if (!criteria.Any(c => c.Contains(token, StringComparison.OrdinalIgnoreCase)))
+        {
+            criteria.Add(requiredCriterion);
+        }
     }
 
     private static List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
     {
-        var nonArchitecture = steps.Where(s => s.Agent != "Architecture").ToList();
+        var nonArchitecture = steps.Where(s => s.Agent != ArchitectureAgentName).ToList();
         var architecture = steps
-            .Where(s => s.Agent == "Architecture")
+            .Where(s => s.Agent == ArchitectureAgentName)
             .Where(s => IsArchitectureReviewObjective(s.Objective))
             .ToList();
 
@@ -224,7 +309,7 @@ public sealed class OrchestrationAgent : AgentBase
         {
             architecture.Add(new ExecutionPlanStep(
                 Id: 0,
-                Agent: "Architecture",
+                Agent: ArchitectureAgentName,
                 Objective: "Review completed implementation and enforce SOLID/DRY/separation-of-concerns standards; apply required corrections directly.",
                 DependsOnStepIds: null,
                 Languages: workspaceLanguages));
@@ -263,7 +348,7 @@ public sealed class OrchestrationAgent : AgentBase
             };
         }
 
-        var architectureIndex = reordered.FindLastIndex(s => s.Agent == "Architecture");
+        var architectureIndex = reordered.FindLastIndex(s => s.Agent == ArchitectureAgentName);
         if (architectureIndex >= 0)
         {
             var architectureStep = reordered[architectureIndex];

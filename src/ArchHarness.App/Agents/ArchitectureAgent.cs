@@ -17,8 +17,8 @@ public sealed class ArchitectureAgent : AgentBase
         Keep changes inside WorkspaceRoot and update tests when behavior changes.
         Return a concise completion summary after applying changes.
         """;
-    public ArchitectureAgent(ICopilotClient copilotClient, IModelResolver modelResolver)
-        : base(copilotClient, modelResolver, "architecture") { }
+    public ArchitectureAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
+        : base(copilotClient, modelResolver, toolPolicyProvider, "architecture", Guid.NewGuid().ToString("N")) { }
 
     public async Task<ArchitectureReview> ReviewAsync(
         string delegatedPrompt,
@@ -27,11 +27,27 @@ public sealed class ArchitectureAgent : AgentBase
         IReadOnlyList<string> filesTouched,
         IReadOnlyList<string>? languageScope,
         IDictionary<string, string>? modelOverrides,
+        string? agentId = null,
+        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
         var model = ResolveModel(modelOverrides);
-        var enforcementPrompt = BuildEnforcementPrompt(delegatedPrompt, workspaceRoot, filesTouched, diff, languageScope);
-        _ = await CopilotClient.CompleteAsync(model, enforcementPrompt, cancellationToken);
+        var guidance = BuildGuidanceContext(workspaceRoot, filesTouched, diff, languageScope);
+        var systemPrompt = BuildSystemPrompt(guidance.Guidelines, guidance.LanguageLabel);
+        var enforcementPrompt = BuildEnforcementPrompt(delegatedPrompt, workspaceRoot, filesTouched, diff);
+        var options = ApplyToolPolicy(new CopilotCompletionOptions
+        {
+            SystemMessage = systemPrompt,
+            SystemMessageMode = CopilotSystemMessageMode.Append
+        });
+
+        _ = await CopilotClient.CompleteAsync(
+            model,
+            enforcementPrompt,
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
 
         var findings = new List<ArchitectureFinding>();
         var requiredActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -76,24 +92,14 @@ public sealed class ArchitectureAgent : AgentBase
         string delegatedPrompt,
         string workspaceRoot,
         IReadOnlyList<string> filesTouched,
-        string diff,
-        IReadOnlyList<string>? languageScope)
+        string diff)
     {
         var touched = filesTouched.Count == 0 ? "(none)" : string.Join(", ", filesTouched);
         var diffPreview = diff.Length <= 4000 ? diff : diff[..4000];
-        var languages = ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
-        var guidelines = LoadGuidelinesForLanguages(languages);
-        var languageLabel = string.Join(", ", languages);
 
         return $"""
-            {ArchitectureInstructions}
-
-            LanguageContext: {languageLabel}
-            Apply the following architecture guidelines for this language:
-            {guidelines}
-
             WorkspaceRoot: {workspaceRoot}
-            Write boundaries: Do not modify outside WorkspaceRoot.
+            Write boundaries: You may modify any file or directory under WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
 
             DelegatedPrompt:
             {delegatedPrompt}
@@ -103,6 +109,27 @@ public sealed class ArchitectureAgent : AgentBase
             {diffPreview}
             """;
     }
+
+    private static (string LanguageLabel, string Guidelines) BuildGuidanceContext(
+        string workspaceRoot,
+        IReadOnlyList<string> filesTouched,
+        string diff,
+        IReadOnlyList<string>? languageScope)
+    {
+        var languages = ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
+        var languageLabel = string.Join(", ", languages);
+        var guidelines = LoadGuidelinesForLanguages(languages);
+        return (languageLabel, guidelines);
+    }
+
+    private static string BuildSystemPrompt(string guidelines, string languageLabel)
+        => $"""
+            {ArchitectureInstructions}
+
+            LanguageContext: {languageLabel}
+            Apply the following architecture guidelines for this language:
+            {guidelines}
+            """;
 
     private static IReadOnlyList<string> ResolveLanguages(
         string workspaceRoot,

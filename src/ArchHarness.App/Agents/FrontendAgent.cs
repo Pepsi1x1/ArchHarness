@@ -6,6 +6,7 @@ namespace ArchHarness.App.Agents;
 
 public sealed class FrontendAgent : AgentBase
 {
+    private static readonly SearchOption Recursive = SearchOption.AllDirectories;
     private const string FrontendInstructions = """
         You are the Frontend Agent.
         Execute delegated frontend tasks using agent-mode built-in tools.
@@ -14,30 +15,50 @@ public sealed class FrontendAgent : AgentBase
         Return a concise completion summary.
         """;
 
-    public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver)
-        : base(copilotClient, modelResolver, "frontend") { }
+    public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
+        : base(copilotClient, modelResolver, toolPolicyProvider, "frontend", Guid.NewGuid().ToString("N")) { }
 
     public Task<string> CreatePlanAsync(
         IWorkspaceAdapter workspace,
         string delegatedPrompt,
         IDictionary<string, string>? modelOverrides,
+        string? agentId = null,
+        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
         var guidelines = LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
+        var systemPrompt = BuildSystemPrompt(guidelines);
         var prompt = $"""
-            {FrontendInstructions}
-
-            Apply the following frontend guidelines:
-            {guidelines}
-
             WorkspaceRoot: {workspace.RootPath}
 
             DelegatedPrompt:
             {delegatedPrompt}
+
+            Return a concise completion summary.
             """;
 
-        return CopilotClient.CompleteAsync(ResolveModel(modelOverrides), prompt, cancellationToken);
+        var options = ApplyToolPolicy(new CopilotCompletionOptions
+        {
+            SystemMessage = systemPrompt,
+            SystemMessageMode = CopilotSystemMessageMode.Append
+        });
+
+        return CopilotClient.CompleteAsync(
+            ResolveModel(modelOverrides),
+            prompt,
+            options,
+            agentId: agentId ?? this.Id,
+            agentRole: agentRole ?? this.Role,
+            cancellationToken);
     }
+
+    private static string BuildSystemPrompt(string guidelines)
+        => $"""
+            {FrontendInstructions}
+
+            Apply the following frontend guidelines:
+            {guidelines}
+            """;
 
     private static string LoadFrontendGuidelines(string workspaceRoot, string delegatedPrompt)
     {
@@ -56,55 +77,47 @@ public sealed class FrontendAgent : AgentBase
     {
         var output = new List<string>();
         var prompt = delegatedPrompt.ToLowerInvariant();
-
-        var hasVue = Directory.GetFiles(workspaceRoot, "*.vue", SearchOption.AllDirectories).Length > 0
+        var hasDotnet = HasAnyFiles(workspaceRoot, "*.csproj", "*.cs");
+        var hasVue = HasAnyFiles(workspaceRoot, "*.vue")
             || File.Exists(Path.Combine(workspaceRoot, "package.json"))
-            || prompt.Contains("vue");
-        if (hasVue)
-        {
-            output.Add("frontend-builder-agent-vue3.md");
-        }
+            || prompt.Contains("vue", StringComparison.Ordinal);
+        var hasBlazor = HasAnyFiles(workspaceRoot, "*.razor")
+            || prompt.Contains("blazor", StringComparison.Ordinal);
+        var hasTypeScript = HasAnyFiles(workspaceRoot, "*.ts", "*.tsx")
+            || prompt.Contains("typescript", StringComparison.Ordinal)
+            || prompt.Contains(".ts", StringComparison.Ordinal);
+        var hasJavaScript = HasAnyFiles(workspaceRoot, "*.js", "*.jsx")
+            || prompt.Contains("javascript", StringComparison.Ordinal)
+            || prompt.Contains(".js", StringComparison.Ordinal);
+        var explicitHtmlCssPrompt = prompt.Contains("html", StringComparison.Ordinal) || prompt.Contains("css", StringComparison.Ordinal);
+        var hasHtmlCssFiles = HasAnyFiles(workspaceRoot, "*.html", "*.css");
 
-        var hasBlazor = Directory.GetFiles(workspaceRoot, "*.razor", SearchOption.AllDirectories).Length > 0
-            || prompt.Contains("blazor");
-        if (hasBlazor)
-        {
-            output.Add("frontend-builder-agent-dotnet-blazor.md");
-        }
+        AddIf(output, hasVue, "frontend-builder-agent-vue3.md");
+        AddIf(output, hasBlazor, "frontend-builder-agent-dotnet-blazor.md");
+        AddIf(output, hasTypeScript, "frontend-builder-agent-typescript.md");
+        AddIf(output, hasJavaScript, "frontend-builder-agent-javascript.md");
 
-        var hasTypeScript = Directory.GetFiles(workspaceRoot, "*.ts", SearchOption.AllDirectories).Length > 0
-            || Directory.GetFiles(workspaceRoot, "*.tsx", SearchOption.AllDirectories).Length > 0
-            || prompt.Contains("typescript")
-            || prompt.Contains(".ts");
-        if (hasTypeScript)
-        {
-            output.Add("frontend-builder-agent-typescript.md");
-        }
-
-        var hasJavaScript = Directory.GetFiles(workspaceRoot, "*.js", SearchOption.AllDirectories).Length > 0
-            || Directory.GetFiles(workspaceRoot, "*.jsx", SearchOption.AllDirectories).Length > 0
-            || prompt.Contains("javascript")
-            || prompt.Contains(".js");
-        if (hasJavaScript)
-        {
-            output.Add("frontend-builder-agent-javascript.md");
-        }
-
-        var hasHtmlCss = Directory.GetFiles(workspaceRoot, "*.html", SearchOption.AllDirectories).Length > 0
-            || Directory.GetFiles(workspaceRoot, "*.css", SearchOption.AllDirectories).Length > 0
-            || prompt.Contains("html")
-            || prompt.Contains("css");
-        if (hasHtmlCss)
-        {
-            output.Add("frontend-builder-agent-html-css.md");
-        }
+        // Avoid defaulting to generic HTML/CSS guidance for dotnet workspaces unless explicitly requested.
+        var hasHtmlCss = explicitHtmlCssPrompt || (!hasDotnet && hasHtmlCssFiles);
+        AddIf(output, hasHtmlCss, "frontend-builder-agent-html-css.md");
 
         if (output.Count == 0)
         {
-            output.Add("frontend-builder-agent-html-css.md");
+            output.Add(hasDotnet ? "frontend-builder-agent-dotnet-blazor.md" : "frontend-builder-agent-html-css.md");
         }
 
         return output.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static bool HasAnyFiles(string workspaceRoot, params string[] patterns)
+        => patterns.Any(pattern => Directory.GetFiles(workspaceRoot, pattern, Recursive).Length > 0);
+
+    private static void AddIf(ICollection<string> output, bool condition, string value)
+    {
+        if (condition)
+        {
+            output.Add(value);
+        }
     }
 
     private static string TryLoadGuidelineFile(string fileName)

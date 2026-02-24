@@ -11,6 +11,13 @@ public interface ICopilotGovernancePolicy
 
 public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
 {
+    private readonly IToolUsageLogger _toolUsageLogger;
+
+    public CopilotGovernancePolicy(IToolUsageLogger toolUsageLogger)
+    {
+        _toolUsageLogger = toolUsageLogger;
+    }
+
     private static readonly string[] DeniedToolNameFragments =
     {
         "delete",
@@ -25,8 +32,11 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
         var toolName = input.ToolName ?? string.Empty;
         var denyByName = DeniedToolNameFragments.Any(fragment => toolName.Contains(fragment, StringComparison.OrdinalIgnoreCase));
         var denyByArgs = LooksDestructive(input.ToolArgs);
+        var decision = denyByName || denyByArgs ? "deny" : "allow";
 
-        if (denyByName || denyByArgs)
+        _ = _toolUsageLogger.LogPreToolUseAsync(input, decision, denyByName, denyByArgs);
+
+        if (decision == "deny")
         {
             return Task.FromResult(new PreToolUseHookOutput
             {
@@ -45,6 +55,7 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
 
     public Task<PostToolUseHookOutput> OnPostToolUseAsync(PostToolUseHookInput input)
     {
+        _ = _toolUsageLogger.LogPostToolUseAsync(input);
         return Task.FromResult(new PostToolUseHookOutput
         {
             AdditionalContext = $"Tool '{input.ToolName}' completed under governance audit."

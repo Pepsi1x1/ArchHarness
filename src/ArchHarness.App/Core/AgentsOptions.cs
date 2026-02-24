@@ -3,6 +3,7 @@ namespace ArchHarness.App.Core;
 public sealed class AgentModelOptions
 {
     public string Model { get; set; } = string.Empty;
+    public AgentToolOptions Tools { get; set; } = new();
 }
 
 public sealed class AgentsOptions

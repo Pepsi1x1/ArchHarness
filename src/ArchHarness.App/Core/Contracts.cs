@@ -34,3 +34,9 @@ public sealed record RunArtefacts(string RunId, string RunDirectory);
 public sealed record CopilotModelUsage(string Model, int Calls, int PromptCharacters, int CompletionCharacters);
 
 public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string Source, string Message, string? Prompt = null);
+
+public sealed record AgentStreamDeltaEvent(
+    DateTimeOffset TimestampUtc,
+    string AgentId,
+    string AgentRole,
+    string DeltaContent);
