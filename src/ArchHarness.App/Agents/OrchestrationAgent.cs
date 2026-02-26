@@ -9,6 +9,7 @@ public sealed class OrchestrationAgent : AgentBase
 {
     private const string FrontendAgentName = "Frontend";
     private const string BuilderAgentName = "Builder";
+    private const string StyleAgentName = "Style";
     private const string ArchitectureAgentName = "Architecture";
 
     private const string OrchestrationSystemInstructions = """
@@ -44,22 +45,25 @@ public sealed class OrchestrationAgent : AgentBase
         var planningPrompt = $$"""
             You are the orchestration planner. Return ONLY strict JSON with this schema:
             {
-                            "steps": [{"id":1,"agent":"Frontend|Builder|Architecture","objective":"string","dependsOn":[0],"languages":["dotnet","vue3"]}],
+                            "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[0],"languages":["dotnet","vue3"]}],
               "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
               "completionCriteria": ["string"]
             }
 
             Constraints:
-            - Always include at least one Builder and one Architecture step.
+            - Always include at least one Builder, one Style, and one Architecture step.
             - Include Frontend when UI/UX work is implied.
-            - Architecture must be a single final review/enforcement step only.
+                        - Style and Architecture are review/enforcement steps.
+                        - Style must execute before Architecture.
+                        - Architecture must be a single final review/enforcement step only.
             - Never use Architecture for solution design/spec generation/planning.
+            - Never use Style for solution design/spec generation/planning.
             - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
-            - Use languages on Architecture steps to declare review scope (dotnet and/or vue3) for monorepos.
+            - Use languages on Style/Architecture steps to declare review scope (dotnet and/or vue3).
             - All filesystem paths in objectives must be under WorkspaceRoot.
             - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
             - Keep 3-6 steps total.
-            - completionCriteria must include architecture and build verification.
+            - completionCriteria must include style, architecture, and build verification.
             - Each objective must be a concrete delegated prompt the target agent can execute directly.
 
             TaskPrompt: {{request.TaskPrompt}}
@@ -177,6 +181,7 @@ public sealed class OrchestrationAgent : AgentBase
     {
         if (raw.Equals("frontend", StringComparison.OrdinalIgnoreCase)) return FrontendAgentName;
         if (raw.Equals("builder", StringComparison.OrdinalIgnoreCase) || raw.Equals("implementation", StringComparison.OrdinalIgnoreCase)) return BuilderAgentName;
+        if (raw.Equals("style", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase) || raw.Equals("standards", StringComparison.OrdinalIgnoreCase)) return StyleAgentName;
         if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ArchitectureAgentName;
         return null;
     }
@@ -234,7 +239,9 @@ public sealed class OrchestrationAgent : AgentBase
     }
 
     private static bool ContainsRequiredAgents(IEnumerable<ExecutionPlanStep> steps)
-        => steps.Any(s => s.Agent == BuilderAgentName) && steps.Any(s => s.Agent == ArchitectureAgentName);
+        => steps.Any(s => s.Agent == BuilderAgentName)
+        && steps.Any(s => s.Agent == StyleAgentName)
+        && steps.Any(s => s.Agent == ArchitectureAgentName);
 
     private static IterationStrategy ParseIterationStrategy(JsonElement root)
     {
@@ -256,6 +263,7 @@ public sealed class OrchestrationAgent : AgentBase
     {
         var criteria = new List<string>
         {
+            "No high severity coding style findings",
             "No high severity architecture findings",
             "Build passes (if command configured)"
         };
@@ -278,6 +286,7 @@ public sealed class OrchestrationAgent : AgentBase
         }
 
         criteria = parsedCriteria;
+        EnsureCriteriaContains(criteria, "style", "No high severity coding style findings");
         EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
         EnsureCriteriaContains(criteria, "build", "Build passes (if command configured)");
         return criteria;
@@ -293,15 +302,29 @@ public sealed class OrchestrationAgent : AgentBase
 
     private static List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
     {
-        var nonArchitecture = steps.Where(s => s.Agent != ArchitectureAgentName).ToList();
+        var nonReview = steps.Where(s => s.Agent != ArchitectureAgentName && s.Agent != StyleAgentName).ToList();
+        var style = steps
+            .Where(s => s.Agent == StyleAgentName)
+            .Where(s => IsReviewObjective(s.Objective))
+            .ToList();
         var architecture = steps
             .Where(s => s.Agent == ArchitectureAgentName)
-            .Where(s => IsArchitectureReviewObjective(s.Objective))
+            .Where(s => IsReviewObjective(s.Objective))
             .ToList();
 
-        if (nonArchitecture.Count == 0)
+        if (nonReview.Count == 0)
         {
             return steps;
+        }
+
+        if (style.Count == 0)
+        {
+            style.Add(new ExecutionPlanStep(
+                Id: 0,
+                Agent: StyleAgentName,
+                Objective: "Review completed implementation and enforce language coding standards and naming/style conventions; apply required corrections directly.",
+                DependsOnStepIds: null,
+                Languages: workspaceLanguages));
         }
 
         if (architecture.Count == 0)
@@ -314,7 +337,14 @@ public sealed class OrchestrationAgent : AgentBase
                 Languages: workspaceLanguages));
         }
 
-        // Keep exactly one final architecture step.
+        // Keep exactly one style step and one final architecture step.
+        var finalStyle = style[^1] with
+        {
+            Languages = style[^1].Languages is { Count: > 0 }
+                ? style[^1].Languages
+                : workspaceLanguages
+        };
+
         var finalArchitecture = architecture[^1] with
         {
             Languages = architecture[^1].Languages is { Count: > 0 }
@@ -322,8 +352,12 @@ public sealed class OrchestrationAgent : AgentBase
                 : workspaceLanguages
         };
 
-        var reordered = nonArchitecture
-            .Concat(new[] { finalArchitecture with { Id = 0, DependsOnStepIds = null } })
+        var reordered = nonReview
+            .Concat(new[]
+            {
+                finalStyle with { Id = 0, DependsOnStepIds = null },
+                finalArchitecture with { Id = 0, DependsOnStepIds = null }
+            })
             .ToList();
 
         var idMap = reordered
@@ -347,16 +381,36 @@ public sealed class OrchestrationAgent : AgentBase
             };
         }
 
-        var architectureIndex = reordered.FindLastIndex(s => s.Agent == ArchitectureAgentName);
-        if (architectureIndex >= 0)
+        var styleIndex = reordered.FindLastIndex(s => s.Agent == StyleAgentName);
+        if (styleIndex >= 0)
         {
-            var architectureStep = reordered[architectureIndex];
-            var enforcedDepends = reordered
-                .Where((_, index) => index < architectureIndex)
+            var styleStep = reordered[styleIndex];
+            var styleDepends = reordered
+                .Where((_, index) => index < styleIndex)
                 .Select(s => s.Id)
                 .Distinct()
                 .OrderBy(x => x)
                 .ToArray();
+
+            reordered[styleIndex] = styleStep with
+            {
+                DependsOnStepIds = styleDepends.Length > 0 ? styleDepends : null
+            };
+        }
+
+        var architectureIndex = reordered.FindLastIndex(s => s.Agent == ArchitectureAgentName);
+        if (architectureIndex >= 0)
+        {
+            var architectureStep = reordered[architectureIndex];
+            var styleStepId = styleIndex >= 0 ? reordered[styleIndex].Id : 0;
+            var enforcedDepends = styleStepId > 0
+                ? new[] { styleStepId }
+                : reordered
+                    .Where((_, index) => index < architectureIndex)
+                    .Select(s => s.Id)
+                    .Distinct()
+                    .OrderBy(x => x)
+                    .ToArray();
 
             reordered[architectureIndex] = architectureStep with
             {
@@ -429,7 +483,7 @@ public sealed class OrchestrationAgent : AgentBase
         return output;
     }
 
-    private static bool IsArchitectureReviewObjective(string objective)
+    private static bool IsReviewObjective(string objective)
     {
         if (string.IsNullOrWhiteSpace(objective))
         {

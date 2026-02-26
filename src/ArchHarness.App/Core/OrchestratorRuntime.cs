@@ -11,6 +11,7 @@ public sealed class OrchestratorRuntime
     private readonly OrchestrationAgent _orchestrationAgent;
     private readonly FrontendAgent _frontendAgent;
     private readonly BuilderAgent _builderAgent;
+    private readonly StyleAgent _styleAgent;
     private readonly ArchitectureAgent _architectureAgent;
     private readonly IRunStore _runStore;
     private readonly IArtefactStore _artefactStore;
@@ -30,6 +31,7 @@ public sealed class OrchestratorRuntime
         _orchestrationAgent = agentDependencies.OrchestrationAgent;
         _frontendAgent = agentDependencies.FrontendAgent;
         _builderAgent = agentDependencies.BuilderAgent;
+        _styleAgent = agentDependencies.StyleAgent;
         _architectureAgent = agentDependencies.ArchitectureAgent;
         _runStore = serviceDependencies.RunStore;
         _artefactStore = serviceDependencies.ArtefactStore;
@@ -181,6 +183,7 @@ public sealed class OrchestratorRuntime
                 new { role = "orchestration", model = _orchestrationAgent.ResolveModel(request.ModelOverrides) },
                 new { role = "frontend", model = _frontendAgent.ResolveModel(request.ModelOverrides) },
                 new { role = "builder", model = _builderAgent.ResolveModel(request.ModelOverrides) },
+                new { role = "style", model = _styleAgent.ResolveModel(request.ModelOverrides) },
                 new { role = "architecture", model = _architectureAgent.ResolveModel(request.ModelOverrides) }
             },
             copilotUsage = usage
@@ -229,17 +232,20 @@ public sealed class OrchestratorRuntime
             OrchestrationAgent orchestrationAgent,
             FrontendAgent frontendAgent,
             BuilderAgent builderAgent,
+            StyleAgent styleAgent,
             ArchitectureAgent architectureAgent)
         {
             OrchestrationAgent = orchestrationAgent;
             FrontendAgent = frontendAgent;
             BuilderAgent = builderAgent;
+            StyleAgent = styleAgent;
             ArchitectureAgent = architectureAgent;
         }
 
         public OrchestrationAgent OrchestrationAgent { get; }
         public FrontendAgent FrontendAgent { get; }
         public BuilderAgent BuilderAgent { get; }
+        public StyleAgent StyleAgent { get; }
         public ArchitectureAgent ArchitectureAgent { get; }
     }
 

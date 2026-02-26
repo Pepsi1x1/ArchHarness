@@ -42,6 +42,7 @@ public sealed class ModelResolver : IModelResolver
             "orchestration" => _agents.Orchestration.Model,
             "frontend" => _agents.Frontend.Model,
             "builder" => _agents.Builder.Model,
+            "style" => _agents.Style.Model,
             "architecture" => _agents.Architecture.Model,
             "conversation" => _copilot.ConversationModel,
             _ => throw new ArgumentOutOfRangeException(nameof(role), $"Unsupported role: {role}")

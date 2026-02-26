@@ -37,6 +37,14 @@ public sealed record ArchitectureReviewRequest(
     IReadOnlyList<string>? LanguageScope,
     IDictionary<string, string>? ModelOverrides);
 
+public sealed record StyleEnforcementRequest(
+    string DelegatedPrompt,
+    string Diff,
+    string WorkspaceRoot,
+    IReadOnlyList<string> FilesTouched,
+    IReadOnlyList<string>? LanguageScope,
+    IDictionary<string, string>? ModelOverrides);
+
 public sealed record CompletionValidationRequest(
     ExecutionPlan Plan,
     ArchitectureReview Review,

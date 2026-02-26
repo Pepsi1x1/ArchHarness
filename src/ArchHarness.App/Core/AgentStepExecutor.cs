@@ -12,6 +12,7 @@ public sealed class AgentStepExecutor
     private const string ORCHESTRATOR_SOURCE = "orchestrator";
     private readonly FrontendAgent _frontendAgent;
     private readonly BuilderAgent _builderAgent;
+    private readonly StyleAgent _styleAgent;
     private readonly ArchitectureAgent _architectureAgent;
     private readonly IArtefactStore _artefactStore;
 
@@ -20,16 +21,19 @@ public sealed class AgentStepExecutor
     /// </summary>
     /// <param name="frontendAgent">Agent that creates frontend plans.</param>
     /// <param name="builderAgent">Agent that implements code changes.</param>
+    /// <param name="styleAgent">Agent that enforces coding style standards.</param>
     /// <param name="architectureAgent">Agent that performs architecture reviews.</param>
     /// <param name="artefactStore">Store for persisting run events.</param>
     public AgentStepExecutor(
         FrontendAgent frontendAgent,
         BuilderAgent builderAgent,
+        StyleAgent styleAgent,
         ArchitectureAgent architectureAgent,
         IArtefactStore artefactStore)
     {
         _frontendAgent = frontendAgent;
         _builderAgent = builderAgent;
+        _styleAgent = styleAgent;
         _architectureAgent = architectureAgent;
         _artefactStore = artefactStore;
     }
@@ -80,6 +84,21 @@ public sealed class AgentStepExecutor
                     null,
                     _builderAgent.Id,
                     _builderAgent.Role,
+                    cancellationToken);
+            },
+            ["Style"] = async (ExecutionPlanStep s) =>
+            {
+                var latestDiff = await adapter.DiffAsync(cancellationToken);
+                await _styleAgent.EnforceAsync(
+                    new StyleEnforcementRequest(
+                        DelegatedPrompt: s.Objective,
+                        Diff: latestDiff,
+                        WorkspaceRoot: adapter.RootPath,
+                        FilesTouched: filesTouched,
+                        LanguageScope: s.Languages,
+                        ModelOverrides: request.ModelOverrides),
+                    _styleAgent.Id,
+                    _styleAgent.Role,
                     cancellationToken);
             },
             ["Architecture"] = async (ExecutionPlanStep s) =>

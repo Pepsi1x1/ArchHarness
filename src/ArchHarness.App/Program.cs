@@ -29,6 +29,7 @@ builder.Services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
 builder.Services.AddSingleton<OrchestrationAgent>();
 builder.Services.AddSingleton<FrontendAgent>();
 builder.Services.AddSingleton<BuilderAgent>();
+builder.Services.AddSingleton<StyleAgent>();
 builder.Services.AddSingleton<ArchitectureAgent>();
 builder.Services.AddSingleton<IRunStore, RunStore>();
 builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();

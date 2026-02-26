@@ -61,122 +61,7 @@ The following technology stack is standard. Flag any deviation.
 | E2E testing          | Playwright                     |
 | Linting              | ESLint 9 (flat config) with `eslint-plugin-vue` and `@vue/eslint-config-typescript` |
 
----
 
-## Project Structure
-
-Organise code into the following standard folders. Fix deviations.
-
-```
-src/
-├── assets/             # Static assets (images, fonts, global CSS)
-├── components/         # Reusable UI components
-│   └── feature-name/   # Feature-scoped component subfolders
-├── composables/        # Composable functions (use*.ts)
-├── interfaces/         # TypeScript interfaces and types
-├── router/             # Vue Router configuration
-├── services/           # API services and utility services
-├── stores/             # Pinia stores
-├── views/              # Page-level view components (routed)
-├── App.vue             # Root application component
-└── main.ts             # Application entry point
-```
-
-- **Views** are routed page-level components. They orchestrate child components and stores.
-- **Components** are reusable building blocks. They must not call APIs directly.
-- **Composables** encapsulate reusable stateful logic using the Composition API.
-- **Services** handle HTTP calls and external integrations.
-- **Stores** manage application state via Pinia.
-
----
-
-## Component Standards
-
-### Script Setup Syntax
-
-All components must use `<script setup lang="ts">`. Refactor any component using the Options API or `<script>` without `setup`.
-
-```vue
-<script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useItemStore } from '@/stores/item'
-
-const itemStore = useItemStore()
-const isLoading = ref<boolean>(false)
-
-onMounted(async () => {
-  await itemStore.loadItemsAsync()
-})
-</script>
-```
-
-### Template Order
-
-Components must follow this section order:
-
-```vue
-<script setup lang="ts">
-  <!-- Logic -->
-</script>
-
-<template>
-  <!-- Markup -->
-</template>
-
-<style scoped>
-  /* Styles */
-</style>
-```
-
-### Component Rules
-
-- **One component per file.** File names must use PascalCase (e.g. `ItemDetails.vue`).
-- **Use `scoped` styles.** All `<style>` blocks must include the `scoped` attribute unless global styles are explicitly required.
-- **Props must be typed.** Use `defineProps<T>()` with a TypeScript interface.
-- **Emits must be typed.** Use `defineEmits<T>()` with a TypeScript interface.
-- **Avoid `v-html`** unless the content is sanitised — this is an XSS risk.
-- **Use `v-for` with `:key`.** Always provide a unique key.
-- **Do not use `v-if` and `v-for` on the same element.** Extract the filtered list into a computed property.
-
----
-
-## Naming Conventions
-
-| Element                | Convention              | Example                      |
-|------------------------|-------------------------|------------------------------|
-| Components             | PascalCase              | `ItemDetails.vue`            |
-| Composables            | camelCase with `use` prefix | `useItemSelection.ts`    |
-| Stores                 | camelCase               | `item.ts`                    |
-| Store definitions      | camelCase with `use` prefix and `Store` suffix | `useItemStore`   |
-| Services               | camelCase with `.service.ts` suffix | `item.service.ts`     |
-| Interfaces             | PascalCase with `I` prefix | `IItem`                      |
-| Interface files        | camelCase with `i` prefix | `iItem.ts`                   |
-| Props/emits            | camelCase               | `itemId`                     |
-| Constants              | SCREAMING_SNAKE_CASE    | `MAX_FILE_SIZE`              |
-| Template refs          | camelCase               | `formRef`                    |
-| Route names            | kebab-case              | `item-details`               |
-| CSS classes            | Tailwind utility classes or kebab-case | `item-card`         |
-
----
-
-## TypeScript Standards
-
-- **Strict mode must be enabled** in `tsconfig.json`.
-- **All variables, parameters, and return types must be explicitly typed.** Fix any use of `any`.
-- **Use interfaces** (prefixed with `I`) for object shapes. Place them in the `interfaces/` folder.
-- **Use enums or union types** for fixed sets of values.
-- **Do not use `// @ts-ignore` or `// @ts-expect-error`** without a documented justification.
-
-```typescript
-// CORRECT
-const itemId: string = 'ITEM-001'
-const items: IItem[] = []
-
-// WRONG — implicit any
-const data = response.data
-```
-
----
 
 ## State Management (Pinia)
 
@@ -216,7 +101,6 @@ export const useItemStore = defineStore('item', {
 ## Composables
 
 - Composables encapsulate **reusable stateful logic** using the Composition API.
-- Name files with the `use` prefix (e.g. `useSurveySubmission.ts`).
 - Export a single function from each composable.
 - Return an object of refs, computed properties, and methods.
 - Composables must not depend on a specific component's structure.
@@ -245,7 +129,6 @@ export function usePagination(pageSize: number = 10) {
 ## Services
 
 - Services handle **HTTP communication and external integrations**.
-- Place service files in the `services/` folder with a `.service.ts` suffix.
 - Use Axios for HTTP calls. Configure interceptors for authentication tokens and error handling.
 - Environment-specific URLs must come from `import.meta.env` variables, never hardcoded.
 - Service methods must be typed — specify request and response types.
@@ -284,16 +167,6 @@ const routes = [
 
 ---
 
-## Styling
-
-- Use **Tailwind CSS** utility classes as the primary styling approach.
-- Use **PrimeVue** components for standard UI elements (buttons, forms, tables, dialogs).
-- Use `<style scoped>` for component-specific styles that cannot be achieved with Tailwind.
-- Do not use inline styles unless absolutely necessary.
-- Do not import global CSS files inside components — place them in `assets/` and import in `main.ts`.
-
----
-
 ## Configuration and Security
 
 - Store environment-specific configuration in `.env` files using the `VITE_` prefix.
@@ -322,28 +195,6 @@ const routes = [
 
 ---
 
-## ESLint Configuration
-
-Projects must use the ESLint 9 flat config format (`eslint.config.ts`). The configuration must include:
-
-- `eslint-plugin-vue` with at minimum the `flat/essential` ruleset.
-- `@vue/eslint-config-typescript` with the `recommended` ruleset.
-- Vitest plugin for test files.
-- Playwright plugin for E2E test files.
-
-```typescript
-import pluginVue from 'eslint-plugin-vue'
-import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
-
-export default defineConfigWithVueTs(
-  pluginVue.configs['flat/essential'],
-  vueTsConfigs.recommended,
-  // ... vitest and playwright configs
-)
-```
-
----
-
 ## Review Checklist
 
 When reviewing Vue 3 code, verify every item below. Fix all violations.
@@ -354,24 +205,12 @@ When reviewing Vue 3 code, verify every item below. Fix all violations.
 - [ ] Project builds with zero errors (`vue-tsc --noEmit && vite build`)
 - [ ] Zero TypeScript errors
 - [ ] Zero ESLint errors and warnings (`eslint .`)
-- [ ] All components use `<script setup lang="ts">`
-- [ ] Section order: `<script setup>`, `<template>`, `<style scoped>`
-- [ ] One component per file, PascalCase filenames
-- [ ] Props and emits are typed with `defineProps<T>()` and `defineEmits<T>()`
-- [ ] No use of `any` type
-- [ ] Strict TypeScript mode enabled
-- [ ] Interfaces are defined in the `interfaces/` folder with `I` prefix
 - [ ] Pinia is used for shared state — no Vuex
 - [ ] API calls are in services or stores, not directly in components
-- [ ] Composables follow `use*` naming and return typed objects
-- [ ] Services use `.service.ts` suffix and typed Axios calls
+- [ ] Composables return typed objects
+- [ ] Services use typed Axios calls
 - [ ] Environment variables use `import.meta.env.VITE_*` — no hardcoded URLs
 - [ ] No secrets in source code
 - [ ] Routes use lazy loading
-- [ ] `v-for` always has a `:key`
-- [ ] No `v-if` and `v-for` on the same element
-- [ ] No unsanitised `v-html`
-- [ ] `<style>` blocks use `scoped`
 - [ ] Unit tests exist for composables, stores, and services
 - [ ] All tests pass
-- [ ] ESLint flat config is present with Vue and TypeScript plugins

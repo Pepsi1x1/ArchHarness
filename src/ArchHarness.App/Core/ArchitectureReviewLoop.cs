@@ -10,18 +10,22 @@ namespace ArchHarness.App.Core;
 public sealed class ArchitectureReviewLoop
 {
     private readonly OrchestrationAgent _orchestrationAgent;
+    private readonly StyleAgent _styleAgent;
     private readonly ArchitectureAgent _architectureAgent;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArchitectureReviewLoop"/> class.
     /// </summary>
     /// <param name="orchestrationAgent">Agent used to build remediation prompts.</param>
+    /// <param name="styleAgent">Agent used to enforce coding style before architecture review.</param>
     /// <param name="architectureAgent">Agent used to perform architecture reviews.</param>
     public ArchitectureReviewLoop(
         OrchestrationAgent orchestrationAgent,
+        StyleAgent styleAgent,
         ArchitectureAgent architectureAgent)
     {
         _orchestrationAgent = orchestrationAgent;
+        _styleAgent = styleAgent;
         _architectureAgent = architectureAgent;
     }
 
@@ -64,9 +68,23 @@ public sealed class ArchitectureReviewLoop
                 _orchestrationAgent.Role,
                 cancellationToken);
 
+            var latestDiff = await adapter.DiffAsync(cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Style", "Style enforcement prompt started", remediationPrompt));
+            await _styleAgent.EnforceAsync(
+                new StyleEnforcementRequest(
+                    DelegatedPrompt: remediationPrompt,
+                    Diff: latestDiff,
+                    WorkspaceRoot: adapter.RootPath,
+                    FilesTouched: currentFiles,
+                    LanguageScope: request.ArchitectureLanguages,
+                    ModelOverrides: request.RunRequest.ModelOverrides),
+                _styleAgent.Id,
+                _styleAgent.Role,
+                cancellationToken);
+
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", remediationPrompt));
 
-            var latestDiff = await adapter.DiffAsync(cancellationToken);
+            latestDiff = await adapter.DiffAsync(cancellationToken);
             review = await _architectureAgent.ReviewAsync(
                 new ArchitectureReviewRequest(
                     DelegatedPrompt: remediationPrompt,
