@@ -6,6 +6,11 @@ using ArchHarness.App.Tui;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
+if (ShadowRuntimeBootstrap.TryRelaunchFromShadowCopy(args))
+{
+    return;
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("agents"));
