@@ -76,6 +76,8 @@ public sealed class OrchestrationAgent : AgentBase
         var options = ApplyToolPolicy(OrchestrationCompletionOptions);
         const int maxPlanningAttempts = 3;
         string? lastResponse = null;
+        string? lastValidationError = null;
+        
         for (var attempt = 1; attempt <= maxPlanningAttempts; attempt++)
         {
             var promptForAttempt = attempt == 1
@@ -90,7 +92,7 @@ public sealed class OrchestrationAgent : AgentBase
                 agentRole: agentRole ?? this.Role,
                 cancellationToken);
 
-            if (TryBuildExecutionPlan(lastResponse, workspaceRoot, out var parsedPlan))
+            if (TryBuildExecutionPlan(lastResponse, workspaceRoot, out var parsedPlan, out lastValidationError))
             {
                 return parsedPlan;
             }
@@ -98,7 +100,9 @@ public sealed class OrchestrationAgent : AgentBase
 
         var preview = lastResponse?.Length > 500 ? lastResponse[..500] + "..." : lastResponse;
         throw new InvalidOperationException(
-            $"Orchestration model did not return a valid ExecutionPlan JSON after {maxPlanningAttempts} attempts. Last response preview: {preview}");
+            $"Orchestration model did not return a valid ExecutionPlan JSON after {maxPlanningAttempts} attempts.\n" +
+            $"Validation error: {lastValidationError}\n" +
+            $"Last response preview: {preview}");
     }
 
     public async Task<string> BuildRemediationPromptAsync(
@@ -161,12 +165,15 @@ public sealed class OrchestrationAgent : AgentBase
         return !hasHighFindings && (!buildRequired || request.BuildPassed);
     }
 
-    private static bool TryBuildExecutionPlan(string raw, string workspaceRoot, out ExecutionPlan plan)
+    private static bool TryBuildExecutionPlan(string raw, string workspaceRoot, out ExecutionPlan plan, out string? validationError)
     {
         plan = default!;
+        validationError = null;
+        
         var json = ExtractJson(raw);
         if (string.IsNullOrWhiteSpace(json))
         {
+            validationError = "No JSON object found in response. Ensure response starts with '{' and ends with '}'";
             return false;
         }
 
@@ -174,8 +181,17 @@ public sealed class OrchestrationAgent : AgentBase
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            if (!TryParseAndNormalizeSteps(root, workspaceRoot, out var steps))
+            
+            // Validate schema structure
+            if (!ValidatePlanSchema(root, out var schemaError))
             {
+                validationError = schemaError;
+                return false;
+            }
+            
+            if (!TryParseAndNormalizeSteps(root, workspaceRoot, out var steps, out var stepError))
+            {
+                validationError = stepError;
                 return false;
             }
 
@@ -184,10 +200,123 @@ public sealed class OrchestrationAgent : AgentBase
             plan = new ExecutionPlan(steps, iteration, criteria);
             return true;
         }
-        catch
+        catch (JsonException ex)
         {
+            validationError = $"JSON parse error: {ex.Message}";
             return false;
         }
+        catch (Exception ex)
+        {
+            validationError = $"Unexpected error during plan parsing: {ex.Message}";
+            return false;
+        }
+    }
+
+    private static bool ValidatePlanSchema(JsonElement root, out string? error)
+    {
+        error = null;
+
+        // Check required top-level fields
+        if (!root.TryGetProperty("steps", out var stepsEl))
+        {
+            error = "Missing required field: 'steps'";
+            return false;
+        }
+
+        if (stepsEl.ValueKind != JsonValueKind.Array)
+        {
+            error = "Field 'steps' must be an array.";
+            return false;
+        }
+
+        var stepsArray = stepsEl.EnumerateArray().ToList();
+        if (stepsArray.Count == 0)
+        {
+            error = "Field 'steps' array is empty. Must include at least 3 steps (Builder, Style, Architecture).";
+            return false;
+        }
+
+        if (stepsArray.Count > 10)
+        {
+            error = $"Too many steps ({stepsArray.Count}). Maximum 6-8 steps recommended.";
+            return false;
+        }
+
+        // Validate each step
+        for (var i = 0; i < stepsArray.Count; i++)
+        {
+            var step = stepsArray[i];
+            if (step.ValueKind != JsonValueKind.Object)
+            {
+                error = $"Step {i}: must be an object.";
+                return false;
+            }
+
+            if (!step.TryGetProperty("agent", out var agentEl) || string.IsNullOrWhiteSpace(agentEl.GetString()))
+            {
+                error = $"Step {i}: missing or empty 'agent' field.";
+                return false;
+            }
+
+            var agentValue = agentEl.GetString()?.Trim().ToLowerInvariant();
+            if (!new[] { "frontend", "builder", "implementation", "style", "coding-style", "standards", "architecture", "review" }
+                .Contains(agentValue))
+            {
+                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: Frontend, Builder, Style, Architecture.";
+                return false;
+            }
+
+            if (!step.TryGetProperty("objective", out var objEl) || string.IsNullOrWhiteSpace(objEl.GetString()))
+            {
+                error = $"Step {i}: missing or empty 'objective' field.";
+                return false;
+            }
+
+            if (step.TryGetProperty("dependsOn", out var depsEl) && depsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var dep in depsEl.EnumerateArray())
+                {
+                    if (!dep.TryGetInt32(out var depId) || depId <= 0)
+                    {
+                        error = $"Step {i}: dependsOn contains invalid ID. All dependency IDs must be positive integers (references to prior step IDs).";
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if (!root.TryGetProperty("iterationStrategy", out var iterEl))
+        {
+            error = "Missing required field: 'iterationStrategy'";
+            return false;
+        }
+
+        if (iterEl.ValueKind != JsonValueKind.Object)
+        {
+            error = "Field 'iterationStrategy' must be an object.";
+            return false;
+        }
+
+        if (!root.TryGetProperty("completionCriteria", out var criteriaEl))
+        {
+            error = "Missing required field: 'completionCriteria'";
+            return false;
+        }
+
+        if (criteriaEl.ValueKind != JsonValueKind.Array)
+        {
+            error = "Field 'completionCriteria' must be an array.";
+            return false;
+        }
+
+        var criteria = criteriaEl.EnumerateArray().ToList();
+        if (criteria.Count == 0)
+        {
+            error = "Field 'completionCriteria' is empty. Must include at least one completion criterion.";
+            return false;
+        }
+
+        return true;
     }
 
     private static string? NormalizeAgent(string raw)
@@ -199,11 +328,14 @@ public sealed class OrchestrationAgent : AgentBase
         return null;
     }
 
-    private static bool TryParseAndNormalizeSteps(JsonElement root, string workspaceRoot, out List<ExecutionPlanStep> steps)
+    private static bool TryParseAndNormalizeSteps(JsonElement root, string workspaceRoot, out List<ExecutionPlanStep> steps, out string? error)
     {
         steps = new List<ExecutionPlanStep>();
+        error = null;
+        
         if (!root.TryGetProperty("steps", out var stepsElement) || stepsElement.ValueKind != JsonValueKind.Array)
         {
+            error = "Required field 'steps' not found or is not an array.";
             return false;
         }
 
@@ -221,6 +353,7 @@ public sealed class OrchestrationAgent : AgentBase
 
         if (!ContainsRequiredAgents(steps))
         {
+            error = "Execution plan must include at least one Builder, one Style, and one Architecture step.";
             return false;
         }
 
@@ -333,7 +466,7 @@ public sealed class OrchestrationAgent : AgentBase
         if (style.Count == 0)
         {
             style.Add(new ExecutionPlanStep(
-                Id: 0,
+                Id: -1,
                 Agent: StyleAgentName,
                 Objective: "Review completed implementation and enforce language coding standards and naming/style conventions; apply required corrections directly.",
                 DependsOnStepIds: null,
@@ -343,7 +476,7 @@ public sealed class OrchestrationAgent : AgentBase
         if (architecture.Count == 0)
         {
             architecture.Add(new ExecutionPlanStep(
-                Id: 0,
+                Id: -2,
                 Agent: ArchitectureAgentName,
                 Objective: "Review completed implementation and enforce SOLID/DRY/separation-of-concerns standards; apply required corrections directly.",
                 DependsOnStepIds: null,
@@ -368,8 +501,8 @@ public sealed class OrchestrationAgent : AgentBase
         var reordered = nonReview
             .Concat(new[]
             {
-                finalStyle with { Id = 0, DependsOnStepIds = null },
-                finalArchitecture with { Id = 0, DependsOnStepIds = null }
+                finalStyle with { Id = -1, DependsOnStepIds = null },
+                finalArchitecture with { Id = -2, DependsOnStepIds = null }
             })
             .ToList();
 
