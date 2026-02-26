@@ -43,12 +43,12 @@ public sealed class OrchestrationAgent : AgentBase
         var model = ResolveModel(request.ModelOverrides);
         var buildCommand = request.BuildCommand ?? "(none)";
         var planningPrompt = $$"""
-            You are the orchestration planner. Return ONLY strict JSON with this schema:
-            {
-                            "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[0],"languages":["dotnet","vue3"]}],
-              "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
-              "completionCriteria": ["string"]
-            }
+                        You are the orchestration planner. Return ONLY strict JSON with this schema:
+                        {
+                                                        "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+                            "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                            "completionCriteria": ["string"]
+                        }
 
             Constraints:
             - Always include at least one Builder, one Style, and one Architecture step.
@@ -59,6 +59,7 @@ public sealed class OrchestrationAgent : AgentBase
             - Never use Architecture for solution design/spec generation/planning.
             - Never use Style for solution design/spec generation/planning.
             - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
+            - If a step has no dependencies, omit dependsOn or set it to []. Do NOT use 0.
             - Use languages on Style/Architecture steps to declare review scope (dotnet and/or vue3).
             - All filesystem paths in objectives must be under WorkspaceRoot.
             - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
@@ -73,19 +74,31 @@ public sealed class OrchestrationAgent : AgentBase
             """;
 
         var options = ApplyToolPolicy(OrchestrationCompletionOptions);
-        var planningResponse = await CopilotClient.CompleteAsync(
-            model,
-            planningPrompt,
-            options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
-            cancellationToken);
-        if (TryBuildExecutionPlan(planningResponse, workspaceRoot, out var parsedPlan))
+        const int maxPlanningAttempts = 3;
+        string? lastResponse = null;
+        for (var attempt = 1; attempt <= maxPlanningAttempts; attempt++)
         {
-            return parsedPlan;
+            var promptForAttempt = attempt == 1
+                ? planningPrompt
+                : $"{planningPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.";
+
+            lastResponse = await CopilotClient.CompleteAsync(
+                model,
+                promptForAttempt,
+                options,
+                agentId: agentId ?? this.Id,
+                agentRole: agentRole ?? this.Role,
+                cancellationToken);
+
+            if (TryBuildExecutionPlan(lastResponse, workspaceRoot, out var parsedPlan))
+            {
+                return parsedPlan;
+            }
         }
 
-        throw new InvalidOperationException("Orchestration model did not return a valid delegated ExecutionPlan JSON payload.");
+        var preview = lastResponse?.Length > 500 ? lastResponse[..500] + "..." : lastResponse;
+        throw new InvalidOperationException(
+            $"Orchestration model did not return a valid ExecutionPlan JSON after {maxPlanningAttempts} attempts. Last response preview: {preview}");
     }
 
     public async Task<string> BuildRemediationPromptAsync(
@@ -544,6 +557,13 @@ public sealed class OrchestrationAgent : AgentBase
 
     private static string? ExtractJson(string text)
     {
+        // Strip markdown code fences (```json ... ``` or ``` ... ```)
+        var fenceMatch = Regex.Match(text, @"```(?:json)?\s*\n?(\{[\s\S]*?\})\s*```", RegexOptions.IgnoreCase);
+        if (fenceMatch.Success)
+        {
+            return fenceMatch.Groups[1].Value;
+        }
+
         var start = text.IndexOf('{');
         var end = text.LastIndexOf('}');
         if (start < 0 || end <= start)

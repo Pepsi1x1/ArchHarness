@@ -71,7 +71,22 @@ public sealed class ChatTerminal
             return;
         }
 
-        (RunRequest request, string setupSummary) = await this._conversationController.BuildRunRequestAsync(args, cancellationToken);
+        RunRequest request;
+        string setupSummary;
+        try
+        {
+            (request, setupSummary) = await this._conversationController.BuildRunRequestAsync(args, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            RunResultRenderer.RenderExitMessage();
+            return;
+        }
+        catch (InvalidOperationException ex)
+        {
+            RunResultRenderer.RenderRunFailure(ex);
+            return;
+        }
 
         SetupScreenRenderer.RenderSetupScreen(request, setupSummary);
         Console.CursorVisible = true;

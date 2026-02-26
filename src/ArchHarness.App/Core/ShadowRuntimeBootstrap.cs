@@ -7,6 +7,7 @@ public static class ShadowRuntimeBootstrap
 {
     private const string ShadowRunFlag = "ARCHHARNESS_SHADOW_RUN";
     private const string ShadowDisableFlag = "ARCHHARNESS_SHADOW_DISABLE";
+    private const string ShadowForceFlag = "ARCHHARNESS_SHADOW_FORCE";
     private const string OriginalBaseDirFlag = "ARCHHARNESS_ORIGINAL_BASEDIR";
     private const string ShadowRootFlag = "ARCHHARNESS_SHADOW_ROOT";
 
@@ -18,6 +19,15 @@ public static class ShadowRuntimeBootstrap
         }
 
         if (string.Equals(Environment.GetEnvironmentVariable(ShadowRunFlag), "1", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // Keep interactive setup sessions in-process by default.
+        // Explicit CLI run invocations can still use shadow mode safely.
+        bool forceShadow = string.Equals(Environment.GetEnvironmentVariable(ShadowForceFlag), "1", StringComparison.Ordinal);
+        bool isExplicitCliRun = args.Length > 0 && string.Equals(args[0], "run", StringComparison.OrdinalIgnoreCase);
+        if (!forceShadow && !isExplicitCliRun && IsLikelyInteractiveConsole())
         {
             return false;
         }
@@ -180,5 +190,17 @@ public static class ShadowRuntimeBootstrap
         }
 
         return "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+    }
+
+    private static bool IsLikelyInteractiveConsole()
+    {
+        try
+        {
+            return !Console.IsInputRedirected && !Console.IsOutputRedirected;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
