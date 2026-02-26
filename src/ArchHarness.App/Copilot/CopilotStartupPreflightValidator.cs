@@ -26,6 +26,12 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
 
     public async Task<PreflightValidationResult> ValidateAsync(CancellationToken cancellationToken = default)
     {
+        var gitCheck = await CheckGitAsync();
+        if (!gitCheck.IsSuccess)
+        {
+            return gitCheck;
+        }
+
         var cliCheck = await CheckCliAsync();
         if (!cliCheck.IsSuccess)
         {
@@ -38,7 +44,57 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
             return authCheck;
         }
 
-        return new PreflightValidationResult(true, "Preflight passed: Copilot CLI is available and authentication is valid.", Array.Empty<string>());
+        return new PreflightValidationResult(true, "Preflight passed: git and Copilot CLI are available and authentication is valid.", Array.Empty<string>());
+    }
+
+    private static async Task<PreflightValidationResult> CheckGitAsync()
+    {
+        try
+        {
+            var info = new ProcessStartInfo("git", "--version")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = new Process { StartInfo = info };
+            process.Start();
+            var stdout = await process.StandardOutput.ReadToEndAsync();
+            var stderr = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode == 0)
+            {
+                return new PreflightValidationResult(
+                    true,
+                    string.IsNullOrWhiteSpace(stdout) ? "git --version succeeded." : stdout.Trim(),
+                    Array.Empty<string>());
+            }
+
+            return new PreflightValidationResult(
+                false,
+                "Git is installed but could not be executed successfully.",
+                new[]
+                {
+                    "Run `git --version` in your terminal and resolve any local git errors.",
+                    "Ensure the git executable is available on PATH for the current session.",
+                    $"git stderr: {stderr.Trim()}"
+                });
+        }
+        catch (Win32Exception)
+        {
+            return new PreflightValidationResult(
+                false,
+                "Git was not found on PATH.",
+                new[]
+                {
+                    "Install git from https://git-scm.com/downloads.",
+                    "Ensure `git` is available on PATH and restart your terminal/session.",
+                    "Verify installation with `git --version`."
+                });
+        }
     }
 
     private static async Task<PreflightValidationResult> CheckCliAsync()

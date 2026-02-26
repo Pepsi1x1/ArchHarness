@@ -53,7 +53,7 @@ public sealed class ArchitectureAgent : AgentBase
             requiredActions.Add("Remove TODO markers and complete implementation details.");
         }
 
-        var candidateFiles = ResolveCandidateFiles(request.Diff, request.WorkspaceRoot);
+        var candidateFiles = ResolveCandidateFiles(request.Diff, request.WorkspaceRoot, request.FilesTouched);
         if (candidateFiles.Count == 0)
         {
             return new ArchitectureReview(findings, requiredActions.ToArray());
@@ -207,9 +207,24 @@ public sealed class ArchitectureAgent : AgentBase
         return "No guideline file found. Apply strict SOLID/DRY review and enforce architecture consistency.";
     }
 
-    private static List<string> ResolveCandidateFiles(string diff, string workspaceRoot)
+    private static List<string> ResolveCandidateFiles(string diff, string workspaceRoot, IReadOnlyList<string> filesTouched)
     {
-        var output = new List<string>();
+        var output = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var touched in filesTouched)
+        {
+            if (!touched.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var touchedFullPath = Path.GetFullPath(Path.Combine(workspaceRoot, touched));
+            if (File.Exists(touchedFullPath) && !IsGeneratedPath(touchedFullPath))
+            {
+                output.Add(touchedFullPath);
+            }
+        }
+
         var lines = diff.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var line in lines)
         {
@@ -218,30 +233,21 @@ public sealed class ArchitectureAgent : AgentBase
                 continue;
             }
 
-            if (line.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("/bin/", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("/obj/", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
             var fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, line));
-            if (File.Exists(fullPath))
+            if (File.Exists(fullPath) && !IsGeneratedPath(fullPath))
             {
                 output.Add(fullPath);
             }
         }
 
-        if (output.Count > 0)
-        {
-            return output;
-        }
+        return output.ToList();
+    }
 
-        return Directory.GetFiles(workspaceRoot, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase)
-                     && !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+    private static bool IsGeneratedPath(string path)
+        => path.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase)
+        || path.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase)
+        || path.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
+        || path.Contains("/obj/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<ParsedFile> ParseFiles(IEnumerable<string> files)

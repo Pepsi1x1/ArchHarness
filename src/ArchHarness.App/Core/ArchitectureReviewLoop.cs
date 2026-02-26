@@ -97,7 +97,10 @@ public sealed class ArchitectureReviewLoop
                 _architectureAgent.Role,
                 cancellationToken);
 
-            currentFiles = ParseTouchedFiles(latestDiff);
+            currentFiles = currentFiles
+                .Concat(ParseTouchedFiles(latestDiff))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
         }
 
         return (review, currentFiles);

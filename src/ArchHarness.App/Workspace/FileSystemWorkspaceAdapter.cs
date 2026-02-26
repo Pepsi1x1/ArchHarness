@@ -2,6 +2,8 @@ namespace ArchHarness.App.Workspace;
 
 public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
 {
+    private Dictionary<string, FileSignature> _baselineSnapshot = new(StringComparer.OrdinalIgnoreCase);
+
     public string RootPath { get; private set; }
 
     public FileSystemWorkspaceAdapter(string rootPath)
@@ -22,6 +24,8 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
         {
             Directory.CreateDirectory(Path.Combine(RootPath, ".git"));
         }
+
+        _baselineSnapshot = BuildSnapshot();
 
         return Task.CompletedTask;
     }
@@ -45,10 +49,66 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
 
     public Task<string> DiffAsync(CancellationToken cancellationToken)
     {
-        var content = Directory.GetFiles(RootPath, "*", SearchOption.AllDirectories)
-            .Select(f => Path.GetRelativePath(RootPath, f))
-            .OrderBy(f => f)
+        var content = ComputeChangedPathsSinceBaseline()
+            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
         return Task.FromResult(string.Join(Environment.NewLine, content));
     }
+
+    protected IReadOnlyCollection<string> ComputeChangedPathsSinceBaseline()
+    {
+        var currentSnapshot = BuildSnapshot();
+        var changedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((var path, var signature) in currentSnapshot)
+        {
+            if (!_baselineSnapshot.TryGetValue(path, out var baselineSignature) || !signature.Equals(baselineSignature))
+            {
+                changedPaths.Add(path);
+            }
+        }
+
+        foreach (var baselinePath in _baselineSnapshot.Keys)
+        {
+            if (!currentSnapshot.ContainsKey(baselinePath))
+            {
+                changedPaths.Add(baselinePath);
+            }
+        }
+
+        return changedPaths;
+    }
+
+    private Dictionary<string, FileSignature> BuildSnapshot()
+    {
+        var snapshot = new Dictionary<string, FileSignature>(StringComparer.OrdinalIgnoreCase);
+        foreach (var filePath in Directory.GetFiles(RootPath, "*", SearchOption.AllDirectories))
+        {
+            if (IsExcludedPath(filePath))
+            {
+                continue;
+            }
+
+            var relativePath = Path.GetRelativePath(RootPath, filePath);
+            var info = new FileInfo(filePath);
+            snapshot[relativePath] = new FileSignature(info.Length, info.LastWriteTimeUtc.Ticks);
+        }
+
+        return snapshot;
+    }
+
+    private bool IsExcludedPath(string fullPath)
+    {
+        var relativePath = Path.GetRelativePath(RootPath, fullPath);
+        var normalized = relativePath.Replace('\\', '/');
+
+        return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private readonly record struct FileSignature(long Length, long LastWriteUtcTicks);
 }

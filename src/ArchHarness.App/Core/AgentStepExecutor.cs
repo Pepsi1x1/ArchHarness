@@ -77,7 +77,7 @@ public sealed class AgentStepExecutor
             },
             ["Builder"] = async (ExecutionPlanStep s) =>
             {
-                filesTouched = await _builderAgent.ImplementAsync(
+                var newFiles = await _builderAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
@@ -85,6 +85,11 @@ public sealed class AgentStepExecutor
                     _builderAgent.Id,
                     _builderAgent.Role,
                     cancellationToken);
+
+                filesTouched = filesTouched
+                    .Concat(newFiles)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
             },
             ["Style"] = async (ExecutionPlanStep s) =>
             {

@@ -28,6 +28,7 @@ public sealed class BuilderAgent : AgentBase
     {
         var touched = new List<string>();
         var model = ResolveModel(modelOverrides);
+        var baseline = CaptureWorkspaceSnapshot(workspace.RootPath);
 
         if (requiredActions is { Count: > 0 })
         {
@@ -51,7 +52,64 @@ public sealed class BuilderAgent : AgentBase
             agentRole: agentRole ?? this.Role,
             cancellationToken);
 
+        var changedFiles = CaptureChangedFilesSinceBaseline(workspace.RootPath, baseline);
+        touched.AddRange(changedFiles);
+
         return touched.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static Dictionary<string, (long Length, long LastWriteUtcTicks)> CaptureWorkspaceSnapshot(string workspaceRoot)
+    {
+        var snapshot = new Dictionary<string, (long Length, long LastWriteUtcTicks)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fullPath in Directory.GetFiles(workspaceRoot, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(workspaceRoot, fullPath);
+            if (ShouldIgnorePath(relativePath))
+            {
+                continue;
+            }
+
+            var info = new FileInfo(fullPath);
+            snapshot[relativePath] = (info.Length, info.LastWriteTimeUtc.Ticks);
+        }
+
+        return snapshot;
+    }
+
+    private static IReadOnlyList<string> CaptureChangedFilesSinceBaseline(
+        string workspaceRoot,
+        IReadOnlyDictionary<string, (long Length, long LastWriteUtcTicks)> baseline)
+    {
+        var current = CaptureWorkspaceSnapshot(workspaceRoot);
+        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((var path, var signature) in current)
+        {
+            if (!baseline.TryGetValue(path, out var baselineSignature) || baselineSignature != signature)
+            {
+                changed.Add(path);
+            }
+        }
+
+        foreach (var baselinePath in baseline.Keys)
+        {
+            if (!current.ContainsKey(baselinePath))
+            {
+                changed.Add(baselinePath);
+            }
+        }
+
+        return changed.ToArray();
+    }
+
+    private static bool ShouldIgnorePath(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/');
+        return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildGenerationPrompt(IWorkspaceAdapter workspace, string objective, IReadOnlyList<string>? requiredActions)

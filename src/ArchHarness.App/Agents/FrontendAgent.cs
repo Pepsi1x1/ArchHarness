@@ -18,7 +18,7 @@ public sealed class FrontendAgent : AgentBase
     public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
         : base(copilotClient, modelResolver, toolPolicyProvider, "frontend", Guid.NewGuid().ToString("N")) { }
 
-    public Task<string> CreatePlanAsync(
+    public async Task<IReadOnlyList<string>> ImplementAsync(
         IWorkspaceAdapter workspace,
         string delegatedPrompt,
         IDictionary<string, string>? modelOverrides,
@@ -26,6 +26,7 @@ public sealed class FrontendAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
+        var baseline = CaptureWorkspaceSnapshot(workspace.RootPath);
         var guidelines = LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
         var systemPrompt = BuildSystemPrompt(guidelines);
         var prompt = $"""
@@ -43,13 +44,15 @@ public sealed class FrontendAgent : AgentBase
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 
-        return CopilotClient.CompleteAsync(
+        _ = await CopilotClient.CompleteAsync(
             ResolveModel(modelOverrides),
             prompt,
             options,
             agentId: agentId ?? this.Id,
             agentRole: agentRole ?? this.Role,
             cancellationToken);
+
+        return CaptureChangedFilesSinceBaseline(workspace.RootPath, baseline);
     }
 
     private static string BuildSystemPrompt(string guidelines)
@@ -133,5 +136,59 @@ public sealed class FrontendAgent : AgentBase
         }
 
         return $"No guideline file found for {fileName}. Apply strong frontend architecture and accessibility standards.";
+    }
+
+    private static Dictionary<string, (long Length, long LastWriteUtcTicks)> CaptureWorkspaceSnapshot(string workspaceRoot)
+    {
+        var snapshot = new Dictionary<string, (long Length, long LastWriteUtcTicks)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fullPath in Directory.GetFiles(workspaceRoot, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(workspaceRoot, fullPath);
+            if (ShouldIgnorePath(relativePath))
+            {
+                continue;
+            }
+
+            var info = new FileInfo(fullPath);
+            snapshot[relativePath] = (info.Length, info.LastWriteTimeUtc.Ticks);
+        }
+
+        return snapshot;
+    }
+
+    private static IReadOnlyList<string> CaptureChangedFilesSinceBaseline(
+        string workspaceRoot,
+        IReadOnlyDictionary<string, (long Length, long LastWriteUtcTicks)> baseline)
+    {
+        var current = CaptureWorkspaceSnapshot(workspaceRoot);
+        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((var path, var signature) in current)
+        {
+            if (!baseline.TryGetValue(path, out var baselineSignature) || baselineSignature != signature)
+            {
+                changed.Add(path);
+            }
+        }
+
+        foreach (var baselinePath in baseline.Keys)
+        {
+            if (!current.ContainsKey(baselinePath))
+            {
+                changed.Add(baselinePath);
+            }
+        }
+
+        return changed.ToArray();
+    }
+
+    private static bool ShouldIgnorePath(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/');
+        return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
     }
 }
