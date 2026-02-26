@@ -79,7 +79,7 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
             }
 
             Console.Write("Your answer> ");
-            var answer = Console.ReadLine();
+            var answer = TryReadLine();
             if (string.IsNullOrWhiteSpace(answer) && request.Choices is { Count: > 0 })
             {
                 answer = request.Choices[0];
@@ -95,6 +95,22 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
         {
             _state.Clear();
             _gate.Release();
+        }
+    }
+
+    private static string? TryReadLine()
+    {
+        try
+        {
+            return Console.ReadLine();
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
         }
     }
 }

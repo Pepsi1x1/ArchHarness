@@ -21,10 +21,9 @@ internal static class CopilotClientOptionsFactory
             clientOptions.Port = options.Port;
         }
 
-        if (!string.IsNullOrWhiteSpace(options.CliPath))
-        {
-            clientOptions.CliPath = options.CliPath;
-        }
+        clientOptions.CliPath = !string.IsNullOrWhiteSpace(options.CliPath)
+            ? options.CliPath
+            : "copilot";
 
         if (!string.IsNullOrWhiteSpace(options.CliUrl))
         {

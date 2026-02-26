@@ -83,6 +83,12 @@ public sealed class ConversationController
 
     private static RunRequest BuildInteractiveRequest()
     {
+        if (Console.IsInputRedirected)
+        {
+            throw new InvalidOperationException(
+                "Interactive setup requires a TTY-enabled stdin. Run with command-line arguments (`run <task> <workspacePath> <workspaceMode> ...`) when stdin is redirected.");
+        }
+
         var draft = new SetupDraft
         {
             TaskPrompt = "Implement requested change",
@@ -100,7 +106,12 @@ public sealed class ConversationController
             }
 
             SetupFormRenderer.RenderSetupForm(fields, selectedIndex, _validationError);
-            var key = Console.ReadKey(intercept: true);
+            if (!TryReadKey(out var key))
+            {
+                throw new InvalidOperationException(
+                    "Unable to read keyboard input from console. Ensure ArchHarness is running in an interactive terminal.");
+            }
+
             _validationError = null;
 
             if (TryHandleNavigation(key.Key, fields.Count, ref selectedIndex))
@@ -290,6 +301,24 @@ public sealed class ConversationController
 
         var next = (currentIndex + delta + modes.Length) % modes.Length;
         return modes[next];
+    }
+
+    private static bool TryReadKey(out ConsoleKeyInfo keyInfo)
+    {
+        keyInfo = default;
+        try
+        {
+            keyInfo = Console.ReadKey(intercept: true);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
 

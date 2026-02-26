@@ -19,7 +19,12 @@ internal static class PathInputHandler
 
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            if (!TryReadKey(out var key))
+            {
+                Console.WriteLine();
+                return buffer.ToString();
+            }
+
             if (HandlePathSubmit(key.Key, buffer, out var submitted))
             {
                 return submitted;
@@ -93,17 +98,28 @@ internal static class PathInputHandler
         Console.Write(completed);
 
         // Show a single-line tab-completion hint on the line below, then restore cursor
-        var savedLeft = Console.CursorLeft;
-        var savedTop = Console.CursorTop;
-        var hintRow = savedTop + 1;
-        if (hintRow < Console.BufferHeight)
+        try
         {
-            Console.SetCursorPosition(0, hintRow);
-            Console.ForegroundColor = ConsoleColor.DarkCyan;
-            Console.Write($"  ↳ {completed}");
-            Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - 4 - completed.Length)));
-            Console.ResetColor();
-            Console.SetCursorPosition(savedLeft, savedTop);
+            var savedLeft = Console.CursorLeft;
+            var savedTop = Console.CursorTop;
+            var hintRow = savedTop + 1;
+            if (hintRow < Console.BufferHeight)
+            {
+                Console.SetCursorPosition(0, hintRow);
+                Console.ForegroundColor = ConsoleColor.DarkCyan;
+                Console.Write($"  ↳ {completed}");
+                Console.Write(new string(' ', Math.Max(0, Console.WindowWidth - 4 - completed.Length)));
+                Console.ResetColor();
+                Console.SetCursorPosition(savedLeft, savedTop);
+            }
+        }
+        catch (IOException)
+        {
+            // Ignore hint rendering failures in non-interactive environments.
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignore hint rendering failures in non-interactive environments.
         }
 
         return true;
@@ -162,6 +178,24 @@ internal static class PathInputHandler
         catch
         {
             return input;
+        }
+    }
+
+    private static bool TryReadKey(out ConsoleKeyInfo keyInfo)
+    {
+        keyInfo = default;
+        try
+        {
+            keyInfo = Console.ReadKey(intercept: true);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
         }
     }
 }

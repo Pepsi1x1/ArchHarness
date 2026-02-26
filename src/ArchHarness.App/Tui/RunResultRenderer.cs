@@ -36,7 +36,7 @@ public static class RunResultRenderer
         Console.WriteLine();
         ChatTerminalRenderer.WriteMuted("  Press any key to exit.");
         Console.CursorVisible = true;
-        Console.ReadKey(intercept: true);
+        WaitForExitInputIfInteractive();
     }
 
     /// <summary>
@@ -68,7 +68,7 @@ public static class RunResultRenderer
         Console.WriteLine();
         ChatTerminalRenderer.WriteMuted("  Press any key to exit.");
         Console.CursorVisible = true;
-        Console.ReadKey(intercept: true);
+        WaitForExitInputIfInteractive();
     }
 
     /// <summary>
@@ -84,5 +84,24 @@ public static class RunResultRenderer
         ChatTerminalRenderer.WriteCenteredColored("Thanks for using ArchHarness", width, ConsoleColor.Cyan);
         ChatTerminalRenderer.WriteHRule(width);
         Console.WriteLine();
+    }
+
+    private static void WaitForExitInputIfInteractive()
+    {
+        try
+        {
+            if (!Console.IsInputRedirected)
+            {
+                Console.ReadKey(intercept: true);
+            }
+        }
+        catch (IOException)
+        {
+            // Ignore input errors in non-interactive environments.
+        }
+        catch (InvalidOperationException)
+        {
+            // Ignore when no interactive console is available.
+        }
     }
 }

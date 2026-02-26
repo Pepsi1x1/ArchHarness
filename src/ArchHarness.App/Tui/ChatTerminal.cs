@@ -75,7 +75,10 @@ public sealed class ChatTerminal
 
         SetupScreenRenderer.RenderSetupScreen(request, setupSummary);
         Console.CursorVisible = true;
-        Console.ReadKey(intercept: true);
+        if (!Console.IsInputRedirected)
+        {
+            _ = TryReadKey(out _);
+        }
         Console.CursorVisible = false;
 
         List<RuntimeProgressEvent> runEvents = new List<RuntimeProgressEvent>();
@@ -106,9 +109,13 @@ public sealed class ChatTerminal
                 continue;
             }
 
-            while (Console.KeyAvailable)
+            while (!Console.IsInputRedirected && Console.KeyAvailable)
             {
-                ConsoleKeyInfo keyInfo = Console.ReadKey(intercept: true);
+                if (!TryReadKey(out ConsoleKeyInfo keyInfo))
+                {
+                    break;
+                }
+
                 if (keyInfo.Key == ConsoleKey.A)
                 {
                     agentStreamState.CycleSelectedAgent();
@@ -167,7 +174,19 @@ public sealed class ChatTerminal
 
             FooterRenderer.RenderFooter();
             Console.CursorVisible = true;
-            ConsoleKey key = Console.ReadKey(intercept: true).Key;
+            if (Console.IsInputRedirected)
+            {
+                RunResultRenderer.RenderExitMessage();
+                break;
+            }
+
+            if (!TryReadKey(out ConsoleKeyInfo keyInfo))
+            {
+                RunResultRenderer.RenderExitMessage();
+                break;
+            }
+
+            ConsoleKey key = keyInfo.Key;
             Console.CursorVisible = false;
             if (ScreenRouter.IsQuitKey(key))
             {
@@ -190,6 +209,24 @@ public sealed class ChatTerminal
         if (_screenRenderers.TryGetValue(screen, out Action<RunRequest, string, RunArtefacts, List<RuntimeProgressEvent>>? renderer))
         {
             renderer(request, setupSummary, artefacts, runEvents);
+        }
+    }
+
+    private static bool TryReadKey(out ConsoleKeyInfo keyInfo)
+    {
+        keyInfo = default;
+        try
+        {
+            keyInfo = Console.ReadKey(intercept: true);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
         }
     }
 }
