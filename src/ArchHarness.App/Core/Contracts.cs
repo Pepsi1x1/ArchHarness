@@ -7,7 +7,9 @@ public sealed record RunRequest(
     string Workflow,
     string? ProjectName,
     IDictionary<string, string>? ModelOverrides,
-    string? BuildCommand
+    string? BuildCommand,
+    bool ArchitectureLoopMode = false,
+    string? ArchitectureLoopPrompt = null
 );
 
 public sealed record ExecutionPlanStep(

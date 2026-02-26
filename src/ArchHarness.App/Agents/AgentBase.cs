@@ -1,5 +1,6 @@
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
@@ -8,6 +9,7 @@ public abstract class AgentBase
     protected readonly ICopilotClient CopilotClient;
     private readonly IModelResolver _modelResolver;
     private readonly IAgentToolPolicyProvider _toolPolicyProvider;
+    private readonly IOptions<AgentsOptions> _agentsOptions;
     public string Id { get; }
     public string Role { get; }
 
@@ -15,15 +17,19 @@ public abstract class AgentBase
         ICopilotClient copilotClient,
         IModelResolver modelResolver,
         IAgentToolPolicyProvider toolPolicyProvider,
+        IOptions<AgentsOptions> agentsOptions,
         string role,
         string id)
     {
         CopilotClient = copilotClient;
         _modelResolver = modelResolver;
         _toolPolicyProvider = toolPolicyProvider;
+        _agentsOptions = agentsOptions;
         Id = id;
         Role = role;
     }
+
+    protected bool IsGuidelinesDisabled => _agentsOptions.Value.ForRole(Role).DisableGuidelines;
 
     public string DefaultModel => _modelResolver.Resolve(Role, overrides: null);
 

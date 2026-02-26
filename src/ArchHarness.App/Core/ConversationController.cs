@@ -1,43 +1,46 @@
+using Microsoft.Extensions.Options;
+
 namespace ArchHarness.App.Core;
 
+/// <summary>
+/// Coordinates the interactive setup form and CLI argument parsing to produce a RunRequest.
+/// Delegates to CliArgumentParser, SetupFieldEditor, SetupNavigator, and SetupSummaryGenerator.
+/// </summary>
 public sealed class ConversationController
 {
-    private const string NoneText = "(none)";
     private const string ExistingFolderMode = "existing-folder";
-    private const string NewProjectMode = "new-project";
-    private const string ExistingGitMode = "existing-git";
-
-    private const string WorkspaceModeField = "WorkspaceMode";
-    private const string WorkspacePathField = "WorkspacePath";
 
     private static string? _validationError;
 
-    private readonly SetupIntentExtractor _setupIntentExtractor;
+    private readonly SetupSummaryGenerator _summaryGenerator;
+    private readonly AgentsOptions _agentsOptions;
 
-    public ConversationController(SetupIntentExtractor setupIntentExtractor)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ConversationController"/> class.
+    /// </summary>
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions)
     {
-        _setupIntentExtractor = setupIntentExtractor;
+        _summaryGenerator = summaryGenerator;
+        _agentsOptions = agentsOptions.Value;
     }
 
+    /// <summary>
+    /// Builds a RunRequest from CLI arguments or interactive setup.
+    /// </summary>
     public async Task<(RunRequest Request, string SetupSummary)> BuildRunRequestAsync(string[] args, CancellationToken cancellationToken = default)
     {
-        if (args.Length >= 4 && args[0].Equals("run", StringComparison.OrdinalIgnoreCase))
+        RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, _agentsOptions);
+        if (cliRequest is not null)
         {
-            var request = new RunRequest(
-                TaskPrompt: args[1],
-                WorkspacePath: args[2],
-                WorkspaceMode: args[3],
-                Workflow: args.Length >= 5 ? args[4] : "frontend_feature",
-                ProjectName: args.Length >= 6 ? args[5] : null,
-                ModelOverrides: args.Length >= 7 ? ParseOverrides(args[6]) : null,
-                BuildCommand: args.Length >= 8 ? args[7] : null);
-
-            var setupSummary = await _setupIntentExtractor.GenerateSetupSummaryAsync(request, cancellationToken);
-            return (request, setupSummary);
+            string setupSummary = await _summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
+            return (cliRequest, setupSummary);
         }
 
-        var requestInteractive = BuildInteractiveRequest();
-        var setupSelection = BuildCommandInference.Select(
+        RunRequest requestInteractive = BuildInteractiveRequest(
+            _agentsOptions.Architecture.ArchitectureLoopMode,
+            CliArgumentParser.NormalizeArchitectureLoopPrompt(_agentsOptions.Architecture.ArchitectureLoopPrompt));
+
+        BuildCommandSelection setupSelection = BuildCommandInference.Select(
             requestInteractive.WorkspacePath,
             requestInteractive.BuildCommand,
             requestInteractive.WorkspaceMode,
@@ -53,7 +56,7 @@ public sealed class ConversationController
 
         try
         {
-            await _setupIntentExtractor.RunIntentExtractionAsync(requestInteractive, cancellationToken);
+            await _summaryGenerator.RunIntentExtractionAsync(requestInteractive, cancellationToken);
         }
         catch
         {
@@ -63,7 +66,7 @@ public sealed class ConversationController
         string summary;
         try
         {
-            summary = await _setupIntentExtractor.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
+            summary = await _summaryGenerator.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -76,7 +79,7 @@ public sealed class ConversationController
         return (requestInteractive, summary);
     }
 
-    private static RunRequest BuildInteractiveRequest()
+    private static RunRequest BuildInteractiveRequest(bool architectureLoopMode, string? architectureLoopPrompt)
     {
         if (Console.IsInputRedirected)
         {
@@ -84,42 +87,39 @@ public sealed class ConversationController
                 "Interactive setup requires a TTY-enabled stdin. Run with command-line arguments (`run <task> <workspacePath> <workspaceMode> ...`) when stdin is redirected.");
         }
 
-        var draft = new SetupDraft
+        SetupDraft draft = new SetupDraft
         {
-            TaskPrompt = "Implement requested change",
+            TaskPrompt = architectureLoopMode ? string.Empty : "Implement requested change",
             WorkspacePath = Directory.GetCurrentDirectory(),
-            WorkspaceMode = ExistingFolderMode
+            WorkspaceMode = ExistingFolderMode,
+            ArchitectureLoopMode = architectureLoopMode,
+            ArchitectureLoopPrompt = architectureLoopPrompt
         };
 
-        var selectedIndex = 0;
+        int selectedIndex = 0;
         while (true)
         {
-            var fields = BuildFields(draft);
+            List<SetupField> fields = SetupFieldEditor.BuildFields(draft);
             if (selectedIndex >= fields.Count)
             {
                 selectedIndex = fields.Count - 1;
             }
 
             SetupFormRenderer.RenderSetupForm(fields, selectedIndex, _validationError);
-            if (!TryReadKey(out var key))
-            {
-                throw new InvalidOperationException(
-                    "Unable to read keyboard input from console. Ensure ArchHarness is running in an interactive terminal.");
-            }
-
+            ConsoleKeyInfo key = Console.ReadKey(intercept: true);
             _validationError = null;
 
-            if (TryHandleNavigation(key.Key, fields.Count, ref selectedIndex))
+            if (SetupNavigator.TryHandleNavigation(key.Key, fields, ref selectedIndex))
             {
                 continue;
             }
 
-            if (TryHandleModeToggle(key.Key, fields[selectedIndex], draft))
+            if (SetupNavigator.TryHandleModeToggle(key.Key, fields[selectedIndex], draft))
             {
                 continue;
             }
 
-            if (TryHandleActionKey(key.Key, fields[selectedIndex].Id, draft, out var completedRequest))
+            if (TryHandleActionKey(key.Key, fields[selectedIndex].Id, draft, out RunRequest? completedRequest))
             {
                 if (completedRequest is not null)
                 {
@@ -137,21 +137,21 @@ public sealed class ConversationController
 
         if (key == ConsoleKey.Enter)
         {
-            ApplyEdit(fieldId, draft);
+            SetupFieldEditor.ApplyEdit(fieldId, draft);
             SetupFormRenderer.FlashSaved();
             return true;
         }
 
         if (key == ConsoleKey.F5)
         {
-            var errorFieldId = ValidateRequiredFields(draft);
+            string? errorFieldId = SetupFieldEditor.ValidateRequiredFields(draft);
             if (errorFieldId != null)
             {
                 _validationError = errorFieldId;
                 return true;
             }
 
-            completedRequest = BuildRequestFromDraft(draft);
+            completedRequest = SetupFieldEditor.BuildRequestFromDraft(draft);
             return true;
         }
 
@@ -161,203 +161,5 @@ public sealed class ConversationController
         }
 
         return false;
-    }
-
-    private static bool TryHandleNavigation(ConsoleKey key, int fieldCount, ref int selectedIndex)
-    {
-        if (key == ConsoleKey.UpArrow)
-        {
-            selectedIndex = selectedIndex == 0 ? fieldCount - 1 : selectedIndex - 1;
-            return true;
-        }
-
-        if (key == ConsoleKey.DownArrow)
-        {
-            selectedIndex = selectedIndex == fieldCount - 1 ? 0 : selectedIndex + 1;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool TryHandleModeToggle(ConsoleKey key, SetupField field, SetupDraft draft)
-    {
-        if (key is not (ConsoleKey.LeftArrow or ConsoleKey.RightArrow))
-        {
-            return false;
-        }
-
-        if (field.Id != WorkspaceModeField)
-        {
-            return false;
-        }
-
-        draft.WorkspaceMode = NextMode(draft.WorkspaceMode, key == ConsoleKey.RightArrow ? 1 : -1);
-        return true;
-    }
-
-    private static RunRequest BuildRequestFromDraft(SetupDraft draft)
-    {
-        var workspacePath = string.IsNullOrWhiteSpace(draft.WorkspacePath) ? Directory.GetCurrentDirectory() : draft.WorkspacePath;
-        EnsureWorkspaceExists(workspacePath);
-
-        return new RunRequest(
-            TaskPrompt: string.IsNullOrWhiteSpace(draft.TaskPrompt) ? "Implement requested change" : draft.TaskPrompt,
-            WorkspacePath: workspacePath,
-            WorkspaceMode: string.IsNullOrWhiteSpace(draft.WorkspaceMode) ? ExistingFolderMode : draft.WorkspaceMode,
-            Workflow: "auto",
-            ProjectName: string.IsNullOrWhiteSpace(draft.ProjectName) ? null : draft.ProjectName,
-            ModelOverrides: ParseOverrides(draft.ModelOverrides),
-            BuildCommand: string.IsNullOrWhiteSpace(draft.BuildCommand) ? null : draft.BuildCommand);
-    }
-
-    private static List<SetupField> BuildFields(SetupDraft draft)
-    {
-        var fields = new List<SetupField>
-        {
-            new("TaskPrompt", "Task", draft.TaskPrompt),
-            new("WorkspacePath", "Workspace Path", draft.WorkspacePath),
-            new("WorkspaceMode", "Workspace Mode", draft.WorkspaceMode),
-            new("ModelOverrides", "Model Overrides", string.IsNullOrWhiteSpace(draft.ModelOverrides) ? NoneText : draft.ModelOverrides),
-            new("BuildCommand", "Build Command", string.IsNullOrWhiteSpace(draft.BuildCommand) ? NoneText : draft.BuildCommand)
-        };
-
-        if (string.Equals(draft.WorkspaceMode, NewProjectMode, StringComparison.OrdinalIgnoreCase))
-        {
-            fields.Insert(3, new SetupField("ProjectName", "Project Name", string.IsNullOrWhiteSpace(draft.ProjectName) ? NoneText : draft.ProjectName));
-        }
-
-        return fields;
-    }
-
-
-
-    // Returns the field ID of the first failing required field, or null if all pass.
-    private static string? ValidateRequiredFields(SetupDraft draft)
-    {
-        return string.IsNullOrWhiteSpace(draft.TaskPrompt) ? "TaskPrompt" : null;
-    }
-
-    private static void ApplyEdit(string fieldId, SetupDraft draft)
-    {
-        if (fieldId == WorkspaceModeField)
-        {
-            draft.WorkspaceMode = NextMode(draft.WorkspaceMode, 1);
-            return;
-        }
-
-        try
-        {
-            Console.CursorVisible = true;
-            Console.SetCursorPosition(0, Console.CursorTop + 2);
-            Console.Write($"Edit {fieldId}> ");
-            var value = fieldId == WorkspacePathField
-                ? PathInputHandler.ReadPathWithTabCompletion(draft.WorkspacePath)
-                : Console.ReadLine();
-            if (value is null)
-            {
-                return;
-            }
-
-            switch (fieldId)
-            {
-                case "TaskPrompt":
-                    draft.TaskPrompt = value;
-                    break;
-                case "WorkspacePath":
-                    draft.WorkspacePath = value;
-                    break;
-                case "ProjectName":
-                    draft.ProjectName = value;
-                    break;
-                case "Workflow":
-                case "ModelOverrides":
-                    draft.ModelOverrides = value;
-                    break;
-                case "BuildCommand":
-                    draft.BuildCommand = value;
-                    break;
-            }
-        }
-        finally
-        {
-            Console.CursorVisible = false;
-        }
-    }
-
-    private static string NextMode(string currentMode, int delta)
-    {
-        var modes = new[] { NewProjectMode, ExistingFolderMode, ExistingGitMode };
-        var currentIndex = Array.FindIndex(modes, m => string.Equals(m, currentMode, StringComparison.OrdinalIgnoreCase));
-        if (currentIndex < 0)
-        {
-            currentIndex = 1;
-        }
-
-        var next = (currentIndex + delta + modes.Length) % modes.Length;
-        return modes[next];
-    }
-
-    private static bool TryReadKey(out ConsoleKeyInfo keyInfo)
-    {
-        keyInfo = default;
-        try
-        {
-            keyInfo = Console.ReadKey(intercept: true);
-            return true;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-    }
-
-
-    private static void EnsureWorkspaceExists(string workspacePath)
-    {
-        var fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath));
-        Directory.CreateDirectory(fullPath);
-    }
-
-    private static IDictionary<string, string>? ParseOverrides(string? overrideText)
-    {
-        if (string.IsNullOrWhiteSpace(overrideText))
-        {
-            return null;
-        }
-
-        var output = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var segments = overrideText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var segment in segments)
-        {
-            var idx = segment.IndexOf('=');
-            if (idx <= 0 || idx == segment.Length - 1)
-            {
-                continue;
-            }
-
-            var role = segment[..idx].Trim();
-            var model = segment[(idx + 1)..].Trim();
-            if (!string.IsNullOrWhiteSpace(role) && !string.IsNullOrWhiteSpace(model))
-            {
-                output[role] = model;
-            }
-        }
-
-        return output.Count == 0 ? null : output;
-    }
-
-    private sealed class SetupDraft
-    {
-        public string TaskPrompt { get; set; } = string.Empty;
-        public string WorkspacePath { get; set; } = string.Empty;
-        public string WorkspaceMode { get; set; } = ExistingFolderMode;
-        public string? ProjectName { get; set; }
-        public string? ModelOverrides { get; set; }
-        public string? BuildCommand { get; set; }
     }
 }

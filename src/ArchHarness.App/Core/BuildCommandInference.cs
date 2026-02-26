@@ -8,6 +8,20 @@ public static class BuildCommandInference
 {
     private static readonly Regex TargetRegex = new("\\.(sln|csproj)(?=(\"|'|\\s|$))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    private sealed record InferenceRule(Func<string?, string, string?, bool> Predicate, Func<string?, string, string?, BuildCommandSelection> Result);
+
+    private static readonly InferenceRule[] NoCommandRules = new InferenceRule[]
+    {
+        new InferenceRule(
+            (target, mode, project) => !string.IsNullOrWhiteSpace(target),
+            (target, mode, project) => new BuildCommandSelection($"dotnet build \"{target}\" --nologo", Inferred: true, Reason: "Discovered build target under workspace.")),
+        new InferenceRule(
+            (target, mode, project) => string.Equals(mode, "new-project", StringComparison.OrdinalIgnoreCase),
+            (target, mode, project) => new BuildCommandSelection("dotnet build --nologo", Inferred: true, Reason: "New-project mode fallback before a concrete target exists."))
+    };
+
+    private static readonly BuildCommandSelection NoTargetFallback = new BuildCommandSelection(null, Inferred: false, Reason: "No suitable .sln or .csproj discovered in workspace.");
+
     public static BuildCommandSelection Select(
         string workspaceRoot,
         string? requestedBuildCommand,
@@ -41,17 +55,13 @@ public static class BuildCommandInference
             return new BuildCommandSelection(trimmed, Inferred: false, Reason: "No solution/project target discovered to inject.");
         }
 
-        if (!string.IsNullOrWhiteSpace(target))
+        InferenceRule? matchedRule = NoCommandRules.FirstOrDefault(rule => rule.Predicate(target, workspaceMode, projectName));
+        if (matchedRule != null)
         {
-            return new BuildCommandSelection($"dotnet build \"{target}\" --nologo", Inferred: true, Reason: "Discovered build target under workspace.");
+            return matchedRule.Result(target, workspaceMode, projectName);
         }
 
-        if (string.Equals(workspaceMode, "new-project", StringComparison.OrdinalIgnoreCase))
-        {
-            return new BuildCommandSelection("dotnet build --nologo", Inferred: true, Reason: "New-project mode fallback before a concrete target exists.");
-        }
-
-        return new BuildCommandSelection(null, Inferred: false, Reason: "No suitable .sln or .csproj discovered in workspace.");
+        return NoTargetFallback;
     }
 
     private static bool ContainsBuildTarget(string command)

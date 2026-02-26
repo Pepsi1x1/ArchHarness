@@ -66,20 +66,37 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
         try
         {
             _state.SetAwaiting(request.Question);
-            Console.WriteLine();
-            Console.WriteLine("=== Agent Clarification Required ===");
-            Console.WriteLine(request.Question);
+            int width = Math.Max(60, Console.WindowWidth - 1);
+            int startRow = Math.Min(Console.CursorTop + 1, Math.Max(0, Console.WindowHeight - 1));
+
+            WriteLineAt(startRow++, "=== Agent Clarification Required ===", width, ConsoleColor.Yellow);
+            WriteLineAt(startRow++, request.Question ?? string.Empty, width, ConsoleColor.White);
 
             if (request.Choices is { Count: > 0 })
             {
                 for (var i = 0; i < request.Choices.Count; i++)
                 {
-                    Console.WriteLine($"  [{i + 1}] {request.Choices[i]}");
+                    WriteLineAt(startRow++, $"  [{i + 1}] {request.Choices[i]}", width, ConsoleColor.Gray);
                 }
             }
 
-            Console.Write("Your answer> ");
-            var answer = TryReadLine();
+            int promptRow = startRow;
+            string promptLabel = "Your answer> ";
+            WriteLineAt(promptRow, promptLabel, width, ConsoleColor.Cyan);
+
+            bool restoreCursor = TryGetCursorVisible();
+            TrySetCursorVisible(true);
+            Console.SetCursorPosition(Math.Min(promptLabel.Length, Math.Max(0, width - 1)), promptRow);
+            string? answer;
+            try
+            {
+                answer = TryReadLine();
+            }
+            finally
+            {
+                TrySetCursorVisible(restoreCursor);
+            }
+
             if (string.IsNullOrWhiteSpace(answer) && request.Choices is { Count: > 0 })
             {
                 answer = request.Choices[0];
@@ -95,6 +112,49 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
         {
             _state.Clear();
             _gate.Release();
+        }
+    }
+
+    private static void WriteLineAt(int row, string text, int width, ConsoleColor color)
+    {
+        Console.SetCursorPosition(0, row);
+        Console.ForegroundColor = color;
+        string output = text.Length > width ? text[..width] : text;
+        Console.Write(output.PadRight(width));
+        Console.ResetColor();
+    }
+
+    private static bool TryGetCursorVisible()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            return Console.CursorVisible;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TrySetCursorVisible(bool visible)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            Console.CursorVisible = visible;
+        }
+        catch
+        {
+            // Ignore terminal capability failures and continue with input flow.
         }
     }
 

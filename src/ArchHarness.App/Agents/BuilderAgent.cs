@@ -1,6 +1,7 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using ArchHarness.App.Workspace;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
@@ -17,14 +18,8 @@ public sealed class BuilderAgent : AgentBase
         Return a concise completion summary and list key changed files.
         """;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="BuilderAgent"/> class.
-    /// </summary>
-    /// <param name="copilotClient">Client for Copilot completions.</param>
-    /// <param name="modelResolver">Resolver for model identifiers.</param>
-    /// <param name="toolPolicyProvider">Provider for agent tool access policies.</param>
-    public BuilderAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
-        : base(copilotClient, modelResolver, toolPolicyProvider, "builder", Guid.NewGuid().ToString("N")) { }
+    public BuilderAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "builder", Guid.NewGuid().ToString("N")) { }
 
     /// <summary>
     /// Implements code changes in the workspace based on the given objective and optional required actions.
@@ -57,7 +52,7 @@ public sealed class BuilderAgent : AgentBase
         }
 
         string generationPrompt = BuildGenerationPrompt(workspace, objective, requiredActions);
-        string systemPrompt = BuildSystemPrompt();
+        string systemPrompt = BuildSystemPrompt(IsGuidelinesDisabled);
         CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
@@ -95,9 +90,14 @@ public sealed class BuilderAgent : AgentBase
             """;
     }
 
-    private static string BuildSystemPrompt()
+    private static string BuildSystemPrompt(bool disableGuidelines = false)
     {
         string builderGuidelines = LoadBuilderGuidelines();
+        if (disableGuidelines)
+        {
+            return BUILDER_INSTRUCTIONS;
+        }
+
         return $"""
             {BUILDER_INSTRUCTIONS}
 

@@ -1,5 +1,6 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
@@ -13,8 +14,8 @@ public sealed class StyleAgent : AgentBase
         Return a concise completion summary after applying changes.
         """;
 
-    public StyleAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
-        : base(copilotClient, modelResolver, toolPolicyProvider, "style", Guid.NewGuid().ToString("N"))
+    public StyleAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "style", Guid.NewGuid().ToString("N"))
     {
     }
 

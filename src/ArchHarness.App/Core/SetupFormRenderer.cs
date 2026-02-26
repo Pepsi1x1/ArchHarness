@@ -102,8 +102,21 @@ internal static class SetupFormRenderer
 
     private static void WriteInteractiveSetupRow(int contentWidth, SetupField field, bool isSelected, bool isError)
     {
-        var isPlaceholder = string.IsNullOrWhiteSpace(field.Value) || field.Value == NoneText;
-        var displayValue = isPlaceholder ? NoneText : field.Value;
+        if (field.Id.StartsWith("__section__", StringComparison.Ordinal))
+        {
+            var sectionLabel = $" {field.Label} ";
+            var padding = Math.Max(0, contentWidth - sectionLabel.Length);
+            var leftPad = padding / 2;
+            var paddedLabel = new string('─', leftPad) + sectionLabel + new string('─', padding - leftPad);
+            ChatTerminalRenderer.WriteColored("  |", ConsoleColor.Cyan);
+            ChatTerminalRenderer.WriteColored(paddedLabel.PadRight(contentWidth), ConsoleColor.DarkCyan);
+            ChatTerminalRenderer.WriteColored("|", ConsoleColor.Cyan);
+            Console.WriteLine();
+            return;
+        }
+
+        var isPlaceholder = string.IsNullOrWhiteSpace(field.Value) || field.Value == NoneText || field.IsPlaceholderValue;
+        var displayValue = isPlaceholder && !field.IsPlaceholderValue ? NoneText : field.Value;
         var icon = GetFieldIconForId(field.Id);
         string selectionMarker;
         if (isError)
@@ -152,10 +165,12 @@ internal static class SetupFormRenderer
     {
         return fieldId switch
         {
-            "WorkspacePath"  => "W",
-            "WorkspaceMode"  => "M",
-            "BuildCommand"   => "B",
-            _                => ">",
+            "WorkspacePath"        => "W",
+            "WorkspaceMode"        => "M",
+            "BuildCommand"         => "B",
+            "ArchitectureLoopMode" => "A",
+            "ArchitectureLoopPrompt" => "P",
+            _                      => ">",
         };
     }
 }

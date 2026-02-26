@@ -1,5 +1,6 @@
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
@@ -9,6 +10,8 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class OrchestrationAgent : AgentBase
 {
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run architecture and style review loop for the existing workspace and apply required remediation.";
+
     private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS = """
         You are the orchestration planner.
         Your role is planning and delegation only.
@@ -29,28 +32,20 @@ public sealed class OrchestrationAgent : AgentBase
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationAgent"/> class.
     /// </summary>
-    /// <param name="copilotClient">Client for Copilot completions.</param>
-    /// <param name="modelResolver">Resolver for model identifiers.</param>
-    /// <param name="toolPolicyProvider">Provider for agent tool access policies.</param>
-    /// <param name="executionPlanParser">Parser for validating and building execution plans from JSON.</param>
-    public OrchestrationAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, ExecutionPlanParser executionPlanParser)
-        : base(copilotClient, modelResolver, toolPolicyProvider, "orchestration", Guid.NewGuid().ToString("N"))
+    public OrchestrationAgent(
+        ICopilotClient copilotClient,
+        IModelResolver modelResolver,
+        IAgentToolPolicyProvider toolPolicyProvider,
+        IOptions<AgentsOptions> agentsOptions,
+        ExecutionPlanParser executionPlanParser)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "orchestration", Guid.NewGuid().ToString("N"))
     {
-        this._executionPlanParser = executionPlanParser;
+        _executionPlanParser = executionPlanParser;
     }
 
     internal CopilotCompletionOptions GetWarmUpCompletionOptions()
         => base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
 
-    /// <summary>
-    /// Builds an execution plan by prompting the orchestration model and parsing the structured JSON response.
-    /// </summary>
-    /// <param name="request">The run request containing the task prompt and configuration.</param>
-    /// <param name="workspaceRoot">The root path of the workspace.</param>
-    /// <param name="agentId">Optional agent identifier override.</param>
-    /// <param name="agentRole">Optional agent role override.</param>
-    /// <param name="cancellationToken">Token to signal cancellation.</param>
-    /// <returns>The parsed execution plan.</returns>
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(
         RunRequest request,
         string workspaceRoot,
@@ -60,20 +55,24 @@ public sealed class OrchestrationAgent : AgentBase
     {
         string model = base.ResolveModel(request.ModelOverrides);
         string buildCommand = request.BuildCommand ?? "(none)";
+        bool architectureLoopMode = request.ArchitectureLoopMode;
+        string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? "(none)";
+        string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, architectureLoopMode);
+
         string planningPrompt = $$"""
-                        You are the orchestration planner. Return ONLY strict JSON with this schema:
-                        {
-                                                        "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
-                            "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
-                            "completionCriteria": ["string"]
-                        }
+            You are the orchestration planner. Return ONLY strict JSON with this schema:
+            {
+                "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+                "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                "completionCriteria": ["string"]
+            }
 
             Constraints:
             - Always include at least one Builder, one Style, and one Architecture step.
             - Include Frontend when UI/UX work is implied.
-                        - Style and Architecture are review/enforcement steps.
-                        - Style must execute before Architecture.
-                        - Architecture must be a single final review/enforcement step only.
+            - Style and Architecture are review/enforcement steps.
+            - Style must execute before Architecture.
+            - Architecture must be a single final review/enforcement step only.
             - Never use Architecture for solution design/spec generation/planning.
             - Never use Style for solution design/spec generation/planning.
             - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
@@ -84,18 +83,21 @@ public sealed class OrchestrationAgent : AgentBase
             - Keep 3-6 steps total.
             - completionCriteria must include style, architecture, and build verification.
             - Each objective must be a concrete delegated prompt the target agent can execute directly.
+            - If ArchitectureLoopMode is true, Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
 
-            TaskPrompt: {{request.TaskPrompt}}
+            TaskPrompt: {{effectiveTaskPrompt}}
             WorkspaceRoot: {{workspaceRoot}}
             WorkspaceMode: {{request.WorkspaceMode}}
             BuildCommand: {{buildCommand}}
+            ArchitectureLoopMode: {{architectureLoopMode}}
+            ArchitectureLoopPrompt: {{architectureLoopPrompt}}
             """;
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
         const int MAX_PLANNING_ATTEMPTS = 3;
         string? lastResponse = null;
         string? lastValidationError = null;
-        
+
         for (int attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt++)
         {
             string promptForAttempt = attempt == 1
@@ -110,9 +112,11 @@ public sealed class OrchestrationAgent : AgentBase
                 agentRole: agentRole ?? base.Role,
                 cancellationToken);
 
-            if (this._executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
+            if (_executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
             {
-                return parsedPlan;
+                return request.ArchitectureLoopMode
+                    ? ApplyArchitectureLoopMode(parsedPlan, request, workspaceRoot)
+                    : parsedPlan;
             }
         }
 
@@ -123,17 +127,6 @@ public sealed class OrchestrationAgent : AgentBase
             $"Last response preview: {preview}");
     }
 
-    /// <summary>
-    /// Builds a remediation prompt for the Architecture agent based on review findings.
-    /// </summary>
-    /// <param name="request">The originating run request.</param>
-    /// <param name="workspaceRoot">The root path of the workspace.</param>
-    /// <param name="review">The architecture review containing findings to remediate.</param>
-    /// <param name="iteration">The current remediation iteration number.</param>
-    /// <param name="agentId">Optional agent identifier override.</param>
-    /// <param name="agentRole">Optional agent role override.</param>
-    /// <param name="cancellationToken">Token to signal cancellation.</param>
-    /// <returns>The remediation prompt text.</returns>
     public async Task<string> BuildRemediationPromptAsync(
         RunRequest request,
         string workspaceRoot,
@@ -144,10 +137,16 @@ public sealed class OrchestrationAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         string model = base.ResolveModel(request.ModelOverrides);
+        string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, request.ArchitectureLoopMode);
         string reviewSummary = string.Join(Environment.NewLine, review.RequiredActions.Select(x => $"- {x}"));
         string requiredActionsSection = string.IsNullOrWhiteSpace(reviewSummary)
             ? string.Empty
             : $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{reviewSummary}";
+
+        string architectureLoopPromptSection = string.IsNullOrWhiteSpace(request.ArchitectureLoopPrompt)
+            ? string.Empty
+            : $"{Environment.NewLine}ArchitectureLoopPrompt:{Environment.NewLine}{request.ArchitectureLoopPrompt}";
+
         string prompt = $"""
             You are the orchestration planner.
             Generate a single delegated prompt for the Architecture agent.
@@ -155,9 +154,11 @@ public sealed class OrchestrationAgent : AgentBase
             Return plain text only (no markdown, no JSON).
 
             Iteration: {iteration}
-            OriginalTask: {request.TaskPrompt}
+            OriginalTask: {effectiveTaskPrompt}
             WorkspaceRoot: {workspaceRoot}
+            ArchitectureLoopMode: {request.ArchitectureLoopMode}
             {requiredActionsSection}
+            {architectureLoopPromptSection}
             """;
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
@@ -168,19 +169,16 @@ public sealed class OrchestrationAgent : AgentBase
             agentId: agentId ?? base.Id,
             agentRole: agentRole ?? base.Role,
             cancellationToken);
-        return string.IsNullOrWhiteSpace(response)
+
+        string remediationPrompt = string.IsNullOrWhiteSpace(response)
             ? $"Enforce all architecture required actions for iteration {iteration} directly in workspace files and re-check SOLID/DRY compliance."
             : response.Trim();
+
+        return request.ArchitectureLoopMode
+            ? BuildArchitectureLoopObjective(remediationPrompt, workspaceRoot, request.ArchitectureLoopPrompt)
+            : remediationPrompt;
     }
 
-    /// <summary>
-    /// Validates whether a run meets its completion criteria based on review findings and build results.
-    /// </summary>
-    /// <param name="request">The completion validation request containing plan, review, and build status.</param>
-    /// <param name="agentId">Optional agent identifier override.</param>
-    /// <param name="agentRole">Optional agent role override.</param>
-    /// <param name="cancellationToken">Token to signal cancellation.</param>
-    /// <returns><c>true</c> if the run is complete; otherwise <c>false</c>.</returns>
     public async Task<bool> ValidateCompletionAsync(
         CompletionValidationRequest request,
         string? agentId = null,
@@ -202,4 +200,52 @@ public sealed class OrchestrationAgent : AgentBase
         return !hasHighFindings && (!buildRequired || request.BuildPassed);
     }
 
+    private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, string workspaceRoot)
+    {
+        if (!request.ArchitectureLoopMode)
+        {
+            return plan;
+        }
+
+        IterationStrategy loopIteration = new IterationStrategy(
+            MaxIterations: Math.Max(2, plan.IterationStrategy.MaxIterations),
+            ReviewRequired: true);
+
+        IReadOnlyList<ExecutionPlanStep> updatedSteps = plan.Steps
+            .Select(step => step.Agent == "Architecture"
+                ? step with { Objective = BuildArchitectureLoopObjective(step.Objective, workspaceRoot, request.ArchitectureLoopPrompt) }
+                : step)
+            .ToArray();
+
+        return new ExecutionPlan(updatedSteps, loopIteration, plan.CompletionCriteria);
+    }
+
+    private static string BuildArchitectureLoopObjective(string objective, string workspaceRoot, string? architectureLoopPrompt)
+    {
+        string baseObjective = string.IsNullOrWhiteSpace(objective)
+            ? "Review and enforce architecture constraints over the entire workspace."
+            : objective.Trim();
+
+        string promptSection = string.IsNullOrWhiteSpace(architectureLoopPrompt)
+            ? string.Empty
+            : $"{Environment.NewLine}ArchitectureLoopPrompt: {architectureLoopPrompt.Trim()}";
+
+        return $"""
+            SessionMode: architecture-loop
+            Scope: Review and enforce over the entire workspace at {workspaceRoot}
+            {baseObjective}{promptSection}
+            """;
+    }
+
+    private static string ResolveTaskPrompt(string? inputTaskPrompt, bool architectureLoopMode)
+    {
+        if (!architectureLoopMode)
+        {
+            return inputTaskPrompt ?? string.Empty;
+        }
+
+        return string.IsNullOrWhiteSpace(inputTaskPrompt)
+            ? DEFAULT_ARCH_LOOP_TASK_PROMPT
+            : inputTaskPrompt;
+    }
 }

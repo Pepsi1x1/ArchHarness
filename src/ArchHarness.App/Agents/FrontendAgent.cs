@@ -1,6 +1,7 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using ArchHarness.App.Workspace;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
@@ -18,14 +19,8 @@ public sealed class FrontendAgent : AgentBase
         Return a concise completion summary.
         """;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="FrontendAgent"/> class.
-    /// </summary>
-    /// <param name="copilotClient">Client for Copilot completions.</param>
-    /// <param name="modelResolver">Resolver for model identifiers.</param>
-    /// <param name="toolPolicyProvider">Provider for agent tool access policies.</param>
-    public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
-        : base(copilotClient, modelResolver, toolPolicyProvider, "frontend", Guid.NewGuid().ToString("N")) { }
+    public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "frontend", Guid.NewGuid().ToString("N")) { }
 
     /// <summary>
     /// Implements frontend changes in the workspace based on the given delegated prompt.
@@ -46,8 +41,8 @@ public sealed class FrontendAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         Dictionary<string, (long Length, long LastWriteUtcTicks)> baseline = WorkspaceSnapshotHelper.CaptureSnapshot(workspace.RootPath);
-        string guidelines = LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
-        string systemPrompt = BuildSystemPrompt(guidelines);
+        string guidelines = IsGuidelinesDisabled ? string.Empty : LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
+        string systemPrompt = BuildSystemPrompt(guidelines, IsGuidelinesDisabled);
         string prompt = $"""
             WorkspaceRoot: {workspace.RootPath}
 
@@ -74,13 +69,20 @@ public sealed class FrontendAgent : AgentBase
         return WorkspaceSnapshotHelper.DetectChanges(workspace.RootPath, baseline);
     }
 
-    private static string BuildSystemPrompt(string guidelines)
-        => $"""
+    private static string BuildSystemPrompt(string guidelines, bool disableGuidelines)
+    {
+        if (disableGuidelines)
+        {
+            return FRONTEND_INSTRUCTIONS;
+        }
+
+        return $"""
             {FRONTEND_INSTRUCTIONS}
 
             Apply the following frontend guidelines:
             {guidelines}
             """;
+    }
 
     private static string LoadFrontendGuidelines(string workspaceRoot, string delegatedPrompt)
     {

@@ -50,7 +50,9 @@ public sealed class ArchitectureReviewLoop
         CancellationToken cancellationToken)
     {
         ArchitectureReview review = request.InitialReview;
-        IReadOnlyList<string> currentFiles = request.FilesTouched;
+        IReadOnlyList<string> currentFiles = request.RunRequest.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, request.ArchitectureLanguages)
+            : request.FilesTouched;
         int iteration = 0;
         string previousFindingsFingerprint = BuildFindingsFingerprint(review.Findings);
 
@@ -87,9 +89,12 @@ public sealed class ArchitectureReviewLoop
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", remediationPrompt));
 
             latestDiff = await adapter.DiffAsync(cancellationToken);
+            string delegatedPrompt = request.RunRequest.ArchitectureLoopMode
+                ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, adapter.RootPath, request.RunRequest.ArchitectureLoopPrompt)
+                : remediationPrompt;
             review = await this._architectureAgent.ReviewAsync(
                 new ArchitectureReviewRequest(
-                    DelegatedPrompt: remediationPrompt,
+                    DelegatedPrompt: delegatedPrompt,
                     Diff: latestDiff,
                     WorkspaceRoot: adapter.RootPath,
                     FilesTouched: currentFiles,
@@ -112,10 +117,12 @@ public sealed class ArchitectureReviewLoop
             }
 
             previousFindingsFingerprint = currentFindingsFingerprint;
-            currentFiles = currentFiles
-                .Concat(ParseTouchedFiles(latestDiff))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            currentFiles = request.RunRequest.ArchitectureLoopMode
+                ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, request.ArchitectureLanguages)
+                : currentFiles
+                    .Concat(ParseTouchedFiles(latestDiff))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
         }
 
         return (review, currentFiles);

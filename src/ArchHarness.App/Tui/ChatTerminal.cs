@@ -113,15 +113,26 @@ public sealed class ChatTerminal
         char[] spinner = new[] { '|', '/', '-', '\\' };
         int spinnerIndex = 0;
         bool liveScreenInitialized = false;
+        bool awaitingInputBannerShown = false;
 
         while (!runTask.IsCompleted)
         {
             if (this._userInputState.IsAwaitingInput)
             {
-                FooterRenderer.RenderAwaitingInputBanner(this._userInputState.ActiveQuestion);
-                liveScreenInitialized = false;
+                if (!awaitingInputBannerShown)
+                {
+                    FooterRenderer.RenderAwaitingInputBanner(this._userInputState.ActiveQuestion);
+                    awaitingInputBannerShown = true;
+                    liveScreenInitialized = false;
+                }
+
                 await Task.Delay(140, cancellationToken);
                 continue;
+            }
+
+            if (awaitingInputBannerShown)
+            {
+                awaitingInputBannerShown = false;
             }
 
             while (!Console.IsInputRedirected && Console.KeyAvailable)

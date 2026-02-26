@@ -118,12 +118,18 @@ public sealed class AgentStepExecutor
             ["Architecture"] = async (ExecutionPlanStep s) =>
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken);
+                IReadOnlyList<string> architectureFiles = request.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, s.Languages)
+                    : filesTouched;
+                string delegatedPrompt = request.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, adapter.RootPath, request.ArchitectureLoopPrompt)
+                    : s.Objective;
                 review = await this._architectureAgent.ReviewAsync(
                     new ArchitectureReviewRequest(
-                        DelegatedPrompt: s.Objective,
+                        DelegatedPrompt: delegatedPrompt,
                         Diff: latestDiff,
                         WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: filesTouched,
+                        FilesTouched: architectureFiles,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
                     this._architectureAgent.Id,

@@ -52,25 +52,41 @@ public static class FooterRenderer
     /// <param name="question">The question the agent is asking, if any.</param>
     public static void RenderAwaitingInputBanner(string? question)
     {
-        Console.Clear();
         int width = Math.Max(60, Console.WindowWidth - 1);
+        int row = 0;
 
+        WriteLineAt(row++, "", width, ConsoleColor.Gray);
+
+        Console.SetCursorPosition(0, row);
         Console.BackgroundColor = ConsoleColor.DarkYellow;
         Console.ForegroundColor = ConsoleColor.Black;
-        string banner = "  ! AWAITING INPUT  —  Agent requested clarification";
-        Console.WriteLine(banner + new string(' ', Math.Max(0, width - banner.Length)));
+        string banner = "  ! AWAITING INPUT  -  Agent requested clarification";
+        Console.Write(banner.PadRight(width));
         Console.ResetColor();
-        Console.WriteLine();
+        row++;
+
+        WriteLineAt(row++, string.Empty, width, ConsoleColor.Gray);
 
         if (!string.IsNullOrWhiteSpace(question))
         {
-            ChatTerminalRenderer.WriteColored("  Question:", ConsoleColor.Yellow);
-            Console.WriteLine();
-            ChatTerminalRenderer.WriteColored($"  {question}", ConsoleColor.White);
-            Console.WriteLine();
+            WriteLineAt(row++, "  Question:", width, ConsoleColor.Yellow);
+            WriteLineAt(row++, $"  {question}", width, ConsoleColor.White);
+        }
+        else
+        {
+            WriteLineAt(row++, "  Question: (none provided)", width, ConsoleColor.DarkGray);
         }
 
-        Console.WriteLine();
-        ChatTerminalRenderer.WriteMuted("  Answer in the prompt below to continue...");
+        WriteLineAt(row++, string.Empty, width, ConsoleColor.Gray);
+        WriteLineAt(row, "  Answer in the prompt below to continue...", width, ConsoleColor.DarkGray);
+    }
+
+    private static void WriteLineAt(int row, string text, int width, ConsoleColor color)
+    {
+        Console.SetCursorPosition(0, row);
+        Console.ForegroundColor = color;
+        string output = text.Length > width ? text[..width] : text;
+        Console.Write(output.PadRight(width));
+        Console.ResetColor();
     }
 }
