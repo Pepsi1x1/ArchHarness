@@ -248,7 +248,6 @@ public sealed class ArchitectureAgent : AgentBase
         || path.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase)
         || path.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
         || path.Contains("/obj/", StringComparison.OrdinalIgnoreCase);
-    }
 
     private static List<ParsedFile> ParseFiles(IEnumerable<string> files)
     {

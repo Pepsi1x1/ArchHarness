@@ -5,6 +5,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
+    <CopilotCliDownloadTimeout>600</CopilotCliDownloadTimeout>
   </PropertyGroup>
 
   <ItemGroup>

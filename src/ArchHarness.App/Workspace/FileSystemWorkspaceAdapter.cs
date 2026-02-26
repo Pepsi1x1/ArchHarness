@@ -47,7 +47,7 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
         await File.WriteAllTextAsync(fullPath, content, cancellationToken);
     }
 
-    public Task<string> DiffAsync(CancellationToken cancellationToken)
+    public virtual Task<string> DiffAsync(CancellationToken cancellationToken)
     {
         var content = ComputeChangedPathsSinceBaseline()
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
@@ -61,20 +61,16 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
         var currentSnapshot = BuildSnapshot();
         var changedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach ((var path, var signature) in currentSnapshot)
+        foreach (var entry in currentSnapshot
+                     .Where(entry => !_baselineSnapshot.TryGetValue(entry.Key, out var baselineSignature)
+                                     || !entry.Value.Equals(baselineSignature)))
         {
-            if (!_baselineSnapshot.TryGetValue(path, out var baselineSignature) || !signature.Equals(baselineSignature))
-            {
-                changedPaths.Add(path);
-            }
+            changedPaths.Add(entry.Key);
         }
 
-        foreach (var baselinePath in _baselineSnapshot.Keys)
+        foreach (var baselinePath in _baselineSnapshot.Keys.Where(baselinePath => !currentSnapshot.ContainsKey(baselinePath)))
         {
-            if (!currentSnapshot.ContainsKey(baselinePath))
-            {
-                changedPaths.Add(baselinePath);
-            }
+            changedPaths.Add(baselinePath);
         }
 
         return changedPaths;
@@ -83,13 +79,10 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
     private Dictionary<string, FileSignature> BuildSnapshot()
     {
         var snapshot = new Dictionary<string, FileSignature>(StringComparer.OrdinalIgnoreCase);
-        foreach (var filePath in Directory.GetFiles(RootPath, "*", SearchOption.AllDirectories))
+        foreach (var filePath in Directory
+                     .GetFiles(RootPath, "*", SearchOption.AllDirectories)
+                     .Where(filePath => !IsExcludedPath(filePath)))
         {
-            if (IsExcludedPath(filePath))
-            {
-                continue;
-            }
-
             var relativePath = Path.GetRelativePath(RootPath, filePath);
             var info = new FileInfo(filePath);
             snapshot[relativePath] = new FileSignature(info.Length, info.LastWriteTimeUtc.Ticks);

@@ -76,12 +76,9 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
     private static void AddPaths(ISet<string> output, string raw)
     {
         var lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var line in lines)
+        foreach (var line in lines.Where(line => !string.IsNullOrWhiteSpace(line)))
         {
-            if (!string.IsNullOrWhiteSpace(line))
-            {
-                output.Add(line);
-            }
+            output.Add(line);
         }
     }
 
@@ -89,5 +86,4 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
         => value.Contains(' ', StringComparison.Ordinal)
             ? $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
             : value;
-    }
 }

@@ -67,13 +67,22 @@ public sealed class AgentStepExecutor
         {
             ["Frontend"] = async (ExecutionPlanStep s) =>
             {
-                frontendPlan = await _frontendAgent.CreatePlanAsync(
+                var newFiles = await _frontendAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
                     _frontendAgent.Id,
                     _frontendAgent.Role,
                     cancellationToken);
+
+                filesTouched = filesTouched
+                    .Concat(newFiles)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                frontendPlan = newFiles.Count > 0
+                    ? $"Frontend implemented and touched {newFiles.Count} file(s)."
+                    : "Frontend step executed.";
             },
             ["Builder"] = async (ExecutionPlanStep s) =>
             {

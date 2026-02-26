@@ -141,14 +141,11 @@ public sealed class FrontendAgent : AgentBase
     private static Dictionary<string, (long Length, long LastWriteUtcTicks)> CaptureWorkspaceSnapshot(string workspaceRoot)
     {
         var snapshot = new Dictionary<string, (long Length, long LastWriteUtcTicks)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var fullPath in Directory.GetFiles(workspaceRoot, "*", SearchOption.AllDirectories))
+        foreach (var fullPath in Directory
+                     .GetFiles(workspaceRoot, "*", SearchOption.AllDirectories)
+                     .Where(fullPath => !ShouldIgnorePath(Path.GetRelativePath(workspaceRoot, fullPath))))
         {
             var relativePath = Path.GetRelativePath(workspaceRoot, fullPath);
-            if (ShouldIgnorePath(relativePath))
-            {
-                continue;
-            }
-
             var info = new FileInfo(fullPath);
             snapshot[relativePath] = (info.Length, info.LastWriteTimeUtc.Ticks);
         }
@@ -163,20 +160,16 @@ public sealed class FrontendAgent : AgentBase
         var current = CaptureWorkspaceSnapshot(workspaceRoot);
         var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach ((var path, var signature) in current)
+        foreach (var entry in current
+                     .Where(entry => !baseline.TryGetValue(entry.Key, out var baselineSignature)
+                                     || baselineSignature != entry.Value))
         {
-            if (!baseline.TryGetValue(path, out var baselineSignature) || baselineSignature != signature)
-            {
-                changed.Add(path);
-            }
+            changed.Add(entry.Key);
         }
 
-        foreach (var baselinePath in baseline.Keys)
+        foreach (var baselinePath in baseline.Keys.Where(baselinePath => !current.ContainsKey(baselinePath)))
         {
-            if (!current.ContainsKey(baselinePath))
-            {
-                changed.Add(baselinePath);
-            }
+            changed.Add(baselinePath);
         }
 
         return changed.ToArray();
