@@ -214,3 +214,13 @@ When reviewing Vue 3 code, verify every item below. Fix all violations.
 - [ ] Routes use lazy loading
 - [ ] Unit tests exist for composables, stores, and services
 - [ ] All tests pass
+
+---
+
+## Cross-Cutting Reliability Rules
+
+- Always propagate cancellation (`CancellationToken` in .NET, `AbortSignal` in frontend) through async calls and long-running loops.
+- Validate external inputs and nullable values at boundaries; fail fast with explicit, actionable error messages.
+- Never swallow exceptions; either handle with context-aware recovery or rethrow after structured logging.
+- Keep error paths deterministic: no silent fallbacks that hide failures.
+

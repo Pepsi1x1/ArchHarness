@@ -43,6 +43,10 @@ builder.Services.AddSingleton<OrchestratorRuntime.OrchestratorAgentDependencies>
 builder.Services.AddSingleton<OrchestratorRuntime.OrchestratorServiceDependencies>();
 builder.Services.AddSingleton<ArchitectureReviewLoop>();
 builder.Services.AddSingleton<AgentStepExecutor>();
+builder.Services.AddSingleton<ExecutionPlanParser>();
+builder.Services.AddSingleton<SessionEventPump>();
+builder.Services.AddSingleton<IWorkspaceContextAnalyzer, WorkspaceContextAnalyzer>();
+builder.Services.AddSingleton<SetupIntentExtractor>();
 builder.Services.AddSingleton<OrchestratorRuntime>();
 builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();

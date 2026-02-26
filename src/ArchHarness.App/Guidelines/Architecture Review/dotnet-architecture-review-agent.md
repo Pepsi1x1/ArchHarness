@@ -194,3 +194,13 @@ When reviewing .NET code, verify every item below. Fix all violations.
 - [ ] Custom exceptions include inner exception constructors
 - [ ] No secrets in source code
 - [ ] Unit tests exist for services and controllers
+
+---
+
+## Cross-Cutting Reliability Rules
+
+- Always propagate cancellation (`CancellationToken` in .NET, `AbortSignal` in frontend) through async calls and long-running loops.
+- Validate external inputs and nullable values at boundaries; fail fast with explicit, actionable error messages.
+- Never swallow exceptions; either handle with context-aware recovery or rethrow after structured logging.
+- Keep error paths deterministic: no silent fallbacks that hide failures.
+

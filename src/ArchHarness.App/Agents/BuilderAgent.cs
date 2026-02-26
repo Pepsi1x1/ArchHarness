@@ -4,9 +4,12 @@ using ArchHarness.App.Workspace;
 
 namespace ArchHarness.App.Agents;
 
+/// <summary>
+/// Builder agent responsible for implementing code changes in the workspace.
+/// </summary>
 public sealed class BuilderAgent : AgentBase
 {
-    private const string BuilderInstructions = """
+    private const string BUILDER_INSTRUCTIONS = """
         You are the Builder/Implementation Agent.
         Execute the delegated prompt using agent-mode built-in tools.
         Create and edit workspace files directly where required.
@@ -14,9 +17,26 @@ public sealed class BuilderAgent : AgentBase
         Return a concise completion summary and list key changed files.
         """;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BuilderAgent"/> class.
+    /// </summary>
+    /// <param name="copilotClient">Client for Copilot completions.</param>
+    /// <param name="modelResolver">Resolver for model identifiers.</param>
+    /// <param name="toolPolicyProvider">Provider for agent tool access policies.</param>
     public BuilderAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
         : base(copilotClient, modelResolver, toolPolicyProvider, "builder", Guid.NewGuid().ToString("N")) { }
 
+    /// <summary>
+    /// Implements code changes in the workspace based on the given objective and optional required actions.
+    /// </summary>
+    /// <param name="workspace">The workspace adapter for file operations.</param>
+    /// <param name="objective">The delegated prompt describing what to implement.</param>
+    /// <param name="modelOverrides">Optional model override mappings.</param>
+    /// <param name="requiredActions">Optional architecture review actions to address.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns>A list of files that were created or modified.</returns>
     public async Task<IReadOnlyList<string>> ImplementAsync(
         IWorkspaceAdapter workspace,
         string objective,
@@ -26,9 +46,9 @@ public sealed class BuilderAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var touched = new List<string>();
-        var model = ResolveModel(modelOverrides);
-        var baseline = CaptureWorkspaceSnapshot(workspace.RootPath);
+        List<string> touched = new List<string>();
+        string model = base.ResolveModel(modelOverrides);
+        Dictionary<string, (long Length, long LastWriteUtcTicks)> baseline = WorkspaceSnapshotHelper.CaptureSnapshot(workspace.RootPath);
 
         if (requiredActions is { Count: > 0 })
         {
@@ -36,78 +56,31 @@ public sealed class BuilderAgent : AgentBase
             touched.Add("ARCHITECTURE_ACTIONS.md");
         }
 
-        var generationPrompt = BuildGenerationPrompt(workspace, objective, requiredActions);
-        var systemPrompt = BuildSystemPrompt();
-        var options = ApplyToolPolicy(new CopilotCompletionOptions
+        string generationPrompt = BuildGenerationPrompt(workspace, objective, requiredActions);
+        string systemPrompt = BuildSystemPrompt();
+        CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 
-        _ = await CopilotClient.CompleteAsync(
+        _ = await base.CopilotClient.CompleteAsync(
             model,
             generationPrompt,
             options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
+            agentId: agentId ?? base.Id,
+            agentRole: agentRole ?? base.Role,
             cancellationToken);
 
-        var changedFiles = CaptureChangedFilesSinceBaseline(workspace.RootPath, baseline);
+        IReadOnlyList<string> changedFiles = WorkspaceSnapshotHelper.DetectChanges(workspace.RootPath, baseline);
         touched.AddRange(changedFiles);
 
         return touched.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
-    private static Dictionary<string, (long Length, long LastWriteUtcTicks)> CaptureWorkspaceSnapshot(string workspaceRoot)
-    {
-        var snapshot = new Dictionary<string, (long Length, long LastWriteUtcTicks)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var fullPath in Directory
-                     .GetFiles(workspaceRoot, "*", SearchOption.AllDirectories)
-                     .Where(fullPath => !ShouldIgnorePath(Path.GetRelativePath(workspaceRoot, fullPath))))
-        {
-            var relativePath = Path.GetRelativePath(workspaceRoot, fullPath);
-            var info = new FileInfo(fullPath);
-            snapshot[relativePath] = (info.Length, info.LastWriteTimeUtc.Ticks);
-        }
-
-        return snapshot;
-    }
-
-    private static IReadOnlyList<string> CaptureChangedFilesSinceBaseline(
-        string workspaceRoot,
-        IReadOnlyDictionary<string, (long Length, long LastWriteUtcTicks)> baseline)
-    {
-        var current = CaptureWorkspaceSnapshot(workspaceRoot);
-        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var entry in current
-                     .Where(entry => !baseline.TryGetValue(entry.Key, out var baselineSignature)
-                                     || baselineSignature != entry.Value))
-        {
-            changed.Add(entry.Key);
-        }
-
-        foreach (var baselinePath in baseline.Keys.Where(baselinePath => !current.ContainsKey(baselinePath)))
-        {
-            changed.Add(baselinePath);
-        }
-
-        return changed.ToArray();
-    }
-
-    private static bool ShouldIgnorePath(string relativePath)
-    {
-        var normalized = relativePath.Replace('\\', '/');
-        return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string BuildGenerationPrompt(IWorkspaceAdapter workspace, string objective, IReadOnlyList<string>? requiredActions)
     {
-        var requiredActionsSection = requiredActions is { Count: > 0 }
+        string requiredActionsSection = requiredActions is { Count: > 0 }
             ? $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{string.Join(" | ", requiredActions)}"
             : string.Empty;
 
@@ -124,9 +97,9 @@ public sealed class BuilderAgent : AgentBase
 
     private static string BuildSystemPrompt()
     {
-        var builderGuidelines = LoadBuilderGuidelines();
+        string builderGuidelines = LoadBuilderGuidelines();
         return $"""
-            {BuilderInstructions}
+            {BUILDER_INSTRUCTIONS}
 
             Apply the following builder guidelines:
             {builderGuidelines}
@@ -134,18 +107,5 @@ public sealed class BuilderAgent : AgentBase
     }
 
     private static string LoadBuilderGuidelines()
-    {
-        const string fileName = "backend-builder-agent.md";
-        var searchRoots = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
-        foreach (var root in searchRoots)
-        {
-            var path = Path.Combine(root, "Guidelines", "Builder", fileName);
-            if (File.Exists(path))
-            {
-                return File.ReadAllText(path);
-            }
-        }
-
-        return "No builder guideline file found. Follow strict backend implementation standards and add tests.";
-    }
+        => GuidelineLoader.Load("Builder", "backend-builder-agent.md", "No builder guideline file found. Follow strict backend implementation standards and add tests.");
 }

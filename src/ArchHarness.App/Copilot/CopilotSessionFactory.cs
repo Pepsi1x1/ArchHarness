@@ -7,8 +7,19 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Copilot;
 
+/// <summary>
+/// Defines the contract for creating Copilot sessions with specific model and option configurations.
+/// </summary>
 public interface ICopilotSessionFactory
 {
+    /// <summary>
+    /// Creates a new Copilot session for the specified model and options.
+    /// </summary>
+    /// <param name="model">The model identifier.</param>
+    /// <param name="options">Optional completion configuration.</param>
+    /// <param name="agentId">Optional agent identifier for tracking.</param>
+    /// <param name="agentRole">Optional agent role for tracking.</param>
+    /// <returns>A configured Copilot session.</returns>
     ICopilotSession Create(
         string model,
         CopilotCompletionOptions? options = null,
@@ -16,6 +27,9 @@ public interface ICopilotSessionFactory
         string? agentRole = null);
 }
 
+/// <summary>
+/// Creates and caches Copilot sessions, handling SDK integration and session lifecycle.
+/// </summary>
 public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDisposable
 {
     private readonly CopilotOptions _options;
@@ -24,7 +38,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     private readonly ICopilotUserInputBridge _userInputBridge;
     private readonly CopilotSessionContext _sessionContext;
     private readonly ILogger<CopilotSessionFactory> _logger;
-    private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new();
+    private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>>();
     private readonly int _sessionInactivityTimeoutSeconds;
     private readonly int _sessionAbsoluteTimeoutSeconds;
 
@@ -45,16 +59,17 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         CopilotSessionContext sessionContext,
         ILogger<CopilotSessionFactory> logger)
     {
-        _options = options.Value;
-        _clientProvider = clientProvider;
-        _governance = governance;
-        _userInputBridge = userInputBridge;
-        _sessionContext = sessionContext;
-        _logger = logger;
-        _sessionInactivityTimeoutSeconds = Math.Max(0, options.Value.SessionResponseTimeoutSeconds);
-        _sessionAbsoluteTimeoutSeconds = Math.Max(0, options.Value.SessionAbsoluteTimeoutSeconds);
+        this._options = options.Value;
+        this._clientProvider = clientProvider;
+        this._governance = governance;
+        this._userInputBridge = userInputBridge;
+        this._sessionContext = sessionContext;
+        this._logger = logger;
+        this._sessionInactivityTimeoutSeconds = Math.Max(0, options.Value.SessionResponseTimeoutSeconds);
+        this._sessionAbsoluteTimeoutSeconds = Math.Max(0, options.Value.SessionAbsoluteTimeoutSeconds);
     }
 
+    /// <inheritdoc />
     public ICopilotSession Create(
         string model,
         CopilotCompletionOptions? options = null,
@@ -64,22 +79,22 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             model,
             options,
             this,
-            _sessionContext,
+            this._sessionContext,
             new SessionIdentity(agentId, agentRole),
             new SessionTimeoutSettings(
-                _sessionInactivityTimeoutSeconds,
-                _sessionAbsoluteTimeoutSeconds));
+                this._sessionInactivityTimeoutSeconds,
+                this._sessionAbsoluteTimeoutSeconds));
 
     /// <summary>
     /// Disposes all cached session handles. Client disposal is owned by <see cref="CopilotClientProvider"/>.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        foreach (var lazyHandle in _sessionHandles.Values)
+        foreach (Lazy<Task<SessionHandle>> lazyHandle in this._sessionHandles.Values)
         {
             if (lazyHandle.IsValueCreated && lazyHandle.Value.IsCompletedSuccessfully)
             {
-                var handle = await lazyHandle.Value;
+                SessionHandle handle = await lazyHandle.Value;
                 await handle.Session.DisposeAsync();
                 handle.Gate.Dispose();
             }
@@ -102,9 +117,9 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         {
             try
             {
-                await _clientProvider.GetClientAsync().ConfigureAwait(false);
+                await this._clientProvider.GetClientAsync().ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                await GetOrCreateSessionHandleAsync(model, options).ConfigureAwait(false);
+                await this.GetOrCreateSessionHandleAsync(model, options).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -112,70 +127,108 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Copilot session warm-up failed for model '{Model}'.", model);
+                this._logger.LogWarning(ex, "Copilot session warm-up failed for model '{Model}'.", model);
             }
         }, CancellationToken.None);
     }
 
     internal Task<SessionHandle> GetOrCreateSessionHandleAsync(string model, CopilotCompletionOptions? options)
     {
-        var key = BuildSessionCacheKey(model, options);
-        var lazy = _sessionHandles.GetOrAdd(
+        SessionCacheKey key = BuildSessionCacheKey(model, options);
+        Lazy<Task<SessionHandle>> lazy = this._sessionHandles.GetOrAdd(
             key,
-            cacheKey => new Lazy<Task<SessionHandle>>(() => CreateSessionHandleAsync(model, options), LazyThreadSafetyMode.ExecutionAndPublication));
-        return lazy.Value;
+            cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options), LazyThreadSafetyMode.ExecutionAndPublication));
+        return this.AwaitSessionHandleAsync(key, lazy);
+    }
+
+    private async Task<SessionHandle> AwaitSessionHandleAsync(SessionCacheKey key, Lazy<Task<SessionHandle>> lazy)
+    {
+        try
+        {
+            return await lazy.Value.ConfigureAwait(false);
+        }
+        catch
+        {
+            this._sessionHandles.TryRemove(key, out _);
+            throw;
+        }
     }
 
     private async Task<SessionHandle> CreateSessionHandleAsync(string model, CopilotCompletionOptions? requestOptions)
     {
-        var client = await _clientProvider.GetClientAsync();
-        var config = new SessionConfig
+        try
         {
-            Model = model,
-            Streaming = _options.StreamingResponses,
-            OnUserInputRequest = async (request, _) => await _userInputBridge.RequestInputAsync(request),
-            Hooks = new SessionHooks
+            GitHub.Copilot.SDK.CopilotClient client = await this._clientProvider.GetClientAsync().ConfigureAwait(false);
+            SessionConfig config = new SessionConfig
             {
-                OnPreToolUse = async (input, _) => await _governance.OnPreToolUseAsync(input),
-                OnPostToolUse = async (input, _) => await _governance.OnPostToolUseAsync(input)
-            }
-        };
-
-        if (!string.IsNullOrWhiteSpace(requestOptions?.SystemMessage))
-        {
-            config.SystemMessage = new SystemMessageConfig
-            {
-                Mode = requestOptions.SystemMessageMode == CopilotSystemMessageMode.Replace
-                    ? SystemMessageMode.Replace
-                    : SystemMessageMode.Append,
-                Content = requestOptions.SystemMessage
+                Model = model,
+                Streaming = this._options.StreamingResponses,
+                OnUserInputRequest = async (request, _) => await this._userInputBridge.RequestInputAsync(request).ConfigureAwait(false),
+                Hooks = new SessionHooks
+                {
+                    OnPreToolUse = async (input, _) => await this._governance.OnPreToolUseAsync(input).ConfigureAwait(false),
+                    OnPostToolUse = async (input, _) => await this._governance.OnPostToolUseAsync(input).ConfigureAwait(false)
+                }
             };
-        }
 
-        var availableTools = requestOptions?.AvailableTools is { Count: > 0 }
-            ? requestOptions.AvailableTools
-            : _options.AvailableTools;
-        if (availableTools.Count > 0)
+            if (!string.IsNullOrWhiteSpace(requestOptions?.SystemMessage))
+            {
+                config.SystemMessage = new SystemMessageConfig
+                {
+                    Mode = requestOptions.SystemMessageMode == CopilotSystemMessageMode.Replace
+                        ? SystemMessageMode.Replace
+                        : SystemMessageMode.Append,
+                    Content = requestOptions.SystemMessage
+                };
+            }
+
+            IReadOnlyList<string>? availableTools = requestOptions?.AvailableTools is { Count: > 0 }
+                ? requestOptions.AvailableTools
+                : this._options.AvailableTools;
+            if (availableTools.Count > 0)
+            {
+                config.AvailableTools = availableTools.ToList();
+            }
+
+            string[] excludedTools = MergeExcludedTools(this._options.ExcludedTools, requestOptions?.ExcludedTools);
+            if (excludedTools.Length > 0)
+            {
+                config.ExcludedTools = excludedTools.ToList();
+            }
+
+            CopilotSession session = await client.CreateSessionAsync(config).ConfigureAwait(false);
+            return new SessionHandle(session, new SemaphoreSlim(1, 1));
+        }
+        catch (Exception ex)
         {
-            config.AvailableTools = availableTools.ToList();
-        }
+            string eventType = CopilotErrorClassifier.IsPermanent(ex)
+                ? "session.create.permanent_error"
+                : "session.create.transient_error";
+            this._sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+                DateTimeOffset.UtcNow,
+                "n/a",
+                model,
+                eventType,
+                ex.Message));
+            if (CopilotErrorClassifier.IsPermanent(ex))
+            {
+                this._logger.LogError(ex, "Permanent Copilot session creation error for model '{Model}'.", model);
+            }
+            else
+            {
+                this._logger.LogWarning(ex, "Transient Copilot session creation error for model '{Model}'.", model);
+            }
 
-        var excludedTools = MergeExcludedTools(_options.ExcludedTools, requestOptions?.ExcludedTools);
-        if (excludedTools.Length > 0)
-        {
-            config.ExcludedTools = excludedTools.ToList();
+            throw;
         }
-
-        var session = await client.CreateSessionAsync(config);
-        return new SessionHandle(session, new SemaphoreSlim(1, 1));
     }
 
     private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options)
     {
-        var systemMessage = options?.SystemMessage ?? string.Empty;
-        var mode = options?.SystemMessageMode ?? CopilotSystemMessageMode.Append;
-        var available = NormalizeToolList(options?.AvailableTools);
-        var excluded = NormalizeToolList(options?.ExcludedTools);
+        string systemMessage = options?.SystemMessage ?? string.Empty;
+        CopilotSystemMessageMode mode = options?.SystemMessageMode ?? CopilotSystemMessageMode.Append;
+        string available = NormalizeToolList(options?.AvailableTools);
+        string excluded = NormalizeToolList(options?.ExcludedTools);
         return new SessionCacheKey(model, systemMessage, mode, available, excluded);
     }
 
@@ -195,7 +248,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
 
     private static string[] MergeExcludedTools(IReadOnlyList<string> global, IReadOnlyList<string>? additional)
     {
-        var merged = global
+        string[] merged = global
             .Concat(additional ?? Array.Empty<string>())
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .Select(t => t.Trim())
@@ -230,9 +283,9 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             ICopilotSessionEventStream sessionEventStream,
             IAgentStreamEventStream agentStream)
         {
-            UserInputState = userInputState;
-            SessionEventStream = sessionEventStream;
-            AgentStream = agentStream;
+            this.UserInputState = userInputState;
+            this.SessionEventStream = sessionEventStream;
+            this.AgentStream = agentStream;
         }
 
         /// <summary>Gets the user-input state tracker.</summary>

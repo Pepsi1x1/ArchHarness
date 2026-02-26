@@ -4,10 +4,13 @@ using ArchHarness.App.Workspace;
 
 namespace ArchHarness.App.Agents;
 
+/// <summary>
+/// Frontend agent responsible for implementing UI/UX changes in the workspace.
+/// </summary>
 public sealed class FrontendAgent : AgentBase
 {
-    private static readonly SearchOption Recursive = SearchOption.AllDirectories;
-    private const string FrontendInstructions = """
+    private static readonly SearchOption RECURSIVE = SearchOption.AllDirectories;
+    private const string FRONTEND_INSTRUCTIONS = """
         You are the Frontend Agent.
         Execute delegated frontend tasks using agent-mode built-in tools.
         Focus on UI/UX design, component architecture, accessibility, and state management decisions.
@@ -15,9 +18,25 @@ public sealed class FrontendAgent : AgentBase
         Return a concise completion summary.
         """;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FrontendAgent"/> class.
+    /// </summary>
+    /// <param name="copilotClient">Client for Copilot completions.</param>
+    /// <param name="modelResolver">Resolver for model identifiers.</param>
+    /// <param name="toolPolicyProvider">Provider for agent tool access policies.</param>
     public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
         : base(copilotClient, modelResolver, toolPolicyProvider, "frontend", Guid.NewGuid().ToString("N")) { }
 
+    /// <summary>
+    /// Implements frontend changes in the workspace based on the given delegated prompt.
+    /// </summary>
+    /// <param name="workspace">The workspace adapter for file operations.</param>
+    /// <param name="delegatedPrompt">The prompt describing what frontend work to perform.</param>
+    /// <param name="modelOverrides">Optional model override mappings.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns>A list of files that were created or modified.</returns>
     public async Task<IReadOnlyList<string>> ImplementAsync(
         IWorkspaceAdapter workspace,
         string delegatedPrompt,
@@ -26,10 +45,10 @@ public sealed class FrontendAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var baseline = CaptureWorkspaceSnapshot(workspace.RootPath);
-        var guidelines = LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
-        var systemPrompt = BuildSystemPrompt(guidelines);
-        var prompt = $"""
+        Dictionary<string, (long Length, long LastWriteUtcTicks)> baseline = WorkspaceSnapshotHelper.CaptureSnapshot(workspace.RootPath);
+        string guidelines = LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
+        string systemPrompt = BuildSystemPrompt(guidelines);
+        string prompt = $"""
             WorkspaceRoot: {workspace.RootPath}
 
             DelegatedPrompt:
@@ -38,26 +57,26 @@ public sealed class FrontendAgent : AgentBase
             Return a concise completion summary.
             """;
 
-        var options = ApplyToolPolicy(new CopilotCompletionOptions
+        CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 
-        _ = await CopilotClient.CompleteAsync(
-            ResolveModel(modelOverrides),
+        _ = await base.CopilotClient.CompleteAsync(
+            base.ResolveModel(modelOverrides),
             prompt,
             options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
+            agentId: agentId ?? base.Id,
+            agentRole: agentRole ?? base.Role,
             cancellationToken);
 
-        return CaptureChangedFilesSinceBaseline(workspace.RootPath, baseline);
+        return WorkspaceSnapshotHelper.DetectChanges(workspace.RootPath, baseline);
     }
 
     private static string BuildSystemPrompt(string guidelines)
         => $"""
-            {FrontendInstructions}
+            {FRONTEND_INSTRUCTIONS}
 
             Apply the following frontend guidelines:
             {guidelines}
@@ -65,11 +84,11 @@ public sealed class FrontendAgent : AgentBase
 
     private static string LoadFrontendGuidelines(string workspaceRoot, string delegatedPrompt)
     {
-        var selected = ResolveFrontendGuidelineFiles(workspaceRoot, delegatedPrompt);
-        var sections = new List<string>();
-        foreach (var fileName in selected)
+        IReadOnlyList<string> selected = ResolveFrontendGuidelineFiles(workspaceRoot, delegatedPrompt);
+        List<string> sections = new List<string>();
+        foreach (string fileName in selected)
         {
-            var text = TryLoadGuidelineFile(fileName);
+            string text = TryLoadGuidelineFile(fileName);
             sections.Add($"=== {fileName} ==={Environment.NewLine}{text}");
         }
 
@@ -78,22 +97,22 @@ public sealed class FrontendAgent : AgentBase
 
     private static IReadOnlyList<string> ResolveFrontendGuidelineFiles(string workspaceRoot, string delegatedPrompt)
     {
-        var output = new List<string>();
-        var prompt = delegatedPrompt.ToLowerInvariant();
-        var hasDotnet = HasAnyFiles(workspaceRoot, "*.csproj", "*.cs");
-        var hasVue = HasAnyFiles(workspaceRoot, "*.vue")
+        List<string> output = new List<string>();
+        string prompt = delegatedPrompt.ToLowerInvariant();
+        bool hasDotnet = HasAnyFiles(workspaceRoot, "*.csproj", "*.cs");
+        bool hasVue = HasAnyFiles(workspaceRoot, "*.vue")
             || File.Exists(Path.Combine(workspaceRoot, "package.json"))
             || prompt.Contains("vue", StringComparison.Ordinal);
-        var hasBlazor = HasAnyFiles(workspaceRoot, "*.razor")
+        bool hasBlazor = HasAnyFiles(workspaceRoot, "*.razor")
             || prompt.Contains("blazor", StringComparison.Ordinal);
-        var hasTypeScript = HasAnyFiles(workspaceRoot, "*.ts", "*.tsx")
+        bool hasTypeScript = HasAnyFiles(workspaceRoot, "*.ts", "*.tsx")
             || prompt.Contains("typescript", StringComparison.Ordinal)
             || prompt.Contains(".ts", StringComparison.Ordinal);
-        var hasJavaScript = HasAnyFiles(workspaceRoot, "*.js", "*.jsx")
+        bool hasJavaScript = HasAnyFiles(workspaceRoot, "*.js", "*.jsx")
             || prompt.Contains("javascript", StringComparison.Ordinal)
             || prompt.Contains(".js", StringComparison.Ordinal);
-        var explicitHtmlCssPrompt = prompt.Contains("html", StringComparison.Ordinal) || prompt.Contains("css", StringComparison.Ordinal);
-        var hasHtmlCssFiles = HasAnyFiles(workspaceRoot, "*.html", "*.css");
+        bool explicitHtmlCssPrompt = prompt.Contains("html", StringComparison.Ordinal) || prompt.Contains("css", StringComparison.Ordinal);
+        bool hasHtmlCssFiles = HasAnyFiles(workspaceRoot, "*.html", "*.css");
 
         AddIf(output, hasVue, "frontend-builder-agent-vue3.md");
         AddIf(output, hasBlazor, "frontend-builder-agent-dotnet-blazor.md");
@@ -101,7 +120,7 @@ public sealed class FrontendAgent : AgentBase
         AddIf(output, hasJavaScript, "frontend-builder-agent-javascript.md");
 
         // Avoid defaulting to generic HTML/CSS guidance for dotnet workspaces unless explicitly requested.
-        var hasHtmlCss = explicitHtmlCssPrompt || (!hasDotnet && hasHtmlCssFiles);
+        bool hasHtmlCss = explicitHtmlCssPrompt || (!hasDotnet && hasHtmlCssFiles);
         AddIf(output, hasHtmlCss, "frontend-builder-agent-html-css.md");
 
         if (output.Count == 0)
@@ -113,7 +132,7 @@ public sealed class FrontendAgent : AgentBase
     }
 
     private static bool HasAnyFiles(string workspaceRoot, params string[] patterns)
-        => patterns.Any(pattern => Directory.GetFiles(workspaceRoot, pattern, Recursive).Length > 0);
+        => patterns.Any(pattern => Directory.GetFiles(workspaceRoot, pattern, RECURSIVE).Length > 0);
 
     private static void AddIf(ICollection<string> output, bool condition, string value)
     {
@@ -124,64 +143,5 @@ public sealed class FrontendAgent : AgentBase
     }
 
     private static string TryLoadGuidelineFile(string fileName)
-    {
-        var searchRoots = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
-        foreach (var root in searchRoots)
-        {
-            var path = Path.Combine(root, "Guidelines", "Frontend", fileName);
-            if (File.Exists(path))
-            {
-                return File.ReadAllText(path);
-            }
-        }
-
-        return $"No guideline file found for {fileName}. Apply strong frontend architecture and accessibility standards.";
-    }
-
-    private static Dictionary<string, (long Length, long LastWriteUtcTicks)> CaptureWorkspaceSnapshot(string workspaceRoot)
-    {
-        var snapshot = new Dictionary<string, (long Length, long LastWriteUtcTicks)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var fullPath in Directory
-                     .GetFiles(workspaceRoot, "*", SearchOption.AllDirectories)
-                     .Where(fullPath => !ShouldIgnorePath(Path.GetRelativePath(workspaceRoot, fullPath))))
-        {
-            var relativePath = Path.GetRelativePath(workspaceRoot, fullPath);
-            var info = new FileInfo(fullPath);
-            snapshot[relativePath] = (info.Length, info.LastWriteTimeUtc.Ticks);
-        }
-
-        return snapshot;
-    }
-
-    private static IReadOnlyList<string> CaptureChangedFilesSinceBaseline(
-        string workspaceRoot,
-        IReadOnlyDictionary<string, (long Length, long LastWriteUtcTicks)> baseline)
-    {
-        var current = CaptureWorkspaceSnapshot(workspaceRoot);
-        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var entry in current
-                     .Where(entry => !baseline.TryGetValue(entry.Key, out var baselineSignature)
-                                     || baselineSignature != entry.Value))
-        {
-            changed.Add(entry.Key);
-        }
-
-        foreach (var baselinePath in baseline.Keys.Where(baselinePath => !current.ContainsKey(baselinePath)))
-        {
-            changed.Add(baselinePath);
-        }
-
-        return changed.ToArray();
-    }
-
-    private static bool ShouldIgnorePath(string relativePath)
-    {
-        var normalized = relativePath.Replace('\\', '/');
-        return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
-    }
+        => GuidelineLoader.Load("Frontend", fileName, $"No guideline file found for {fileName}. Apply strong frontend architecture and accessibility standards.");
 }

@@ -31,11 +31,11 @@ public sealed class AgentStepExecutor
         ArchitectureAgent architectureAgent,
         IArtefactStore artefactStore)
     {
-        _frontendAgent = frontendAgent;
-        _builderAgent = builderAgent;
-        _styleAgent = styleAgent;
-        _architectureAgent = architectureAgent;
-        _artefactStore = artefactStore;
+        this._frontendAgent = frontendAgent;
+        this._builderAgent = builderAgent;
+        this._styleAgent = styleAgent;
+        this._architectureAgent = architectureAgent;
+        this._artefactStore = artefactStore;
     }
 
     /// <summary>
@@ -67,12 +67,12 @@ public sealed class AgentStepExecutor
         {
             ["Frontend"] = async (ExecutionPlanStep s) =>
             {
-                var newFiles = await _frontendAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._frontendAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
-                    _frontendAgent.Id,
-                    _frontendAgent.Role,
+                    this._frontendAgent.Id,
+                    this._frontendAgent.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -86,13 +86,13 @@ public sealed class AgentStepExecutor
             },
             ["Builder"] = async (ExecutionPlanStep s) =>
             {
-                var newFiles = await _builderAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._builderAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
                     null,
-                    _builderAgent.Id,
-                    _builderAgent.Role,
+                    this._builderAgent.Id,
+                    this._builderAgent.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -102,8 +102,8 @@ public sealed class AgentStepExecutor
             },
             ["Style"] = async (ExecutionPlanStep s) =>
             {
-                var latestDiff = await adapter.DiffAsync(cancellationToken);
-                await _styleAgent.EnforceAsync(
+                string latestDiff = await adapter.DiffAsync(cancellationToken);
+                await this._styleAgent.EnforceAsync(
                     new StyleEnforcementRequest(
                         DelegatedPrompt: s.Objective,
                         Diff: latestDiff,
@@ -111,14 +111,14 @@ public sealed class AgentStepExecutor
                         FilesTouched: filesTouched,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
-                    _styleAgent.Id,
-                    _styleAgent.Role,
+                    this._styleAgent.Id,
+                    this._styleAgent.Role,
                     cancellationToken);
             },
             ["Architecture"] = async (ExecutionPlanStep s) =>
             {
-                var latestDiff = await adapter.DiffAsync(cancellationToken);
-                review = await _architectureAgent.ReviewAsync(
+                string latestDiff = await adapter.DiffAsync(cancellationToken);
+                review = await this._architectureAgent.ReviewAsync(
                     new ArchitectureReviewRequest(
                         DelegatedPrompt: s.Objective,
                         Diff: latestDiff,
@@ -126,24 +126,24 @@ public sealed class AgentStepExecutor
                         FilesTouched: filesTouched,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
-                    _architectureAgent.Id,
-                    _architectureAgent.Role,
+                    this._architectureAgent.Id,
+                    this._architectureAgent.Role,
                     cancellationToken);
             }
         };
 
-        var pendingSteps = plan.Steps.ToDictionary(s => s.Id);
-        var completedStepIds = new HashSet<int>();
+        Dictionary<int, ExecutionPlanStep> pendingSteps = plan.Steps.ToDictionary(s => s.Id);
+        HashSet<int> completedStepIds = new HashSet<int>();
         while (pendingSteps.Count > 0)
         {
-            var step = pendingSteps.Values
+            ExecutionPlanStep? step = pendingSteps.Values
                 .OrderBy(s => s.Id)
                 .FirstOrDefault(s => DependenciesSatisfied(s, completedStepIds, pendingSteps));
 
             if (step is null)
             {
                 step = pendingSteps.Values.OrderBy(s => s.Id).First();
-                await _artefactStore.AppendEventAsync(runDirectory, new
+                await this._artefactStore.AppendEventAsync(runDirectory, new
                 {
                     runId,
                     source = ORCHESTRATOR_SOURCE,
@@ -151,14 +151,47 @@ public sealed class AgentStepExecutor
                 }, cancellationToken);
             }
 
-            await _artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
+            await this._artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, step.Agent, "Delegated prompt started", step.Objective));
             if (!agentStrategies.TryGetValue(step.Agent, out Func<ExecutionPlanStep, Task>? strategy))
             {
                 throw new InvalidOperationException($"Unrecognized agent role: '{step.Agent}'.");
             }
 
-            await strategy(step);
+            try
+            {
+                await strategy(step);
+            }
+            catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
+            {
+                await this._artefactStore.AppendEventAsync(runDirectory, new
+                {
+                    runId,
+                    source = step.Agent,
+                    status = "failed",
+                    failureType = "parse_error",
+                    stepId = step.Id,
+                    objective = step.Objective,
+                    message = ex.Message
+                }, cancellationToken);
+                throw new InvalidOperationException(
+                    $"Step {step.Id} ({step.Agent}) failed due to unparseable structured output. {ex.Message}",
+                    ex);
+            }
+            catch (Exception ex)
+            {
+                await this._artefactStore.AppendEventAsync(runDirectory, new
+                {
+                    runId,
+                    source = step.Agent,
+                    status = "failed",
+                    failureType = "execution_error",
+                    stepId = step.Id,
+                    objective = step.Objective,
+                    message = ex.Message
+                }, cancellationToken);
+                throw;
+            }
 
             completedStepIds.Add(step.Id);
             pendingSteps.Remove(step.Id);
@@ -177,7 +210,7 @@ public sealed class AgentStepExecutor
             return true;
         }
 
-        foreach (var dep in step.DependsOnStepIds)
+        foreach (int dep in step.DependsOnStepIds)
         {
             if (pendingSteps.ContainsKey(dep))
             {

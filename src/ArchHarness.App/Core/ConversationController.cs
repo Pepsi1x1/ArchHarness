@@ -1,6 +1,3 @@
-using System.Text;
-using ArchHarness.App.Copilot;
-
 namespace ArchHarness.App.Core;
 
 public sealed class ConversationController
@@ -15,13 +12,11 @@ public sealed class ConversationController
 
     private static string? _validationError;
 
-    private readonly ICopilotClient _copilotClient;
-    private readonly IModelResolver _modelResolver;
+    private readonly SetupIntentExtractor _setupIntentExtractor;
 
-    public ConversationController(ICopilotClient copilotClient, IModelResolver modelResolver)
+    public ConversationController(SetupIntentExtractor setupIntentExtractor)
     {
-        _copilotClient = copilotClient;
-        _modelResolver = modelResolver;
+        _setupIntentExtractor = setupIntentExtractor;
     }
 
     public async Task<(RunRequest Request, string SetupSummary)> BuildRunRequestAsync(string[] args, CancellationToken cancellationToken = default)
@@ -37,7 +32,7 @@ public sealed class ConversationController
                 ModelOverrides: args.Length >= 7 ? ParseOverrides(args[6]) : null,
                 BuildCommand: args.Length >= 8 ? args[7] : null);
 
-            var setupSummary = await GenerateSetupSummaryAsync(request, cancellationToken);
+            var setupSummary = await _setupIntentExtractor.GenerateSetupSummaryAsync(request, cancellationToken);
             return (request, setupSummary);
         }
 
@@ -58,7 +53,7 @@ public sealed class ConversationController
 
         try
         {
-            await RunIntentExtractionAsync(requestInteractive, cancellationToken);
+            await _setupIntentExtractor.RunIntentExtractionAsync(requestInteractive, cancellationToken);
         }
         catch
         {
@@ -68,7 +63,7 @@ public sealed class ConversationController
         string summary;
         try
         {
-            summary = await GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
+            summary = await _setupIntentExtractor.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -328,39 +323,6 @@ public sealed class ConversationController
         Directory.CreateDirectory(fullPath);
     }
 
-    private async Task RunIntentExtractionAsync(RunRequest request, CancellationToken cancellationToken)
-    {
-        var model = _modelResolver.Resolve("conversation", request.ModelOverrides);
-        var prompt = $"""
-            Extract intent for this run request and identify missing optional fields.
-            Return a compact one-line summary.
-            Task: {request.TaskPrompt}
-            Workflow: {request.Workflow}
-            WorkspaceMode: {request.WorkspaceMode}
-            ProjectName: {request.ProjectName ?? NoneText}
-            BuildCommand: {request.BuildCommand ?? NoneText}
-            """;
-        _ = await _copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
-    }
-
-    private async Task<string> GenerateSetupSummaryAsync(RunRequest request, CancellationToken cancellationToken)
-    {
-        var model = _modelResolver.Resolve("conversation", request.ModelOverrides);
-        var prompt = $"""
-            Summarize this run configuration in 4 concise bullet points.
-            Task: {request.TaskPrompt}
-            WorkspacePath: {request.WorkspacePath}
-            WorkspaceMode: {request.WorkspaceMode}
-            Workflow: {request.Workflow}
-            ProjectName: {request.ProjectName ?? NoneText}
-            BuildCommand: {request.BuildCommand ?? NoneText}
-            Overrides: {FormatOverrides(request.ModelOverrides)}
-            """;
-
-        var completion = await _copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
-        return Redaction.RedactSecrets(completion);
-    }
-
     private static IDictionary<string, string>? ParseOverrides(string? overrideText)
     {
         if (string.IsNullOrWhiteSpace(overrideText))
@@ -387,27 +349,6 @@ public sealed class ConversationController
         }
 
         return output.Count == 0 ? null : output;
-    }
-
-    private static string FormatOverrides(IDictionary<string, string>? overrides)
-    {
-        if (overrides is null || overrides.Count == 0)
-        {
-            return NoneText;
-        }
-
-        var builder = new StringBuilder();
-        foreach (var pair in overrides)
-        {
-            if (builder.Length > 0)
-            {
-                builder.Append(", ");
-            }
-
-            builder.Append(pair.Key).Append('=').Append(pair.Value);
-        }
-
-        return builder.ToString();
     }
 
     private sealed class SetupDraft

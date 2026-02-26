@@ -1,18 +1,15 @@
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 
 namespace ArchHarness.App.Agents;
 
+/// <summary>
+/// Orchestration agent responsible for planning execution steps, building remediation prompts,
+/// and validating run completion.
+/// </summary>
 public sealed class OrchestrationAgent : AgentBase
 {
-    private const string FrontendAgentName = "Frontend";
-    private const string BuilderAgentName = "Builder";
-    private const string StyleAgentName = "Style";
-    private const string ArchitectureAgentName = "Architecture";
-
-    private const string OrchestrationSystemInstructions = """
+    private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS = """
         You are the orchestration planner.
         Your role is planning and delegation only.
         Never modify workspace files directly and never perform implementation work.
@@ -20,19 +17,40 @@ public sealed class OrchestrationAgent : AgentBase
         Produce delegated prompts and validation outputs for specialized agents.
         """;
 
-    private static readonly CopilotCompletionOptions OrchestrationCompletionOptions = new()
+    private static readonly CopilotCompletionOptions ORCHESTRATION_COMPLETION_OPTIONS = new CopilotCompletionOptions()
     {
-        SystemMessage = OrchestrationSystemInstructions,
+        SystemMessage = ORCHESTRATION_SYSTEM_INSTRUCTIONS,
         SystemMessageMode = CopilotSystemMessageMode.Append,
         ExcludedTools = new[] { "edit_file" }
     };
 
-    public OrchestrationAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider)
-        : base(copilotClient, modelResolver, toolPolicyProvider, "orchestration", Guid.NewGuid().ToString("N")) { }
+    private readonly ExecutionPlanParser _executionPlanParser;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="OrchestrationAgent"/> class.
+    /// </summary>
+    /// <param name="copilotClient">Client for Copilot completions.</param>
+    /// <param name="modelResolver">Resolver for model identifiers.</param>
+    /// <param name="toolPolicyProvider">Provider for agent tool access policies.</param>
+    /// <param name="executionPlanParser">Parser for validating and building execution plans from JSON.</param>
+    public OrchestrationAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, ExecutionPlanParser executionPlanParser)
+        : base(copilotClient, modelResolver, toolPolicyProvider, "orchestration", Guid.NewGuid().ToString("N"))
+    {
+        this._executionPlanParser = executionPlanParser;
+    }
 
     internal CopilotCompletionOptions GetWarmUpCompletionOptions()
-        => ApplyToolPolicy(OrchestrationCompletionOptions);
+        => base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
 
+    /// <summary>
+    /// Builds an execution plan by prompting the orchestration model and parsing the structured JSON response.
+    /// </summary>
+    /// <param name="request">The run request containing the task prompt and configuration.</param>
+    /// <param name="workspaceRoot">The root path of the workspace.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns>The parsed execution plan.</returns>
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(
         RunRequest request,
         string workspaceRoot,
@@ -40,9 +58,9 @@ public sealed class OrchestrationAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var model = ResolveModel(request.ModelOverrides);
-        var buildCommand = request.BuildCommand ?? "(none)";
-        var planningPrompt = $$"""
+        string model = base.ResolveModel(request.ModelOverrides);
+        string buildCommand = request.BuildCommand ?? "(none)";
+        string planningPrompt = $$"""
                         You are the orchestration planner. Return ONLY strict JSON with this schema:
                         {
                                                         "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
@@ -73,38 +91,49 @@ public sealed class OrchestrationAgent : AgentBase
             BuildCommand: {{buildCommand}}
             """;
 
-        var options = ApplyToolPolicy(OrchestrationCompletionOptions);
-        const int maxPlanningAttempts = 3;
+        CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        const int MAX_PLANNING_ATTEMPTS = 3;
         string? lastResponse = null;
         string? lastValidationError = null;
         
-        for (var attempt = 1; attempt <= maxPlanningAttempts; attempt++)
+        for (int attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt++)
         {
-            var promptForAttempt = attempt == 1
+            string promptForAttempt = attempt == 1
                 ? planningPrompt
                 : $"{planningPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.";
 
-            lastResponse = await CopilotClient.CompleteAsync(
+            lastResponse = await base.CopilotClient.CompleteAsync(
                 model,
                 promptForAttempt,
                 options,
-                agentId: agentId ?? this.Id,
-                agentRole: agentRole ?? this.Role,
+                agentId: agentId ?? base.Id,
+                agentRole: agentRole ?? base.Role,
                 cancellationToken);
 
-            if (TryBuildExecutionPlan(lastResponse, workspaceRoot, out var parsedPlan, out lastValidationError))
+            if (this._executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
             {
                 return parsedPlan;
             }
         }
 
-        var preview = lastResponse?.Length > 500 ? lastResponse[..500] + "..." : lastResponse;
+        string? preview = lastResponse?.Length > 500 ? lastResponse[..500] + "..." : lastResponse;
         throw new InvalidOperationException(
-            $"Orchestration model did not return a valid ExecutionPlan JSON after {maxPlanningAttempts} attempts.\n" +
+            $"Orchestration model did not return a valid ExecutionPlan JSON after {MAX_PLANNING_ATTEMPTS} attempts.\n" +
             $"Validation error: {lastValidationError}\n" +
             $"Last response preview: {preview}");
     }
 
+    /// <summary>
+    /// Builds a remediation prompt for the Architecture agent based on review findings.
+    /// </summary>
+    /// <param name="request">The originating run request.</param>
+    /// <param name="workspaceRoot">The root path of the workspace.</param>
+    /// <param name="review">The architecture review containing findings to remediate.</param>
+    /// <param name="iteration">The current remediation iteration number.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns>The remediation prompt text.</returns>
     public async Task<string> BuildRemediationPromptAsync(
         RunRequest request,
         string workspaceRoot,
@@ -114,12 +143,12 @@ public sealed class OrchestrationAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var model = ResolveModel(request.ModelOverrides);
-        var reviewSummary = string.Join(Environment.NewLine, review.RequiredActions.Select(x => $"- {x}"));
-        var requiredActionsSection = string.IsNullOrWhiteSpace(reviewSummary)
+        string model = base.ResolveModel(request.ModelOverrides);
+        string reviewSummary = string.Join(Environment.NewLine, review.RequiredActions.Select(x => $"- {x}"));
+        string requiredActionsSection = string.IsNullOrWhiteSpace(reviewSummary)
             ? string.Empty
             : $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{reviewSummary}";
-        var prompt = $"""
+        string prompt = $"""
             You are the orchestration planner.
             Generate a single delegated prompt for the Architecture agent.
             Focus only on remediation actions from architecture review.
@@ -131,579 +160,46 @@ public sealed class OrchestrationAgent : AgentBase
             {requiredActionsSection}
             """;
 
-        var options = ApplyToolPolicy(OrchestrationCompletionOptions);
-        var response = await CopilotClient.CompleteAsync(
+        CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        string response = await base.CopilotClient.CompleteAsync(
             model,
             prompt,
             options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
+            agentId: agentId ?? base.Id,
+            agentRole: agentRole ?? base.Role,
             cancellationToken);
         return string.IsNullOrWhiteSpace(response)
             ? $"Enforce all architecture required actions for iteration {iteration} directly in workspace files and re-check SOLID/DRY compliance."
             : response.Trim();
     }
 
+    /// <summary>
+    /// Validates whether a run meets its completion criteria based on review findings and build results.
+    /// </summary>
+    /// <param name="request">The completion validation request containing plan, review, and build status.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns><c>true</c> if the run is complete; otherwise <c>false</c>.</returns>
     public async Task<bool> ValidateCompletionAsync(
         CompletionValidationRequest request,
         string? agentId = null,
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        var model = ResolveModel(request.ModelOverrides);
-        var options = ApplyToolPolicy(OrchestrationCompletionOptions);
-        _ = await CopilotClient.CompleteAsync(
+        string model = base.ResolveModel(request.ModelOverrides);
+        CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        _ = await base.CopilotClient.CompleteAsync(
             model,
             "Validate completion",
             options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
+            agentId: agentId ?? base.Id,
+            agentRole: agentRole ?? base.Role,
             cancellationToken);
 
-        var hasHighFindings = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-        var buildRequired = request.BuildCommandConfigured && request.Plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
+        bool hasHighFindings = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        bool buildRequired = request.BuildCommandConfigured && request.Plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
         return !hasHighFindings && (!buildRequired || request.BuildPassed);
     }
 
-    private static bool TryBuildExecutionPlan(string raw, string workspaceRoot, out ExecutionPlan plan, out string? validationError)
-    {
-        plan = default!;
-        validationError = null;
-        
-        var json = ExtractJson(raw);
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            validationError = "No JSON object found in response. Ensure response starts with '{' and ends with '}'";
-            return false;
-        }
-
-        try
-        {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            
-            // Validate schema structure
-            if (!ValidatePlanSchema(root, out var schemaError))
-            {
-                validationError = schemaError;
-                return false;
-            }
-            
-            if (!TryParseAndNormalizeSteps(root, workspaceRoot, out var steps, out var stepError))
-            {
-                validationError = stepError;
-                return false;
-            }
-
-            var iteration = ParseIterationStrategy(root);
-            var criteria = ParseCompletionCriteria(root);
-            plan = new ExecutionPlan(steps, iteration, criteria);
-            return true;
-        }
-        catch (JsonException ex)
-        {
-            validationError = $"JSON parse error: {ex.Message}";
-            return false;
-        }
-        catch (Exception ex)
-        {
-            validationError = $"Unexpected error during plan parsing: {ex.Message}";
-            return false;
-        }
-    }
-
-    private static bool ValidatePlanSchema(JsonElement root, out string? error)
-    {
-        error = null;
-
-        // Check required top-level fields
-        if (!root.TryGetProperty("steps", out var stepsEl))
-        {
-            error = "Missing required field: 'steps'";
-            return false;
-        }
-
-        if (stepsEl.ValueKind != JsonValueKind.Array)
-        {
-            error = "Field 'steps' must be an array.";
-            return false;
-        }
-
-        var stepsArray = stepsEl.EnumerateArray().ToList();
-        if (stepsArray.Count == 0)
-        {
-            error = "Field 'steps' array is empty. Must include at least 3 steps (Builder, Style, Architecture).";
-            return false;
-        }
-
-        if (stepsArray.Count > 10)
-        {
-            error = $"Too many steps ({stepsArray.Count}). Maximum 6-8 steps recommended.";
-            return false;
-        }
-
-        // Validate each step
-        for (var i = 0; i < stepsArray.Count; i++)
-        {
-            var step = stepsArray[i];
-            if (step.ValueKind != JsonValueKind.Object)
-            {
-                error = $"Step {i}: must be an object.";
-                return false;
-            }
-
-            if (!step.TryGetProperty("agent", out var agentEl) || string.IsNullOrWhiteSpace(agentEl.GetString()))
-            {
-                error = $"Step {i}: missing or empty 'agent' field.";
-                return false;
-            }
-
-            var agentValue = agentEl.GetString()?.Trim().ToLowerInvariant();
-            if (!new[] { "frontend", "builder", "implementation", "style", "coding-style", "standards", "architecture", "review" }
-                .Contains(agentValue))
-            {
-                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: Frontend, Builder, Style, Architecture.";
-                return false;
-            }
-
-            if (!step.TryGetProperty("objective", out var objEl) || string.IsNullOrWhiteSpace(objEl.GetString()))
-            {
-                error = $"Step {i}: missing or empty 'objective' field.";
-                return false;
-            }
-
-            if (step.TryGetProperty("dependsOn", out var depsEl) && depsEl.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var dep in depsEl.EnumerateArray())
-                {
-                    if (!dep.TryGetInt32(out var depId) || depId <= 0)
-                    {
-                        error = $"Step {i}: dependsOn contains invalid ID. All dependency IDs must be positive integers (references to prior step IDs).";
-                        return false;
-                    }
-                }
-            }
-        }
-
-        if (!root.TryGetProperty("iterationStrategy", out var iterEl))
-        {
-            error = "Missing required field: 'iterationStrategy'";
-            return false;
-        }
-
-        if (iterEl.ValueKind != JsonValueKind.Object)
-        {
-            error = "Field 'iterationStrategy' must be an object.";
-            return false;
-        }
-
-        if (!root.TryGetProperty("completionCriteria", out var criteriaEl))
-        {
-            error = "Missing required field: 'completionCriteria'";
-            return false;
-        }
-
-        if (criteriaEl.ValueKind != JsonValueKind.Array)
-        {
-            error = "Field 'completionCriteria' must be an array.";
-            return false;
-        }
-
-        var criteria = criteriaEl.EnumerateArray().ToList();
-        if (criteria.Count == 0)
-        {
-            error = "Field 'completionCriteria' is empty. Must include at least one completion criterion.";
-            return false;
-        }
-
-        return true;
-    }
-
-    private static string? NormalizeAgent(string raw)
-    {
-        if (raw.Equals("frontend", StringComparison.OrdinalIgnoreCase)) return FrontendAgentName;
-        if (raw.Equals("builder", StringComparison.OrdinalIgnoreCase) || raw.Equals("implementation", StringComparison.OrdinalIgnoreCase)) return BuilderAgentName;
-        if (raw.Equals("style", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase) || raw.Equals("standards", StringComparison.OrdinalIgnoreCase)) return StyleAgentName;
-        if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ArchitectureAgentName;
-        return null;
-    }
-
-    private static bool TryParseAndNormalizeSteps(JsonElement root, string workspaceRoot, out List<ExecutionPlanStep> steps, out string? error)
-    {
-        steps = new List<ExecutionPlanStep>();
-        error = null;
-        
-        if (!root.TryGetProperty("steps", out var stepsElement) || stepsElement.ValueKind != JsonValueKind.Array)
-        {
-            error = "Required field 'steps' not found or is not an array.";
-            return false;
-        }
-
-        var workspaceLanguages = DetectWorkspaceLanguages(workspaceRoot);
-        var index = 1;
-        foreach (var step in stepsElement.EnumerateArray())
-        {
-            if (TryParseStep(step, workspaceRoot, index, out var parsed))
-            {
-                steps.Add(parsed);
-            }
-
-            index++;
-        }
-
-        if (!ContainsRequiredAgents(steps))
-        {
-            error = "Execution plan must include at least one Builder, one Style, and one Architecture step.";
-            return false;
-        }
-
-        steps = NormalizeStepOrdering(steps, workspaceLanguages);
-        return true;
-    }
-
-    private static bool TryParseStep(JsonElement step, string workspaceRoot, int fallbackId, out ExecutionPlanStep parsed)
-    {
-        parsed = default!;
-        var parsedId = step.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var idVal) ? idVal : fallbackId;
-        var agent = step.TryGetProperty("agent", out var agentEl) ? agentEl.GetString() : null;
-        var objective = step.TryGetProperty("objective", out var objEl) ? objEl.GetString() : null;
-
-        if (string.IsNullOrWhiteSpace(agent) || string.IsNullOrWhiteSpace(objective))
-        {
-            return false;
-        }
-
-        var normalizedAgent = NormalizeAgent(agent);
-        if (normalizedAgent is null)
-        {
-            return false;
-        }
-
-        var sanitizedObjective = EnforceWorkspaceRootInObjective(objective, workspaceRoot);
-        parsed = new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, ParseDependsOn(step), ParseLanguages(step));
-        return true;
-    }
-
-    private static bool ContainsRequiredAgents(IEnumerable<ExecutionPlanStep> steps)
-        => steps.Any(s => s.Agent == BuilderAgentName)
-        && steps.Any(s => s.Agent == StyleAgentName)
-        && steps.Any(s => s.Agent == ArchitectureAgentName);
-
-    private static IterationStrategy ParseIterationStrategy(JsonElement root)
-    {
-        var iteration = new IterationStrategy(MaxIterations: 2, ReviewRequired: true);
-        if (!root.TryGetProperty("iterationStrategy", out var itEl))
-        {
-            return iteration;
-        }
-
-        var maxIterations = itEl.TryGetProperty("maxIterations", out var maxEl) && maxEl.TryGetInt32(out var val)
-            ? Math.Clamp(val, 1, 8)
-            : 2;
-        var reviewRequired = !itEl.TryGetProperty("reviewRequired", out var reviewEl) || reviewEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
-            || reviewEl.GetBoolean();
-        return new IterationStrategy(maxIterations, reviewRequired);
-    }
-
-    private static List<string> ParseCompletionCriteria(JsonElement root)
-    {
-        var criteria = new List<string>
-        {
-            "No high severity coding style findings",
-            "No high severity architecture findings",
-            "Build passes (if command configured)"
-        };
-
-        if (!root.TryGetProperty("completionCriteria", out var criteriaEl) || criteriaEl.ValueKind != JsonValueKind.Array)
-        {
-            return criteria;
-        }
-
-        var parsedCriteria = criteriaEl.EnumerateArray()
-            .Select(x => x.GetString())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Cast<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (parsedCriteria.Count == 0)
-        {
-            return criteria;
-        }
-
-        criteria = parsedCriteria;
-        EnsureCriteriaContains(criteria, "style", "No high severity coding style findings");
-        EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
-        EnsureCriteriaContains(criteria, "build", "Build passes (if command configured)");
-        return criteria;
-    }
-
-    private static void EnsureCriteriaContains(ICollection<string> criteria, string token, string requiredCriterion)
-    {
-        if (!criteria.Any(c => c.Contains(token, StringComparison.OrdinalIgnoreCase)))
-        {
-            criteria.Add(requiredCriterion);
-        }
-    }
-
-    private static List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
-    {
-        var nonReview = steps.Where(s => s.Agent != ArchitectureAgentName && s.Agent != StyleAgentName).ToList();
-        var style = steps
-            .Where(s => s.Agent == StyleAgentName)
-            .Where(s => IsReviewObjective(s.Objective))
-            .ToList();
-        var architecture = steps
-            .Where(s => s.Agent == ArchitectureAgentName)
-            .Where(s => IsReviewObjective(s.Objective))
-            .ToList();
-
-        if (nonReview.Count == 0)
-        {
-            return steps;
-        }
-
-        if (style.Count == 0)
-        {
-            style.Add(new ExecutionPlanStep(
-                Id: -1,
-                Agent: StyleAgentName,
-                Objective: "Review completed implementation and enforce language coding standards and naming/style conventions; apply required corrections directly.",
-                DependsOnStepIds: null,
-                Languages: workspaceLanguages));
-        }
-
-        if (architecture.Count == 0)
-        {
-            architecture.Add(new ExecutionPlanStep(
-                Id: -2,
-                Agent: ArchitectureAgentName,
-                Objective: "Review completed implementation and enforce SOLID/DRY/separation-of-concerns standards; apply required corrections directly.",
-                DependsOnStepIds: null,
-                Languages: workspaceLanguages));
-        }
-
-        // Keep exactly one style step and one final architecture step.
-        var finalStyle = style[^1] with
-        {
-            Languages = style[^1].Languages is { Count: > 0 }
-                ? style[^1].Languages
-                : workspaceLanguages
-        };
-
-        var finalArchitecture = architecture[^1] with
-        {
-            Languages = architecture[^1].Languages is { Count: > 0 }
-                ? architecture[^1].Languages
-                : workspaceLanguages
-        };
-
-        var reordered = nonReview
-            .Concat(new[]
-            {
-                finalStyle with { Id = -1, DependsOnStepIds = null },
-                finalArchitecture with { Id = -2, DependsOnStepIds = null }
-            })
-            .ToList();
-
-        var idMap = reordered
-            .Select((step, index) => new { oldId = step.Id, newId = index + 1 })
-            .ToDictionary(x => x.oldId, x => x.newId);
-
-        for (var i = 0; i < reordered.Count; i++)
-        {
-            var step = reordered[i];
-            var remappedDepends = step.DependsOnStepIds?
-                .Where(dep => idMap.ContainsKey(dep))
-                .Select(dep => idMap[dep])
-                .Distinct()
-                .OrderBy(dep => dep)
-                .ToArray();
-
-            reordered[i] = step with
-            {
-                Id = i + 1,
-                DependsOnStepIds = remappedDepends is { Length: > 0 } ? remappedDepends : null
-            };
-        }
-
-        var styleIndex = reordered.FindLastIndex(s => s.Agent == StyleAgentName);
-        if (styleIndex >= 0)
-        {
-            var styleStep = reordered[styleIndex];
-            var styleDepends = reordered
-                .Where((_, index) => index < styleIndex)
-                .Select(s => s.Id)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToArray();
-
-            reordered[styleIndex] = styleStep with
-            {
-                DependsOnStepIds = styleDepends.Length > 0 ? styleDepends : null
-            };
-        }
-
-        var architectureIndex = reordered.FindLastIndex(s => s.Agent == ArchitectureAgentName);
-        if (architectureIndex >= 0)
-        {
-            var architectureStep = reordered[architectureIndex];
-            var styleStepId = styleIndex >= 0 ? reordered[styleIndex].Id : 0;
-            var enforcedDepends = styleStepId > 0
-                ? new[] { styleStepId }
-                : reordered
-                    .Where((_, index) => index < architectureIndex)
-                    .Select(s => s.Id)
-                    .Distinct()
-                    .OrderBy(x => x)
-                    .ToArray();
-
-            reordered[architectureIndex] = architectureStep with
-            {
-                DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
-            };
-        }
-
-        return reordered;
-    }
-
-    private static IReadOnlyList<int>? ParseDependsOn(JsonElement step)
-    {
-        if (!step.TryGetProperty("dependsOn", out var dependsEl) || dependsEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var deps = dependsEl.EnumerateArray()
-            .Where(x => x.TryGetInt32(out _))
-            .Select(x => x.GetInt32())
-            .Where(x => x > 0)
-            .Distinct()
-            .OrderBy(x => x)
-            .ToArray();
-
-        return deps.Length == 0 ? null : deps;
-    }
-
-    private static IReadOnlyList<string>? ParseLanguages(JsonElement step)
-    {
-        if (!step.TryGetProperty("languages", out var languagesEl) || languagesEl.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-
-        var languages = languagesEl.EnumerateArray()
-            .Select(x => x.GetString())
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!.Trim().ToLowerInvariant())
-            .Where(x => x is "dotnet" or "vue3")
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        return languages.Length == 0 ? null : languages;
-    }
-
-    private static IReadOnlyList<string> DetectWorkspaceLanguages(string workspaceRoot)
-    {
-        var output = new List<string>();
-
-        var hasDotnet = Directory.GetFiles(workspaceRoot, "*.csproj", SearchOption.AllDirectories).Length > 0
-            || Directory.GetFiles(workspaceRoot, "*.cs", SearchOption.AllDirectories).Length > 0;
-        if (hasDotnet)
-        {
-            output.Add("dotnet");
-        }
-
-        var hasVue = Directory.GetFiles(workspaceRoot, "*.vue", SearchOption.AllDirectories).Length > 0
-            || File.Exists(Path.Combine(workspaceRoot, "package.json"));
-        if (hasVue)
-        {
-            output.Add("vue3");
-        }
-
-        if (output.Count == 0)
-        {
-            output.Add("dotnet");
-        }
-
-        return output;
-    }
-
-    private static bool IsReviewObjective(string objective)
-    {
-        if (string.IsNullOrWhiteSpace(objective))
-        {
-            return false;
-        }
-
-        var text = objective.ToLowerInvariant();
-        var looksLikeDesign = text.Contains("design")
-            || text.Contains("spec")
-            || text.Contains("concept")
-            || text.Contains("define")
-            || text.Contains("namespace layout")
-            || text.Contains("project structure");
-
-        if (looksLikeDesign)
-        {
-            return false;
-        }
-
-        var looksLikeReview = text.Contains("review")
-            || text.Contains("verify")
-            || text.Contains("enforce")
-            || text.Contains("validate")
-            || text.Contains("audit");
-
-        return looksLikeReview;
-    }
-
-    private static string EnforceWorkspaceRootInObjective(string objective, string workspaceRoot)
-    {
-        if (string.IsNullOrWhiteSpace(objective))
-        {
-            return objective;
-        }
-
-        var normalizedRoot = Path.GetFullPath(workspaceRoot).TrimEnd('\\', '/');
-        const string windowsPathPattern = "(?<![A-Za-z0-9_])([A-Za-z]:\\\\[^\\s\\\"']+)";
-
-        return Regex.Replace(objective, windowsPathPattern, match =>
-        {
-            var originalPath = match.Groups[1].Value;
-            try
-            {
-                var full = Path.GetFullPath(originalPath).TrimEnd('\\', '/');
-                if (full.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
-                {
-                    return originalPath;
-                }
-
-                return normalizedRoot;
-            }
-            catch
-            {
-                return normalizedRoot;
-            }
-        });
-    }
-
-    private static string? ExtractJson(string text)
-    {
-        // Strip markdown code fences (```json ... ``` or ``` ... ```)
-        var fenceMatch = Regex.Match(text, @"```(?:json)?\s*\n?(\{[\s\S]*?\})\s*```", RegexOptions.IgnoreCase);
-        if (fenceMatch.Success)
-        {
-            return fenceMatch.Groups[1].Value;
-        }
-
-        var start = text.IndexOf('{');
-        var end = text.LastIndexOf('}');
-        if (start < 0 || end <= start)
-        {
-            return null;
-        }
-
-        return text[start..(end + 1)];
-    }
 }
