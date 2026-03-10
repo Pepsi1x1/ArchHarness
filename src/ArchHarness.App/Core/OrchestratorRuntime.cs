@@ -129,20 +129,25 @@ public sealed class OrchestratorRuntime
             string frontendPlan = planResult.StepResult.FrontendPlan;
             IReadOnlyList<string> filesTouched = planResult.StepResult.FilesTouched;
             ArchitectureReview review = planResult.StepResult.Review;
+            SecurityReview securityReview = planResult.StepResult.SecurityReview;
 
             IReadOnlyList<string>? architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
-            (review, filesTouched) = await _architectureReviewLoop.RunAsync(
+            IReadOnlyList<string>? securityLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Security")?.Languages;
+            (review, securityReview, filesTouched) = await _architectureReviewLoop.RunAsync(
                 new ArchitectureLoopRequest(
                     IterationStrategy: plan.IterationStrategy,
                     InitialReview: review,
+                    InitialSecurityReview: securityReview,
                     FilesTouched: filesTouched,
                     ArchitectureLanguages: architectureLanguages,
+                    SecurityLanguages: securityLanguages,
                     RunRequest: request),
                 adapter,
                 progress,
                 cancellationToken);
 
-            if (review.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase))
+            if (review.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase)
+                || securityReview.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase))
             {
                 await _eventLogger.AppendEventAsync(runDirectory, new
                 {
@@ -154,10 +159,12 @@ public sealed class OrchestratorRuntime
             }
 
             await _artifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
+            await _artifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
 
             BuildValidationResult validation = await _buildValidator.ExecuteAndValidateAsync(
                 plan,
                 review,
+                securityReview,
                 adapter,
                 request,
                 runId,
@@ -170,6 +177,8 @@ public sealed class OrchestratorRuntime
                 - Completed: {validation.Completed}
                 - FrontendPlan: {frontendPlan}
                 - FilesTouched: {string.Join(", ", filesTouched)}
+                - SecurityHighFindings: {securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
+                - ArchitectureHighFindings: {review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
                 - BuildExecuted: {validation.BuildResult.Executed}
                 - BuildPassed: {validation.BuildResult.Passed}
                 """;
@@ -189,7 +198,8 @@ public sealed class OrchestratorRuntime
                     new { role = "orchestration", model = _agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "frontend", model = _agentDependencies.FrontendAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "builder", model = _agentDependencies.BuilderAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "style", model = _agentDependencies.StyleAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "coding-style", model = _agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "security", model = _agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "architecture", model = _agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
                 },
                 copilotUsage = usage
@@ -220,13 +230,15 @@ public sealed class OrchestratorRuntime
             OrchestrationAgent orchestrationAgent,
             FrontendAgent frontendAgent,
             BuilderAgent builderAgent,
-            StyleAgent styleAgent,
+            CodingStyleAgent codingStyleAgent,
+            SecurityAgent securityAgent,
             ArchitectureAgent architectureAgent)
         {
             OrchestrationAgent = orchestrationAgent;
             FrontendAgent = frontendAgent;
             BuilderAgent = builderAgent;
-            StyleAgent = styleAgent;
+            CodingStyleAgent = codingStyleAgent;
+            SecurityAgent = securityAgent;
             ArchitectureAgent = architectureAgent;
         }
 
@@ -236,7 +248,9 @@ public sealed class OrchestratorRuntime
 
         public BuilderAgent BuilderAgent { get; }
 
-        public StyleAgent StyleAgent { get; }
+        public CodingStyleAgent CodingStyleAgent { get; }
+
+        public SecurityAgent SecurityAgent { get; }
 
         public ArchitectureAgent ArchitectureAgent { get; }
     }

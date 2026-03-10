@@ -9,7 +9,7 @@ internal static class SetupFieldEditor
     private const string EXISTING_FOLDER_MODE = "existing-folder";
     private const string NEW_PROJECT_MODE = "new-project";
     private const string WORKSPACE_PATH_FIELD = "WorkspacePath";
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run architecture and style review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
 
     private static readonly Dictionary<string, Action<SetupDraft, string>> FieldSetters = new Dictionary<string, Action<SetupDraft, string>>(StringComparer.Ordinal)
     {

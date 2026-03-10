@@ -69,7 +69,6 @@ The following technology stack is standard. Flag any deviation.
 - Define stores using `defineStore` in the `stores/` folder.
 - Each store must have a single, well-defined domain (e.g. `item`, `auth`, `document`).
 - **Do not put API call logic directly in components.** API calls belong in stores or services.
-- **Use typed state, getters, and actions.** All types must be explicit.
 - Access stores via the `use*Store()` composable inside `<script setup>`.
 
 ```typescript
@@ -101,8 +100,6 @@ export const useItemStore = defineStore('item', {
 ## Composables
 
 - Composables encapsulate **reusable stateful logic** using the Composition API.
-- Export a single function from each composable.
-- Return an object of refs, computed properties, and methods.
 - Composables must not depend on a specific component's structure.
 
 ```typescript
@@ -131,7 +128,6 @@ export function usePagination(pageSize: number = 10) {
 - Services handle **HTTP communication and external integrations**.
 - Use Axios for HTTP calls. Configure interceptors for authentication tokens and error handling.
 - Environment-specific URLs must come from `import.meta.env` variables, never hardcoded.
-- Service methods must be typed — specify request and response types.
 
 ```typescript
 import axios from 'axios'
@@ -167,16 +163,6 @@ const routes = [
 
 ---
 
-## Configuration and Security
-
-- Store environment-specific configuration in `.env` files using the `VITE_` prefix.
-- **Never commit secrets, API keys, or tokens to source control.**
-- Use authentication libraries (MSAL, OIDC) for secure token acquisition.
-- Configure Axios interceptors to attach Bearer tokens to outgoing requests.
-- Sanitise any user-provided content before rendering — avoid `v-html` with untrusted data.
-
----
-
 ## Testing
 
 ### Unit Tests (Vitest)
@@ -207,10 +193,7 @@ When reviewing Vue 3 code, verify every item below. Fix all violations.
 - [ ] Zero ESLint errors and warnings (`eslint .`)
 - [ ] Pinia is used for shared state — no Vuex
 - [ ] API calls are in services or stores, not directly in components
-- [ ] Composables return typed objects
-- [ ] Services use typed Axios calls
 - [ ] Environment variables use `import.meta.env.VITE_*` — no hardcoded URLs
-- [ ] No secrets in source code
 - [ ] Routes use lazy loading
 - [ ] Unit tests exist for composables, stores, and services
 - [ ] All tests pass

@@ -10,7 +10,7 @@ internal static class GuidelineLoader
     /// <summary>
     /// Loads a guideline file from the specified subfolder under the Guidelines directory.
     /// </summary>
-    /// <param name="subfolder">The subfolder within Guidelines (e.g. "Style", "Architecture Review", "Builder", "Frontend").</param>
+    /// <param name="subfolder">The subfolder within Guidelines (e.g. "CodingStyle", "Security", "Architecture Review", "Builder", "Frontend").</param>
     /// <param name="fileName">The guideline file name.</param>
     /// <param name="fallbackMessage">Message returned when the file is not found.</param>
     /// <returns>The guideline file content, or the fallback message if not found.</returns>

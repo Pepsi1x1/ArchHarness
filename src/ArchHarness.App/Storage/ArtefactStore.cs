@@ -25,6 +25,14 @@ public interface IArtefactStore
     Task WriteArchitectureReviewAsync(string runDirectory, ArchitectureReview review, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Writes the security review to the run directory as JSON.
+    /// </summary>
+    /// <param name="runDirectory">The run output directory.</param>
+    /// <param name="review">The security review to persist.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Writes the final summary markdown to the run directory.
     /// </summary>
     /// <param name="runDirectory">The run output directory.</param>
@@ -61,6 +69,10 @@ public sealed class ArtefactStore : IArtefactStore
     /// <inheritdoc />
     public Task WriteArchitectureReviewAsync(string runDirectory, ArchitectureReview review, CancellationToken cancellationToken)
         => File.WriteAllTextAsync(Path.Combine(runDirectory, "ArchitectureReview.json"), JsonSerializer.Serialize(review, JsonDefaults.Indented), cancellationToken);
+
+    /// <inheritdoc />
+    public Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken)
+        => File.WriteAllTextAsync(Path.Combine(runDirectory, "SecurityReview.json"), JsonSerializer.Serialize(review, JsonDefaults.Indented), cancellationToken);
 
     /// <inheritdoc />
     public Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken)

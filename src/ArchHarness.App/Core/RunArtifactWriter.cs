@@ -50,6 +50,16 @@ public sealed class RunArtifactWriter
         => _artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
 
     /// <summary>
+    /// Persists the security review to the run directory.
+    /// </summary>
+    /// <param name="runDirectory">The run artefact directory.</param>
+    /// <param name="review">The security review to persist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the async operation.</returns>
+    public Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken)
+        => _artefactStore.WriteSecurityReviewAsync(runDirectory, review, cancellationToken);
+
+    /// <summary>
     /// Persists the build result to the run directory.
     /// </summary>
     /// <param name="runDirectory">The run artefact directory.</param>

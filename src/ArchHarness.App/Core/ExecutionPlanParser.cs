@@ -11,7 +11,8 @@ public sealed class ExecutionPlanParser
 {
     private const string FRONTEND_AGENT_NAME = "Frontend";
     private const string BUILDER_AGENT_NAME = "Builder";
-    private const string STYLE_AGENT_NAME = "Style";
+    private const string CODING_STYLE_AGENT_NAME = "CodingStyle";
+    private const string SECURITY_AGENT_NAME = "Security";
     private const string ARCHITECTURE_AGENT_NAME = "Architecture";
 
     private readonly IWorkspaceContextAnalyzer _workspaceContext;
@@ -104,7 +105,7 @@ public sealed class ExecutionPlanParser
         List<JsonElement> stepsArray = stepsEl.EnumerateArray().ToList();
         if (stepsArray.Count == 0)
         {
-            error = "Field 'steps' array is empty. Must include at least 3 steps (Builder, Style, Architecture).";
+            error = "Field 'steps' array is empty. Must include at least 4 steps (Builder, CodingStyle, Security, Architecture).";
             return false;
         }
 
@@ -130,10 +131,10 @@ public sealed class ExecutionPlanParser
             }
 
             string? agentValue = agentEl.GetString()?.Trim().ToLowerInvariant();
-            if (!new[] { "frontend", "builder", "implementation", "style", "coding-style", "standards", "architecture", "review" }
+            if (!new[] { "frontend", "builder", "implementation", "codingstyle", "coding-style", "security", "secure", "architecture", "review" }
                 .Contains(agentValue))
             {
-                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: Frontend, Builder, Style, Architecture.";
+                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: Frontend, Builder, CodingStyle, Security, Architecture.";
                 return false;
             }
 
@@ -191,7 +192,7 @@ public sealed class ExecutionPlanParser
     }
 
     /// <summary>
-    /// Reorders execution plan steps so that Style and Architecture review steps follow
+    /// Reorders execution plan steps so that CodingStyle, Security, and Architecture review steps follow
     /// all implementation steps, with correct dependency wiring.
     /// </summary>
     /// <param name="steps">The unordered list of execution plan steps.</param>
@@ -199,9 +200,13 @@ public sealed class ExecutionPlanParser
     /// <returns>The reordered steps with corrected IDs and dependencies.</returns>
     public List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
     {
-        List<ExecutionPlanStep> nonReview = steps.Where(s => s.Agent != ARCHITECTURE_AGENT_NAME && s.Agent != STYLE_AGENT_NAME).ToList();
-        List<ExecutionPlanStep> style = steps
-            .Where(s => s.Agent == STYLE_AGENT_NAME)
+        List<ExecutionPlanStep> nonReview = steps.Where(s => s.Agent != ARCHITECTURE_AGENT_NAME && s.Agent != CODING_STYLE_AGENT_NAME && s.Agent != SECURITY_AGENT_NAME).ToList();
+        List<ExecutionPlanStep> codingStyle = steps
+            .Where(s => s.Agent == CODING_STYLE_AGENT_NAME)
+            .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
+            .ToList();
+        List<ExecutionPlanStep> security = steps
+            .Where(s => s.Agent == SECURITY_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
         List<ExecutionPlanStep> architecture = steps
@@ -214,12 +219,22 @@ public sealed class ExecutionPlanParser
             return steps;
         }
 
-        if (style.Count == 0)
+        if (codingStyle.Count == 0)
         {
-            style.Add(new ExecutionPlanStep(
+            codingStyle.Add(new ExecutionPlanStep(
                 Id: -1,
-                Agent: STYLE_AGENT_NAME,
+                Agent: CODING_STYLE_AGENT_NAME,
                 Objective: "Review completed implementation and enforce language coding standards and naming/style conventions; apply required corrections directly.",
+                DependsOnStepIds: null,
+                Languages: workspaceLanguages));
+        }
+
+        if (security.Count == 0)
+        {
+            security.Add(new ExecutionPlanStep(
+                Id: -2,
+                Agent: SECURITY_AGENT_NAME,
+                Objective: "Review completed implementation for security defects and OWASP Top 10 risks; apply required remediations directly.",
                 DependsOnStepIds: null,
                 Languages: workspaceLanguages));
         }
@@ -227,17 +242,17 @@ public sealed class ExecutionPlanParser
         if (architecture.Count == 0)
         {
             architecture.Add(new ExecutionPlanStep(
-                Id: -2,
+                Id: -3,
                 Agent: ARCHITECTURE_AGENT_NAME,
                 Objective: "Review completed implementation and enforce SOLID/DRY/separation-of-concerns standards; apply required corrections directly.",
                 DependsOnStepIds: null,
                 Languages: workspaceLanguages));
         }
 
-        ExecutionPlanStep finalStyle = style[^1] with
+        ExecutionPlanStep finalCodingStyle = codingStyle[^1] with
         {
-            Languages = style[^1].Languages is { Count: > 0 }
-                ? style[^1].Languages
+            Languages = codingStyle[^1].Languages is { Count: > 0 }
+                ? codingStyle[^1].Languages
                 : workspaceLanguages
         };
 
@@ -248,11 +263,19 @@ public sealed class ExecutionPlanParser
                 : workspaceLanguages
         };
 
+        ExecutionPlanStep finalSecurity = security[^1] with
+        {
+            Languages = security[^1].Languages is { Count: > 0 }
+                ? security[^1].Languages
+                : workspaceLanguages
+        };
+
         List<ExecutionPlanStep> reordered = nonReview
             .Concat(new[]
             {
-                finalStyle with { Id = -1, DependsOnStepIds = null },
-                finalArchitecture with { Id = -2, DependsOnStepIds = null }
+                finalCodingStyle with { Id = -1, DependsOnStepIds = null },
+                finalSecurity with { Id = -2, DependsOnStepIds = null },
+                finalArchitecture with { Id = -3, DependsOnStepIds = null }
             })
             .ToList();
 
@@ -277,20 +300,40 @@ public sealed class ExecutionPlanParser
             };
         }
 
-        int styleIndex = reordered.FindLastIndex(s => s.Agent == STYLE_AGENT_NAME);
-        if (styleIndex >= 0)
+        int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
+        if (codingStyleIndex >= 0)
         {
-            ExecutionPlanStep styleStep = reordered[styleIndex];
-            int[] styleDepends = reordered
-                .Where((_, index) => index < styleIndex)
+            ExecutionPlanStep codingStyleStep = reordered[codingStyleIndex];
+            int[] codingStyleDepends = reordered
+                .Where((_, index) => index < codingStyleIndex)
                 .Select(s => s.Id)
                 .Distinct()
                 .OrderBy(x => x)
                 .ToArray();
 
-            reordered[styleIndex] = styleStep with
+            reordered[codingStyleIndex] = codingStyleStep with
             {
-                DependsOnStepIds = styleDepends.Length > 0 ? styleDepends : null
+                DependsOnStepIds = codingStyleDepends.Length > 0 ? codingStyleDepends : null
+            };
+        }
+
+        int securityIndex = reordered.FindLastIndex(s => s.Agent == SECURITY_AGENT_NAME);
+        if (securityIndex >= 0)
+        {
+            ExecutionPlanStep securityStep = reordered[securityIndex];
+            int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
+            int[] securityDepends = codingStyleStepId > 0
+                ? new[] { codingStyleStepId }
+                : reordered
+                    .Where((_, index) => index < securityIndex)
+                    .Select(s => s.Id)
+                    .Distinct()
+                    .OrderBy(x => x)
+                    .ToArray();
+
+            reordered[securityIndex] = securityStep with
+            {
+                DependsOnStepIds = securityDepends.Length > 0 ? securityDepends : null
             };
         }
 
@@ -298,9 +341,12 @@ public sealed class ExecutionPlanParser
         if (architectureIndex >= 0)
         {
             ExecutionPlanStep architectureStep = reordered[architectureIndex];
-            int styleStepId = styleIndex >= 0 ? reordered[styleIndex].Id : 0;
-            int[] enforcedDepends = styleStepId > 0
-                ? new[] { styleStepId }
+            int securityStepId = securityIndex >= 0 ? reordered[securityIndex].Id : 0;
+            int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
+            int[] enforcedDepends = securityStepId > 0
+                ? new[] { securityStepId }
+                : codingStyleStepId > 0
+                    ? new[] { codingStyleStepId }
                 : reordered
                     .Where((_, index) => index < architectureIndex)
                     .Select(s => s.Id)
@@ -321,7 +367,8 @@ public sealed class ExecutionPlanParser
     {
         if (raw.Equals("frontend", StringComparison.OrdinalIgnoreCase)) return FRONTEND_AGENT_NAME;
         if (raw.Equals("builder", StringComparison.OrdinalIgnoreCase) || raw.Equals("implementation", StringComparison.OrdinalIgnoreCase)) return BUILDER_AGENT_NAME;
-        if (raw.Equals("style", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase) || raw.Equals("standards", StringComparison.OrdinalIgnoreCase)) return STYLE_AGENT_NAME;
+        if (raw.Equals("codingstyle", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase)) return CODING_STYLE_AGENT_NAME;
+        if (raw.Equals("security", StringComparison.OrdinalIgnoreCase) || raw.Equals("secure", StringComparison.OrdinalIgnoreCase)) return SECURITY_AGENT_NAME;
         if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ARCHITECTURE_AGENT_NAME;
         return null;
     }
@@ -351,7 +398,7 @@ public sealed class ExecutionPlanParser
 
         if (!ContainsRequiredAgents(steps))
         {
-            error = "Execution plan must include at least one Builder, one Style, and one Architecture step.";
+            error = "Execution plan must include at least one Builder, one CodingStyle, one Security, and one Architecture step.";
             return false;
         }
 
@@ -384,7 +431,8 @@ public sealed class ExecutionPlanParser
 
     private static bool ContainsRequiredAgents(IEnumerable<ExecutionPlanStep> steps)
         => steps.Any(s => s.Agent == BUILDER_AGENT_NAME)
-        && steps.Any(s => s.Agent == STYLE_AGENT_NAME)
+        && steps.Any(s => s.Agent == CODING_STYLE_AGENT_NAME)
+        && steps.Any(s => s.Agent == SECURITY_AGENT_NAME)
         && steps.Any(s => s.Agent == ARCHITECTURE_AGENT_NAME);
 
     private static IterationStrategy ParseIterationStrategy(JsonElement root)
@@ -408,6 +456,7 @@ public sealed class ExecutionPlanParser
         List<string> criteria = new List<string>
         {
             "No high severity coding style findings",
+            "No high severity security findings",
             "No high severity architecture findings",
             "Build passes (if command configured)"
         };
@@ -430,7 +479,8 @@ public sealed class ExecutionPlanParser
         }
 
         criteria = parsedCriteria;
-        EnsureCriteriaContains(criteria, "style", "No high severity coding style findings");
+        EnsureCriteriaContains(criteria, "coding style", "No high severity coding style findings");
+        EnsureCriteriaContains(criteria, "security", "No high severity security findings");
         EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
         EnsureCriteriaContains(criteria, "build", "Build passes (if command configured)");
         return criteria;

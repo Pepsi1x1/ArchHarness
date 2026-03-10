@@ -37,7 +37,8 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
         {
             "frontend" => _options.Frontend.Tools,
             "builder" => _options.Builder.Tools,
-            "style" => _options.Style.Tools,
+            "coding-style" => _options.CodingStyle.Tools,
+            "security" => _options.Security.Tools,
             "architecture" => _options.Architecture.Tools,
             "orchestration" => _options.Orchestration.Tools,
             _ => new AgentToolOptions()
@@ -48,7 +49,8 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
             "orchestration" => BuildPolicy(tools, Array.Empty<string>(), DefaultOrchestrationExcluded),
             "frontend" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "builder" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
-            "style" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
+            "coding-style" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
+            "security" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "architecture" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             _ => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>())
         };

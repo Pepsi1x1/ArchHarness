@@ -86,6 +86,63 @@ public async Task<Item> FetchSingleItemAsync(Guid itemId)
 
 ---
 
+## Mapping Rules
+
+### DTO-to-Model Mapping
+
+- All mapping between DTOs and domain models must be implemented as static extension methods in the `Mappers` folder.
+- Always null-check the input first.
+- If mapping a single object and the input is `null`, return an empty/default object.
+- If mapping a collection and the input is `null`, return an empty collection.
+- Collection mapping must call the single-item mapping extension method via a LINQ `Select`.
+
+```csharp
+// Single item mapping
+public static ItemDto ToDto(this Item item)
+{
+    if (item == null)
+    {
+        return new ItemDto();
+    }
+
+    return new ItemDto
+    {
+        Id = item.Id,
+        Name = item.Name
+    };
+}
+
+// Collection mapping
+public static IEnumerable<ItemDto> ToDtos(this IEnumerable<Item> items)
+{
+    if (items == null)
+    {
+        return Enumerable.Empty<ItemDto>();
+    }
+
+    return items.Select(ItemMapper.ToDto);
+}
+```
+
+---
+
+## Exception Handling
+
+- Create custom exception classes in the `Exceptions` folder for domain-specific error scenarios.
+- Always include meaningful messages and propagate inner exceptions when rethrowing.
+- Do not swallow exceptions silently. Log all caught exceptions.
+
+```csharp
+public class ConfigurationException : Exception
+{
+    public ConfigurationException() : base() { }
+    public ConfigurationException(string message) : base(message) { }
+    public ConfigurationException(string message, Exception innerException) : base(message, innerException) { }
+}
+```
+
+---
+
 ## Constants
 
 - Define constants in a `Constants` folder.
@@ -107,4 +164,6 @@ public async Task<Item> FetchSingleItemAsync(Guid itemId)
 - [ ] Function calls are not nested
 - [ ] Async naming/suffix conventions followed
 - [ ] XML comments exist on all public methods
+- [ ] Mapping uses extension methods with null checks
+- [ ] Custom exceptions include inner exception constructors
 - [ ] Constants use `SCREAMING_SNAKE_CASE` and are organized in `Constants`

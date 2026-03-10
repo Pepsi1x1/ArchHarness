@@ -12,7 +12,8 @@ public sealed class AgentStepExecutor
     private const string ORCHESTRATOR_SOURCE = "orchestrator";
     private readonly FrontendAgent _frontendAgent;
     private readonly BuilderAgent _builderAgent;
-    private readonly StyleAgent _styleAgent;
+    private readonly CodingStyleAgent _codingStyleAgent;
+    private readonly SecurityAgent _securityAgent;
     private readonly ArchitectureAgent _architectureAgent;
     private readonly IArtefactStore _artefactStore;
 
@@ -21,19 +22,22 @@ public sealed class AgentStepExecutor
     /// </summary>
     /// <param name="frontendAgent">Agent that creates frontend plans.</param>
     /// <param name="builderAgent">Agent that implements code changes.</param>
-    /// <param name="styleAgent">Agent that enforces coding style standards.</param>
+    /// <param name="codingStyleAgent">Agent that enforces coding style standards.</param>
+    /// <param name="securityAgent">Agent that performs security reviews.</param>
     /// <param name="architectureAgent">Agent that performs architecture reviews.</param>
     /// <param name="artefactStore">Store for persisting run events.</param>
     public AgentStepExecutor(
         FrontendAgent frontendAgent,
         BuilderAgent builderAgent,
-        StyleAgent styleAgent,
+        CodingStyleAgent codingStyleAgent,
+        SecurityAgent securityAgent,
         ArchitectureAgent architectureAgent,
         IArtefactStore artefactStore)
     {
         this._frontendAgent = frontendAgent;
         this._builderAgent = builderAgent;
-        this._styleAgent = styleAgent;
+        this._codingStyleAgent = codingStyleAgent;
+        this._securityAgent = securityAgent;
         this._architectureAgent = architectureAgent;
         this._artefactStore = artefactStore;
     }
@@ -62,6 +66,7 @@ public sealed class AgentStepExecutor
         string frontendPlan = string.Empty;
         IReadOnlyList<string> filesTouched = Array.Empty<string>();
         ArchitectureReview review = new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>());
+        SecurityReview securityReview = new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>());
 
         Dictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies = new Dictionary<string, Func<ExecutionPlanStep, Task>>
         {
@@ -100,10 +105,10 @@ public sealed class AgentStepExecutor
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
             },
-            ["Style"] = async (ExecutionPlanStep s) =>
+            ["CodingStyle"] = async (ExecutionPlanStep s) =>
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken);
-                await this._styleAgent.EnforceAsync(
+                await this._codingStyleAgent.EnforceAsync(
                     new StyleEnforcementRequest(
                         DelegatedPrompt: s.Objective,
                         Diff: latestDiff,
@@ -111,8 +116,29 @@ public sealed class AgentStepExecutor
                         FilesTouched: filesTouched,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
-                    this._styleAgent.Id,
-                    this._styleAgent.Role,
+                    this._codingStyleAgent.Id,
+                    this._codingStyleAgent.Role,
+                    cancellationToken);
+            },
+            ["Security"] = async (ExecutionPlanStep s) =>
+            {
+                string latestDiff = await adapter.DiffAsync(cancellationToken);
+                IReadOnlyList<string> securityFiles = request.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, s.Languages)
+                    : filesTouched;
+                string delegatedPrompt = request.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, adapter.RootPath, request.ArchitectureLoopPrompt)
+                    : s.Objective;
+                securityReview = await this._securityAgent.ReviewAsync(
+                    new SecurityReviewRequest(
+                        DelegatedPrompt: delegatedPrompt,
+                        Diff: latestDiff,
+                        WorkspaceRoot: adapter.RootPath,
+                        FilesTouched: securityFiles,
+                        LanguageScope: s.Languages,
+                        ModelOverrides: request.ModelOverrides),
+                    this._securityAgent.Id,
+                    this._securityAgent.Role,
                     cancellationToken);
             },
             ["Architecture"] = async (ExecutionPlanStep s) =>
@@ -203,7 +229,7 @@ public sealed class AgentStepExecutor
             pendingSteps.Remove(step.Id);
         }
 
-        return new StepExecutionResult(frontendPlan, filesTouched, review);
+        return new StepExecutionResult(frontendPlan, filesTouched, review, securityReview);
     }
 
     private static bool DependenciesSatisfied(
@@ -241,5 +267,6 @@ public sealed class AgentStepExecutor
     public sealed record StepExecutionResult(
         string FrontendPlan,
         IReadOnlyList<string> FilesTouched,
-        ArchitectureReview Review);
+        ArchitectureReview Review,
+        SecurityReview SecurityReview);
 }

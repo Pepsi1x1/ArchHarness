@@ -10,7 +10,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class OrchestrationAgent : AgentBase
 {
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run architecture and style review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
 
     private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS = """
         You are the orchestration planner.
@@ -62,28 +62,30 @@ public sealed class OrchestrationAgent : AgentBase
         string planningPrompt = $$"""
             You are the orchestration planner. Return ONLY strict JSON with this schema:
             {
-                "steps": [{"id":1,"agent":"Frontend|Builder|Style|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+                "steps": [{"id":1,"agent":"Frontend|Builder|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
                 "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
                 "completionCriteria": ["string"]
             }
 
             Constraints:
-            - Always include at least one Builder, one Style, and one Architecture step.
+            - Always include at least one Builder, one CodingStyle, one Security, and one Architecture step.
             - Include Frontend when UI/UX work is implied.
-            - Style and Architecture are review/enforcement steps.
-            - Style must execute before Architecture.
+            - CodingStyle, Security, and Architecture are review/enforcement steps.
+            - CodingStyle must execute before Security.
+            - Security must execute before Architecture.
             - Architecture must be a single final review/enforcement step only.
             - Never use Architecture for solution design/spec generation/planning.
-            - Never use Style for solution design/spec generation/planning.
+            - Never use CodingStyle for solution design/spec generation/planning.
+            - Never use Security for solution design/spec generation/planning.
             - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
             - If a step has no dependencies, omit dependsOn or set it to []. Do NOT use 0.
-            - Use languages on Style/Architecture steps to declare review scope (dotnet and/or vue3).
+            - Use languages on CodingStyle/Security/Architecture steps to declare review scope (dotnet and/or vue3).
             - All filesystem paths in objectives must be under WorkspaceRoot.
             - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
-            - Keep 3-6 steps total.
-            - completionCriteria must include style, architecture, and build verification.
+            - Keep 4-7 steps total.
+            - completionCriteria must include coding style, security, architecture, and build verification.
             - Each objective must be a concrete delegated prompt the target agent can execute directly.
-            - If ArchitectureLoopMode is true, Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
+            - If ArchitectureLoopMode is true, Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
 
             TaskPrompt: {{effectiveTaskPrompt}}
             WorkspaceRoot: {{workspaceRoot}}
@@ -130,7 +132,7 @@ public sealed class OrchestrationAgent : AgentBase
     public async Task<string> BuildRemediationPromptAsync(
         RunRequest request,
         string workspaceRoot,
-        ArchitectureReview review,
+        IReadOnlyList<string> requiredActions,
         int iteration,
         string? agentId = null,
         string? agentRole = null,
@@ -138,7 +140,7 @@ public sealed class OrchestrationAgent : AgentBase
     {
         string model = base.ResolveModel(request.ModelOverrides);
         string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, request.ArchitectureLoopMode);
-        string reviewSummary = string.Join(Environment.NewLine, review.RequiredActions.Select(x => $"- {x}"));
+        string reviewSummary = string.Join(Environment.NewLine, requiredActions.Select(x => $"- {x}"));
         string requiredActionsSection = string.IsNullOrWhiteSpace(reviewSummary)
             ? string.Empty
             : $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{reviewSummary}";
@@ -196,8 +198,9 @@ public sealed class OrchestrationAgent : AgentBase
             cancellationToken);
 
         bool hasHighFindings = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        bool hasHighSecurityFindings = request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         bool buildRequired = request.BuildCommandConfigured && request.Plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
-        return !hasHighFindings && (!buildRequired || request.BuildPassed);
+        return !hasHighFindings && !hasHighSecurityFindings && (!buildRequired || request.BuildPassed);
     }
 
     private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, string workspaceRoot)
@@ -212,7 +215,7 @@ public sealed class OrchestrationAgent : AgentBase
             ReviewRequired: true);
 
         IReadOnlyList<ExecutionPlanStep> updatedSteps = plan.Steps
-            .Select(step => step.Agent == "Architecture"
+            .Select(step => step.Agent is "Architecture" or "Security"
                 ? step with { Objective = BuildArchitectureLoopObjective(step.Objective, workspaceRoot, request.ArchitectureLoopPrompt) }
                 : step)
             .ToArray();

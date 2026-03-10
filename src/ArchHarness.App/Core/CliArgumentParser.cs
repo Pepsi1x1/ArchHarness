@@ -5,7 +5,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class CliArgumentParser
 {
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run architecture and style review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
 
     /// <summary>
     /// Attempts to parse CLI arguments into a RunRequest. Returns null when arguments

@@ -90,6 +90,9 @@ public sealed class SessionEventPumpTests
         public Task WriteArchitectureReviewAsync(string runDirectory, ArchitectureReview review, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
+        public Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
         public Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken)
             => Task.CompletedTask;
 

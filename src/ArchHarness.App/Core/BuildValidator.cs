@@ -54,6 +54,7 @@ public sealed class BuildValidator
     public async Task<BuildValidationResult> ExecuteAndValidateAsync(
         ExecutionPlan plan,
         ArchitectureReview review,
+        SecurityReview securityReview,
         IWorkspaceAdapter adapter,
         RunRequest request,
         string runId,
@@ -86,6 +87,7 @@ public sealed class BuildValidator
             new CompletionValidationRequest(
                 Plan: plan,
                 Review: review,
+                SecurityReview: securityReview,
                 BuildPassed: buildResult.Passed,
                 BuildCommandConfigured: buildCommandConfigured,
                 ModelOverrides: request.ModelOverrides),

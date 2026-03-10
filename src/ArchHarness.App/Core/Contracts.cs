@@ -31,7 +31,19 @@ public sealed record ArchitectureFinding(string Severity, string Rule, string? F
 
 public sealed record ArchitectureReview(IReadOnlyList<ArchitectureFinding> Findings, IReadOnlyList<string> RequiredActions);
 
+public sealed record SecurityFinding(string Severity, string Rule, string? File, string? Symbol, string Rationale, string OwaspCategory);
+
+public sealed record SecurityReview(IReadOnlyList<SecurityFinding> Findings, IReadOnlyList<string> RequiredActions);
+
 public sealed record ArchitectureReviewRequest(
+    string DelegatedPrompt,
+    string Diff,
+    string WorkspaceRoot,
+    IReadOnlyList<string> FilesTouched,
+    IReadOnlyList<string>? LanguageScope,
+    IDictionary<string, string>? ModelOverrides);
+
+public sealed record SecurityReviewRequest(
     string DelegatedPrompt,
     string Diff,
     string WorkspaceRoot,
@@ -50,6 +62,7 @@ public sealed record StyleEnforcementRequest(
 public sealed record CompletionValidationRequest(
     ExecutionPlan Plan,
     ArchitectureReview Review,
+    SecurityReview SecurityReview,
     bool BuildPassed,
     bool BuildCommandConfigured,
     IDictionary<string, string>? ModelOverrides);
@@ -57,8 +70,10 @@ public sealed record CompletionValidationRequest(
 public sealed record ArchitectureLoopRequest(
     IterationStrategy IterationStrategy,
     ArchitectureReview InitialReview,
+    SecurityReview InitialSecurityReview,
     IReadOnlyList<string> FilesTouched,
     IReadOnlyList<string>? ArchitectureLanguages,
+    IReadOnlyList<string>? SecurityLanguages,
     RunRequest RunRequest);
 
 public sealed record RunArtefacts(string RunId, string RunDirectory);

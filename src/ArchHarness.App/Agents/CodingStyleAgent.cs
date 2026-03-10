@@ -4,9 +4,9 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
-public sealed class StyleAgent : AgentBase
+public sealed class CodingStyleAgent : AgentBase
 {
-    private const string StyleInstructions = """
+    private const string CodingStyleInstructions = """
         You are the Coding Style Agent.
         Enforce coding style, naming conventions, and language-specific coding standards by directly editing files.
         Run in agent mode and use built-in tools to apply required style and standards fixes.
@@ -14,8 +14,8 @@ public sealed class StyleAgent : AgentBase
         Return a concise completion summary after applying changes.
         """;
 
-    public StyleAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
-        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "style", Guid.NewGuid().ToString("N"))
+    public CodingStyleAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "coding-style", Guid.NewGuid().ToString("N"))
     {
     }
 
@@ -58,7 +58,7 @@ public sealed class StyleAgent : AgentBase
 
     private static string BuildSystemPrompt(string guidelines, string languageLabel)
         => $"""
-            {StyleInstructions}
+            {CodingStyleInstructions}
 
             LanguageContext: {languageLabel}
             Apply the following coding style guidelines for this language:
@@ -82,5 +82,5 @@ public sealed class StyleAgent : AgentBase
     }
 
     private static string TryLoadGuidelineFile(string fileName)
-        => GuidelineLoader.Load("Style", fileName, "No style guideline file found. Apply strict naming, readability, and language coding standards.");
+        => GuidelineLoader.Load("CodingStyle", fileName, "No coding style guideline file found. Apply strict naming, readability, and language coding standards.");
 }

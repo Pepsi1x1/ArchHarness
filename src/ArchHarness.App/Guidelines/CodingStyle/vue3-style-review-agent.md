@@ -81,6 +81,19 @@ Components must follow this section order:
 - Use enums or union types for fixed value sets.
 - Do not use `// @ts-ignore` or `// @ts-expect-error` without documented justification.
 
+### Stores
+
+- Pinia state, getters, and actions must use explicit types.
+
+### Composables
+
+- Export a single function from each composable.
+- Return a typed object of refs, computed properties, and methods.
+
+### Services
+
+- Service methods must be typed and specify request and response types.
+
 ---
 
 ## Styling Standards
@@ -112,6 +125,7 @@ Projects must use ESLint 9 flat config (`eslint.config.ts`) including:
 - [ ] Props/emits are fully typed
 - [ ] Strict TypeScript mode is enabled
 - [ ] No `any` usage without justification
+- [ ] Pinia state, getters, and actions are explicitly typed
 - [ ] Naming conventions are followed
 - [ ] `v-for` always has `:key`
 - [ ] No `v-if` and `v-for` on the same element
@@ -119,4 +133,6 @@ Projects must use ESLint 9 flat config (`eslint.config.ts`) including:
 - [ ] Styling follows Tailwind/PrimeVue conventions
 - [ ] ESLint flat config is present and compliant
 - [ ] Services use `.service.ts` suffix
+- [ ] Services use typed request/response signatures
 - [ ] Composables follow `use*` naming
+- [ ] Composables return typed objects from a single exported function

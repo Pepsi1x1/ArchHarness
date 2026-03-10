@@ -14,13 +14,16 @@ public sealed class AgentsOptions
     public AgentModelOptions Orchestration { get; set; } = new() { Model = "claude-sonnet-4.6" };
     public AgentModelOptions Frontend { get; set; } = new() { Model = "claude-sonnet-4.6" };
     public AgentModelOptions Builder { get; set; } = new() { Model = "gpt-5.3-codex" };
-    public AgentModelOptions Style { get; set; } = new() { Model = "claude-opus-4.6" };
+    public AgentModelOptions CodingStyle { get; set; } = new() { Model = "claude-opus-4.6" };
+    public AgentModelOptions Security { get; set; } = new() { Model = "claude-opus-4.6" };
     public AgentModelOptions Architecture { get; set; } = new() { Model = "claude-opus-4.6" };
 
     public AgentModelOptions ForRole(string role) => role.ToLowerInvariant() switch
     {
         "frontend" => Frontend,
         "builder" => Builder,
+        "coding-style" => CodingStyle,
+        "security" => Security,
         "architecture" => Architecture,
         "orchestration" => Orchestration,
         _ => new AgentModelOptions()

@@ -72,46 +72,6 @@ When reviewing a project, check that:
 
 ---
 
-## Mapping Rules
-
-### DTO-to-Model Mapping
-
-- All mapping between DTOs and domain models must be implemented as **static extension methods** in the `Mappers` folder.
-- Always **null-check** the input first:
-  - If mapping a single object and the input is `null`, return an empty/default object.
-  - If mapping a collection and the input is `null`, return an empty collection.
-- Collection mapping must call the single-item mapping extension method via a LINQ `Select`.
-
-```csharp
-// Single item mapping
-public static ItemDto ToDto(this Item item)
-{
-    if (item == null)
-    {
-        return new ItemDto();
-    }
-
-    return new ItemDto
-    {
-        Id = item.Id,
-        Name = item.Name
-    };
-}
-
-// Collection mapping
-public static IEnumerable<ItemDto> ToDtos(this IEnumerable<Item> items)
-{
-    if (items == null)
-    {
-        return Enumerable.Empty<ItemDto>();
-    }
-
-    return items.Select(ItemMapper.ToDto);
-}
-```
-
----
-
 ## API Design
 
 - Use `[ApiController]` attribute on all API controllers.
@@ -120,34 +80,6 @@ public static IEnumerable<ItemDto> ToDtos(this IEnumerable<Item> items)
 - Inject services via constructor injection — never instantiate services inside controllers.
 - Controllers must remain thin. Business logic belongs in services.
 - Document all API endpoints using XML comments and Swagger annotations.
-
----
-
-## Exception Handling
-
-- Create **custom exception classes** in the `Exceptions` folder for domain-specific error scenarios.
-- Always include meaningful messages and propagate inner exceptions when rethrowing.
-- Do not swallow exceptions silently. Log all caught exceptions.
-
-```csharp
-public class ConfigurationException : Exception
-{
-    public ConfigurationException() : base() { }
-    public ConfigurationException(string message) : base(message) { }
-    public ConfigurationException(string message, Exception innerException) : base(message, innerException) { }
-}
-```
-
----
-
-## Configuration and Security
-
-- Store configuration in `appsettings.json`.
-- Store sensitive data (secrets, connection strings, API keys) in **Azure Key Vault** or environment variables — never in source code or `appsettings.json`.
-- Configure HSTS to enforce HTTPS.
-- Configure CORS policies to restrict allowed origins.
-- Configure rate limiting to control request rates.
-- Configure health checks to monitor application health.
 
 ---
 
@@ -189,10 +121,7 @@ When reviewing .NET code, verify every item below. Fix all violations.
 - [ ] All SonarAnalyzer and Roslyn analyser rules pass
 - [ ] Dependencies are injected via constructor injection
 - [ ] Services are coded against interfaces
-- [ ] Mapping uses extension methods with null checks
 - [ ] Controllers are thin; business logic is in services
-- [ ] Custom exceptions include inner exception constructors
-- [ ] No secrets in source code
 - [ ] Unit tests exist for services and controllers
 
 ---

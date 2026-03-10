@@ -6,7 +6,7 @@ namespace ArchHarness.App.Agents;
 internal static class AgentPromptHelper
 {
     /// <summary>
-    /// Builds the enforcement prompt sent to review agents (Style and Architecture).
+    /// Builds the enforcement prompt sent to review agents (CodingStyle, Security, and Architecture).
     /// </summary>
     /// <param name="delegatedPrompt">The delegated task prompt.</param>
     /// <param name="workspaceRoot">The root path of the workspace.</param>
