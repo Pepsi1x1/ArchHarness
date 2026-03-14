@@ -111,7 +111,7 @@ internal static class SecurityAnalysisRunner
 
     private static readonly Regex INSECURE_TRANSPORT_REGEX = new Regex(
         "http://(?!localhost|127\\.0\\.0\\.1)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.NonBacktracking);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static void DetectInsecureTransport(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)
     {
