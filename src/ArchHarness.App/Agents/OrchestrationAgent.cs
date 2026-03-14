@@ -40,12 +40,24 @@ public sealed class OrchestrationAgent : AgentBase
         IExecutionPlanParser executionPlanParser)
         : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "orchestration", Guid.NewGuid().ToString("N"))
     {
-        _executionPlanParser = executionPlanParser;
+        this._executionPlanParser = executionPlanParser;
     }
 
+    /// <summary>
+    /// Returns the completion options used for warm-up calls with the orchestration system instructions and tool policy applied.
+    /// </summary>
     internal CopilotCompletionOptions GetWarmUpCompletionOptions()
         => base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
 
+    /// <summary>
+    /// Builds an execution plan by prompting the orchestration model and parsing the returned JSON into an <see cref="ExecutionPlan"/>.
+    /// </summary>
+    /// <param name="request">The run request containing the task prompt and configuration.</param>
+    /// <param name="workspaceRoot">The root path of the target workspace.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns>The parsed execution plan.</returns>
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(
         RunRequest request,
         string workspaceRoot,
@@ -114,7 +126,7 @@ public sealed class OrchestrationAgent : AgentBase
                 agentRole: agentRole ?? base.Role,
                 cancellationToken);
 
-            if (_executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
+            if (this._executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
             {
                 return request.ArchitectureLoopMode
                     ? ApplyArchitectureLoopMode(parsedPlan, request, workspaceRoot)
@@ -129,6 +141,17 @@ public sealed class OrchestrationAgent : AgentBase
             $"Last response preview: {preview}");
     }
 
+    /// <summary>
+    /// Generates a delegated remediation prompt for the Architecture agent based on outstanding required actions.
+    /// </summary>
+    /// <param name="request">The run request containing task context and configuration.</param>
+    /// <param name="workspaceRoot">The root path of the target workspace.</param>
+    /// <param name="requiredActions">The list of required remediation actions from the review.</param>
+    /// <param name="iteration">The current remediation iteration number.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns>A plain-text delegated prompt for the Architecture agent.</returns>
     public async Task<string> BuildRemediationPromptAsync(
         RunRequest request,
         string workspaceRoot,
@@ -181,6 +204,14 @@ public sealed class OrchestrationAgent : AgentBase
             : remediationPrompt;
     }
 
+    /// <summary>
+    /// Validates whether the run has met its completion criteria based on review findings and build status.
+    /// </summary>
+    /// <param name="request">The completion validation request containing the plan, reviews, and build results.</param>
+    /// <param name="agentId">Optional agent identifier override.</param>
+    /// <param name="agentRole">Optional agent role override.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    /// <returns><see langword="true"/> if the run is complete with no high-severity findings and build passed; otherwise <see langword="false"/>.</returns>
     public async Task<bool> ValidateCompletionAsync(
         CompletionValidationRequest request,
         string? agentId = null,

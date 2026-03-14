@@ -19,6 +19,13 @@ public sealed class FrontendDeveloperAgent : AgentBase
         Return a concise completion summary.
         """;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FrontendDeveloperAgent"/> class.
+    /// </summary>
+    /// <param name="copilotClient">The Copilot client for model completions.</param>
+    /// <param name="modelResolver">Resolves which model to use for this agent.</param>
+    /// <param name="toolPolicyProvider">Provides tool access policies for the agent.</param>
+    /// <param name="agentsOptions">Configuration options for agent behavior.</param>
     public FrontendDeveloperAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
         : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "frontend-developer", Guid.NewGuid().ToString("N")) { }
 

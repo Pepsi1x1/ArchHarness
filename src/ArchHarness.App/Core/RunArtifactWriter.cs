@@ -17,8 +17,8 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="runStore">Store for creating run directories and writing run logs.</param>
     public RunArtifactWriter(IArtefactStore artefactStore, IRunStore runStore)
     {
-        _artefactStore = artefactStore;
-        _runStore = runStore;
+        this._artefactStore = artefactStore;
+        this._runStore = runStore;
     }
 
     /// <summary>
@@ -27,7 +27,7 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="workspaceRoot">The workspace root path.</param>
     /// <returns>The full path to the created run directory.</returns>
     public string CreateRunDirectory(string workspaceRoot)
-        => _runStore.CreateRunDirectory(workspaceRoot);
+        => this._runStore.CreateRunDirectory(workspaceRoot);
 
     /// <summary>
     /// Persists the execution plan to the run directory.
@@ -37,7 +37,7 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
-        => _artefactStore.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
+        => this._artefactStore.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
 
     /// <summary>
     /// Persists the architecture review to the run directory.
@@ -47,7 +47,7 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task WriteArchitectureReviewAsync(string runDirectory, ArchitectureReview review, CancellationToken cancellationToken)
-        => _artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
+        => this._artefactStore.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
 
     /// <summary>
     /// Persists the security review to the run directory.
@@ -57,7 +57,7 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken)
-        => _artefactStore.WriteSecurityReviewAsync(runDirectory, review, cancellationToken);
+        => this._artefactStore.WriteSecurityReviewAsync(runDirectory, review, cancellationToken);
 
     /// <summary>
     /// Persists the build result to the run directory.
@@ -67,7 +67,7 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken)
-        => _artefactStore.WriteBuildResultAsync(runDirectory, payload, cancellationToken);
+        => this._artefactStore.WriteBuildResultAsync(runDirectory, payload, cancellationToken);
 
     /// <summary>
     /// Persists the final summary to the run directory.
@@ -77,7 +77,7 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken)
-        => _artefactStore.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
+        => this._artefactStore.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 
     /// <summary>
     /// Persists the run log to the run directory.
@@ -87,5 +87,5 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken)
-        => _runStore.WriteRunLogAsync(runDirectory, payload, cancellationToken);
+        => this._runStore.WriteRunLogAsync(runDirectory, payload, cancellationToken);
 }

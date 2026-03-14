@@ -9,6 +9,9 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
 {
+    /// <summary>
+    /// Status string appended to required actions when consecutive review iterations produce identical findings, indicating no remediation progress.
+    /// </summary>
     public const string NO_PROGRESS_BLOCKED_STATUS = "blocked:no-progress-identical-findings";
     private readonly OrchestrationAgent _orchestrationAgent;
     private readonly CodingStyleAgent _codingStyleAgent;

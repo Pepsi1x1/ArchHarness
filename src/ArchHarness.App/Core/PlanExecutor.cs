@@ -37,10 +37,10 @@ public sealed class PlanExecutor : IPlanExecutor
         IRunEventLogger eventLogger,
         IRunArtifactWriter artifactWriter)
     {
-        _orchestrationAgent = orchestrationAgent;
-        _agentStepExecutor = agentStepExecutor;
-        _eventLogger = eventLogger;
-        _artifactWriter = artifactWriter;
+        this._orchestrationAgent = orchestrationAgent;
+        this._agentStepExecutor = agentStepExecutor;
+        this._eventLogger = eventLogger;
+        this._artifactWriter = artifactWriter;
     }
 
     /// <summary>
@@ -61,17 +61,17 @@ public sealed class PlanExecutor : IPlanExecutor
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        ExecutionPlan plan = await _orchestrationAgent.BuildExecutionPlanAsync(
+        ExecutionPlan plan = await this._orchestrationAgent.BuildExecutionPlanAsync(
             request,
             adapter.RootPath,
-            _orchestrationAgent.Id,
-            _orchestrationAgent.Role,
+            this._orchestrationAgent.Id,
+            this._orchestrationAgent.Role,
             cancellationToken);
 
-        await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Execution plan built" }, cancellationToken);
-        await _artifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
+        await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Execution plan built" }, cancellationToken);
+        await this._artifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
 
-        AgentStepExecutor.StepExecutionResult stepResult = await _agentStepExecutor.ExecuteAsync(
+        AgentStepExecutor.StepExecutionResult stepResult = await this._agentStepExecutor.ExecuteAsync(
             plan,
             adapter,
             request,

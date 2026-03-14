@@ -11,7 +11,7 @@ if (ShadowRuntimeBootstrap.TryRelaunchFromShadowCopy(args))
     return;
 }
 
-var builder = Host.CreateApplicationBuilder(args);
+HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("agents"));
 builder.Services.Configure<CopilotOptions>(builder.Configuration.GetSection("copilot"));
@@ -61,15 +61,15 @@ builder.Services.AddSingleton<OrchestratorRuntime>();
 builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();
 
-using var host = builder.Build();
-var sessionFactory = host.Services.GetRequiredService<ICopilotSessionFactory>() as CopilotSessionFactory;
+using IHost host = builder.Build();
+CopilotSessionFactory? sessionFactory = host.Services.GetRequiredService<ICopilotSessionFactory>() as CopilotSessionFactory;
 if (sessionFactory is not null)
 {
-    var orchestrationAgent = host.Services.GetRequiredService<OrchestrationAgent>();
+    OrchestrationAgent orchestrationAgent = host.Services.GetRequiredService<OrchestrationAgent>();
     _ = sessionFactory.WarmUpAsync(
         orchestrationAgent.DefaultModel,
         orchestrationAgent.GetWarmUpCompletionOptions());
 }
 
-var terminal = host.Services.GetRequiredService<ChatTerminal>();
+ChatTerminal terminal = host.Services.GetRequiredService<ChatTerminal>();
 await terminal.RunAsync(args);

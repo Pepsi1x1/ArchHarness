@@ -20,8 +20,8 @@ public sealed class ConversationController
     /// </summary>
     public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions)
     {
-        _summaryGenerator = summaryGenerator;
-        _agentsOptions = agentsOptions.Value;
+        this._summaryGenerator = summaryGenerator;
+        this._agentsOptions = agentsOptions.Value;
     }
 
     /// <summary>
@@ -29,16 +29,16 @@ public sealed class ConversationController
     /// </summary>
     public async Task<(RunRequest Request, string SetupSummary)> BuildRunRequestAsync(string[] args, CancellationToken cancellationToken = default)
     {
-        RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, _agentsOptions);
+        RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
-            string setupSummary = await _summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
+            string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
             return (cliRequest, setupSummary);
         }
 
         RunRequest requestInteractive = BuildInteractiveRequest(
-            _agentsOptions.Architecture.ArchitectureLoopMode,
-            CliArgumentParser.NormalizeArchitectureLoopPrompt(_agentsOptions.Architecture.ArchitectureLoopPrompt));
+            this._agentsOptions.Architecture.ArchitectureLoopMode,
+            CliArgumentParser.NormalizeArchitectureLoopPrompt(this._agentsOptions.Architecture.ArchitectureLoopPrompt));
 
         BuildCommandSelection setupSelection = BuildCommandInference.Select(
             requestInteractive.WorkspacePath,
@@ -56,7 +56,7 @@ public sealed class ConversationController
 
         try
         {
-            await _summaryGenerator.RunIntentExtractionAsync(requestInteractive, cancellationToken);
+            await this._summaryGenerator.RunIntentExtractionAsync(requestInteractive, cancellationToken);
         }
         catch
         {
@@ -66,7 +66,7 @@ public sealed class ConversationController
         string summary;
         try
         {
-            summary = await _summaryGenerator.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
+            summary = await this._summaryGenerator.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
         }
         catch (Exception ex)
         {

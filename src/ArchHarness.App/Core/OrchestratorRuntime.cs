@@ -34,14 +34,14 @@ public sealed class OrchestratorRuntime
         IRunArtifactWriter artifactWriter,
         IRunEventLogger eventLogger)
     {
-        _agentDependencies = agentDependencies;
-        _copilotClient = copilotClient;
-        _runContextAccessor = runContextAccessor;
-        _architectureReviewLoop = architectureReviewLoop;
-        _planExecutor = planExecutor;
-        _buildValidator = buildValidator;
-        _artifactWriter = artifactWriter;
-        _eventLogger = eventLogger;
+        this._agentDependencies = agentDependencies;
+        this._copilotClient = copilotClient;
+        this._runContextAccessor = runContextAccessor;
+        this._architectureReviewLoop = architectureReviewLoop;
+        this._planExecutor = planExecutor;
+        this._buildValidator = buildValidator;
+        this._artifactWriter = artifactWriter;
+        this._eventLogger = eventLogger;
     }
 
     /// <summary>
@@ -67,16 +67,16 @@ public sealed class OrchestratorRuntime
             request = request with { BuildCommand = initialBuildSelection.Command };
         }
 
-        string runDirectory = _artifactWriter.CreateRunDirectory(adapter.RootPath);
+        string runDirectory = this._artifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
-        _runContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
+        this._runContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task sessionEventPump = Task.Run(async () => await _eventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
+        Task sessionEventPump = Task.Run(async () => await this._eventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
 
         try
         {
-            await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run started" }, cancellationToken);
-            await _eventLogger.AppendEventAsync(runDirectory, new
+            await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run started" }, cancellationToken);
+            await this._eventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
                 source = "request",
@@ -89,7 +89,7 @@ public sealed class OrchestratorRuntime
                 buildCommand = request.BuildCommand,
                 modelOverrides = request.ModelOverrides
             }, cancellationToken);
-            await _eventLogger.AppendEventAsync(runDirectory, new
+            await this._eventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
                 source = "build-selection",
@@ -103,7 +103,7 @@ public sealed class OrchestratorRuntime
             PlanExecutionResult planResult;
             try
             {
-                planResult = await _planExecutor.BuildAndExecuteAsync(
+                planResult = await this._planExecutor.BuildAndExecuteAsync(
                     request,
                     adapter,
                     runId,
@@ -113,7 +113,7 @@ public sealed class OrchestratorRuntime
             }
             catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
             {
-                await _eventLogger.AppendEventAsync(runDirectory, new
+                await this._eventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
                     source = ORCHESTRATOR_SOURCE,
@@ -133,7 +133,7 @@ public sealed class OrchestratorRuntime
 
             IReadOnlyList<string>? architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
             IReadOnlyList<string>? securityLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Security")?.Languages;
-            (review, securityReview, filesTouched) = await _architectureReviewLoop.RunAsync(
+            (review, securityReview, filesTouched) = await this._architectureReviewLoop.RunAsync(
                 new ArchitectureLoopRequest(
                     IterationStrategy: plan.IterationStrategy,
                     InitialReview: review,
@@ -149,7 +149,7 @@ public sealed class OrchestratorRuntime
             if (review.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase)
                 || securityReview.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase))
             {
-                await _eventLogger.AppendEventAsync(runDirectory, new
+                await this._eventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
                     source = "architecture-loop",
@@ -158,10 +158,10 @@ public sealed class OrchestratorRuntime
                 }, cancellationToken);
             }
 
-            await _artifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
-            await _artifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
+            await this._artifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
+            await this._artifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
 
-            BuildValidationResult validation = await _buildValidator.ExecuteAndValidateAsync(
+            BuildValidationResult validation = await this._buildValidator.ExecuteAndValidateAsync(
                 plan,
                 review,
                 securityReview,
@@ -182,12 +182,12 @@ public sealed class OrchestratorRuntime
                 - BuildExecuted: {validation.BuildResult.Executed}
                 - BuildPassed: {validation.BuildResult.Passed}
                 """;
-            await _artifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
+            await this._artifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 
             string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
-            IReadOnlyList<CopilotModelUsage> usage = _copilotClient.GetUsageSnapshot();
+            IReadOnlyList<CopilotModelUsage> usage = this._copilotClient.GetUsageSnapshot();
 
-            await _artifactWriter.WriteRunLogAsync(runDirectory, new
+            await this._artifactWriter.WriteRunLogAsync(runDirectory, new
             {
                 status = validation.Completed ? "completed" : "incomplete",
                 request.WorkspaceMode,
@@ -195,17 +195,17 @@ public sealed class OrchestratorRuntime
                 modelOverrides,
                 agents = new[]
                 {
-                    new { role = "orchestration", model = _agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "frontend-developer", model = _agentDependencies.FrontendDeveloperAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "backend-developer", model = _agentDependencies.BackendDeveloperAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "coding-style", model = _agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "security", model = _agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "architecture", model = _agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
+                    new { role = "orchestration", model = this._agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "frontend-developer", model = this._agentDependencies.FrontendDeveloperAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "backend-developer", model = this._agentDependencies.BackendDeveloperAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "coding-style", model = this._agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "security", model = this._agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "architecture", model = this._agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
                 },
                 copilotUsage = usage
             }, cancellationToken);
 
-            await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run completed" }, cancellationToken);
+            await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run completed" }, cancellationToken);
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, ORCHESTRATOR_SOURCE, "Run completed"));
 
             await sessionEventCts.CancelAsync();
@@ -214,7 +214,7 @@ public sealed class OrchestratorRuntime
         }
         finally
         {
-            _runContextAccessor.SetCurrent(null);
+            this._runContextAccessor.SetCurrent(null);
         }
     }
 
@@ -242,16 +242,34 @@ public sealed class OrchestratorRuntime
             ArchitectureAgent = architectureAgent;
         }
 
+        /// <summary>
+        /// Gets the orchestration agent used for planning and validation.
+        /// </summary>
         public OrchestrationAgent OrchestrationAgent { get; }
 
+        /// <summary>
+        /// Gets the frontend developer agent used for UI/UX implementation.
+        /// </summary>
         public FrontendDeveloperAgent FrontendDeveloperAgent { get; }
 
+        /// <summary>
+        /// Gets the backend developer agent used for code implementation.
+        /// </summary>
         public BackendDeveloperAgent BackendDeveloperAgent { get; }
 
+        /// <summary>
+        /// Gets the coding style agent used for style enforcement.
+        /// </summary>
         public CodingStyleAgent CodingStyleAgent { get; }
 
+        /// <summary>
+        /// Gets the security agent used for security review and enforcement.
+        /// </summary>
         public SecurityAgent SecurityAgent { get; }
 
+        /// <summary>
+        /// Gets the architecture agent used for architecture review and enforcement.
+        /// </summary>
         public ArchitectureAgent ArchitectureAgent { get; }
     }
 }

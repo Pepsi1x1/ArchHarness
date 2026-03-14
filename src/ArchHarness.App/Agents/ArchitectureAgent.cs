@@ -33,25 +33,25 @@ public sealed class ArchitectureAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        string model = ResolveModel(request.ModelOverrides);
+        string model = base.ResolveModel(request.ModelOverrides);
         (string languageLabel, string guidelines) = ArchitecturePromptBuilder.BuildGuidanceContext(
             request.WorkspaceRoot, request.FilesTouched, request.Diff, request.LanguageScope);
         string systemPrompt = ArchitecturePromptBuilder.BuildSystemPrompt(guidelines, languageLabel);
         string enforcementPrompt = ArchitecturePromptBuilder.BuildEnforcementPrompt(
             request.DelegatedPrompt, request.WorkspaceRoot, request.FilesTouched, request.Diff);
 
-        CopilotCompletionOptions options = ApplyToolPolicy(new CopilotCompletionOptions
+        CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 
-        _ = await CopilotClient.CompleteAsync(
+        _ = await base.CopilotClient.CompleteAsync(
             model,
             enforcementPrompt,
             options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
+            agentId: agentId ?? base.Id,
+            agentRole: agentRole ?? base.Role,
             cancellationToken);
 
         return AnalysisRunner.Analyze(request.Diff, request.WorkspaceRoot, request.FilesTouched);

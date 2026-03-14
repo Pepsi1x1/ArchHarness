@@ -14,18 +14,18 @@ internal static class PathInputHandler
     /// <returns>The user-entered path string.</returns>
     public static string ReadPathWithTabCompletion(string currentValue)
     {
-        var buffer = new StringBuilder(currentValue ?? string.Empty);
+        StringBuilder buffer = new StringBuilder(currentValue ?? string.Empty);
         Console.Write(buffer.ToString());
 
         while (true)
         {
-            if (!TryReadKey(out var key))
+            if (!TryReadKey(out ConsoleKeyInfo key))
             {
                 Console.WriteLine();
                 return buffer.ToString();
             }
 
-            if (HandlePathSubmit(key.Key, buffer, out var submitted))
+            if (HandlePathSubmit(key.Key, buffer, out string submitted))
             {
                 return submitted;
             }
@@ -81,8 +81,8 @@ internal static class PathInputHandler
             return false;
         }
 
-        var current = buffer.ToString();
-        var completed = TryCompletePath(current);
+        string current = buffer.ToString();
+        string completed = TryCompletePath(current);
         if (string.Equals(completed, current, StringComparison.Ordinal))
         {
             return true;
@@ -100,9 +100,9 @@ internal static class PathInputHandler
         // Show a single-line tab-completion hint on the line below, then restore cursor
         try
         {
-            var savedLeft = Console.CursorLeft;
-            var savedTop = Console.CursorTop;
-            var hintRow = savedTop + 1;
+            int savedLeft = Console.CursorLeft;
+            int savedTop = Console.CursorTop;
+            int hintRow = savedTop + 1;
             if (hintRow < Console.BufferHeight)
             {
                 Console.SetCursorPosition(0, hintRow);
@@ -145,9 +145,9 @@ internal static class PathInputHandler
 
         try
         {
-            var expanded = Environment.ExpandEnvironmentVariables(input);
-            var directoryPart = expanded;
-            var prefix = string.Empty;
+            string expanded = Environment.ExpandEnvironmentVariables(input);
+            string directoryPart = expanded;
+            string prefix = string.Empty;
 
             if (!Directory.Exists(expanded))
             {
@@ -160,7 +160,7 @@ internal static class PathInputHandler
                 return input;
             }
 
-            var matches = Directory.GetDirectories(directoryPart)
+            string[] matches = Directory.GetDirectories(directoryPart)
                 .Where(d => Path.GetFileName(d).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -170,7 +170,7 @@ internal static class PathInputHandler
                 return input;
             }
 
-            var match = matches[0];
+            string match = matches[0];
             return match.EndsWith(Path.DirectorySeparatorChar)
                 ? match
                 : match + Path.DirectorySeparatorChar;

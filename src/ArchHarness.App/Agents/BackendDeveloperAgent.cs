@@ -18,6 +18,13 @@ public sealed class BackendDeveloperAgent : AgentBase
         Return a concise completion summary and list key changed files.
         """;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BackendDeveloperAgent"/> class.
+    /// </summary>
+    /// <param name="copilotClient">The Copilot client for model completions.</param>
+    /// <param name="modelResolver">Resolves which model to use for this agent.</param>
+    /// <param name="toolPolicyProvider">Provides tool access policies for the agent.</param>
+    /// <param name="agentsOptions">Configuration options for agent behavior.</param>
     public BackendDeveloperAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
         : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "backend-developer", Guid.NewGuid().ToString("N")) { }
 

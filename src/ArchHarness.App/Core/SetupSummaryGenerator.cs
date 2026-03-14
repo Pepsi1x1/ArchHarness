@@ -20,8 +20,8 @@ public sealed class SetupSummaryGenerator
     /// <param name="modelResolver">Resolver for model selection.</param>
     public SetupSummaryGenerator(ICopilotClient copilotClient, IModelResolver modelResolver)
     {
-        _copilotClient = copilotClient;
-        _modelResolver = modelResolver;
+        this._copilotClient = copilotClient;
+        this._modelResolver = modelResolver;
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public sealed class SetupSummaryGenerator
     /// <returns>A task representing the async operation.</returns>
     public async Task RunIntentExtractionAsync(RunRequest request, CancellationToken cancellationToken)
     {
-        string model = _modelResolver.Resolve("conversation", request.ModelOverrides);
+        string model = this._modelResolver.Resolve("conversation", request.ModelOverrides);
         string prompt = $"""
             Extract intent for this run request and identify missing optional fields.
             Return a compact one-line summary.
@@ -42,7 +42,7 @@ public sealed class SetupSummaryGenerator
             ProjectName: {request.ProjectName ?? NONE_TEXT}
             BuildCommand: {request.BuildCommand ?? NONE_TEXT}
             """;
-        _ = await _copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
+        _ = await this._copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -53,7 +53,7 @@ public sealed class SetupSummaryGenerator
     /// <returns>The redacted summary text.</returns>
     public async Task<string> GenerateSetupSummaryAsync(RunRequest request, CancellationToken cancellationToken)
     {
-        string model = _modelResolver.Resolve("conversation", request.ModelOverrides);
+        string model = this._modelResolver.Resolve("conversation", request.ModelOverrides);
         string prompt = $"""
             Summarize this run configuration in 4 concise bullet points.
             Task: {request.TaskPrompt}
@@ -65,7 +65,7 @@ public sealed class SetupSummaryGenerator
             Overrides: {FormatOverrides(request.ModelOverrides)}
             """;
 
-        string completion = await _copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
+        string completion = await this._copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
         return Redaction.RedactSecrets(completion);
     }
 

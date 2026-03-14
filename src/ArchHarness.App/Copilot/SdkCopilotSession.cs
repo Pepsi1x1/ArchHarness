@@ -22,21 +22,21 @@ internal sealed class SdkCopilotSession(
 {
     public async Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken)
     {
-        var handle = await factory.GetOrCreateSessionHandleAsync(model, options);
+        CopilotSessionFactory.SessionHandle handle = await factory.GetOrCreateSessionHandleAsync(model, options);
         await handle.Gate.WaitAsync(cancellationToken);
-        var completion = new StringBuilder();
-        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StringBuilder completion = new StringBuilder();
+        TaskCompletionSource done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         string? finalMessage = null;
-        var lastEventType = "none";
-        var startedAt = DateTimeOffset.UtcNow;
-        var lastEventTicks = startedAt.UtcTicks;
+        string lastEventType = "none";
+        DateTimeOffset startedAt = DateTimeOffset.UtcNow;
+        long lastEventTicks = startedAt.UtcTicks;
 
-        using var subscription = handle.Session.On(evt =>
+        using IDisposable subscription = handle.Session.On(evt =>
         {
             lastEventType = evt.Type;
             Interlocked.Exchange(ref lastEventTicks, DateTimeOffset.UtcNow.UtcTicks);
 
-            var eventType = ResolveEventType(evt);
+            string eventType = ResolveEventType(evt);
             if (IsLifecycleEvent(eventType))
             {
                 sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
@@ -72,7 +72,7 @@ internal sealed class SdkCopilotSession(
         try
         {
             await handle.Session.SendAsync(new MessageOptions { Prompt = prompt, Mode = "immediate" });
-            using var registration = cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
+            using CancellationTokenRegistration registration = cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
 
             await AwaitSessionCompletionAsync(
                 done,
@@ -89,7 +89,7 @@ internal sealed class SdkCopilotSession(
                 cancellationToken);
 
             await done.Task;
-            var response = !string.IsNullOrWhiteSpace(finalMessage)
+            string response = !string.IsNullOrWhiteSpace(finalMessage)
                 ? finalMessage
                 : completion.ToString().Trim();
 
@@ -108,7 +108,7 @@ internal sealed class SdkCopilotSession(
     {
         while (!done.Task.IsCompleted)
         {
-            var timeoutState = EvaluateTimeoutState(
+            TimeoutState timeoutState = EvaluateTimeoutState(
                 context.StartedAt,
                 context.GetLastEventTicks(),
                 context.InactivityTimeoutSeconds,
@@ -116,7 +116,7 @@ internal sealed class SdkCopilotSession(
             await ThrowIfTimedOutAsync(context, timeoutState);
 
 
-            var completedTask = await Task.WhenAny(done.Task, Task.Delay(timeoutState.WaitDuration, cancellationToken));
+            Task completedTask = await Task.WhenAny(done.Task, Task.Delay(timeoutState.WaitDuration, cancellationToken));
             if (completedTask == done.Task)
             {
                 return;
@@ -130,13 +130,13 @@ internal sealed class SdkCopilotSession(
         int inactivityTimeoutSeconds,
         int absoluteTimeoutSeconds)
     {
-        var now = DateTimeOffset.UtcNow;
-        var lastEventAt = new DateTimeOffset(lastEventTicks, TimeSpan.Zero);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset lastEventAt = new DateTimeOffset(lastEventTicks, TimeSpan.Zero);
 
-        var inactivityRemaining = inactivityTimeoutSeconds > 0
+        TimeSpan inactivityRemaining = inactivityTimeoutSeconds > 0
             ? TimeSpan.FromSeconds(inactivityTimeoutSeconds) - (now - lastEventAt)
             : Timeout.InfiniteTimeSpan;
-        var absoluteRemaining = absoluteTimeoutSeconds > 0
+        TimeSpan absoluteRemaining = absoluteTimeoutSeconds > 0
             ? TimeSpan.FromSeconds(absoluteTimeoutSeconds) - (now - startedAt)
             : Timeout.InfiniteTimeSpan;
 
@@ -194,8 +194,8 @@ internal sealed class SdkCopilotSession(
         DateTimeOffset lastEventAt)
     {
         await handle.Session.AbortAsync();
-        var waitingForUser = userInputState.IsAwaitingInput;
-        var promptPreview = prompt.Length <= 140 ? prompt : prompt[..137] + "...";
+        bool waitingForUser = userInputState.IsAwaitingInput;
+        string promptPreview = prompt.Length <= 140 ? prompt : prompt[..137] + "...";
         throw new TimeoutException(
             $"Copilot SDK timed out ({timeoutKind}) for model '{model}'. " +
             $"LastEvent='{lastEventType}' at {lastEventAt:HH:mm:ss}. " +
@@ -204,7 +204,7 @@ internal sealed class SdkCopilotSession(
 
     private static bool IsLifecycleEvent(string eventType)
     {
-        var normalized = eventType.ToLowerInvariant();
+        string normalized = eventType.ToLowerInvariant();
         return normalized.Contains("session.start", StringComparison.Ordinal)
             || normalized.Contains("sessionstart", StringComparison.Ordinal)
             || normalized.Contains("tool.execution.start", StringComparison.Ordinal)

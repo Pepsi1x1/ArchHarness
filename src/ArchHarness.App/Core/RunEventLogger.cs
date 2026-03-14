@@ -18,8 +18,8 @@ public sealed class RunEventLogger : IRunEventLogger
     /// <param name="sessionEventStream">Stream of Copilot session events.</param>
     public RunEventLogger(IArtefactStore artefactStore, ICopilotSessionEventStream sessionEventStream)
     {
-        _artefactStore = artefactStore;
-        _sessionEventStream = sessionEventStream;
+        this._artefactStore = artefactStore;
+        this._sessionEventStream = sessionEventStream;
     }
 
     /// <summary>
@@ -30,7 +30,7 @@ public sealed class RunEventLogger : IRunEventLogger
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     public Task AppendEventAsync(string runDirectory, object eventData, CancellationToken cancellationToken)
-        => _artefactStore.AppendEventAsync(runDirectory, eventData, cancellationToken);
+        => this._artefactStore.AppendEventAsync(runDirectory, eventData, cancellationToken);
 
     /// <summary>
     /// Continuously reads Copilot session events and persists them to the run log
@@ -44,9 +44,9 @@ public sealed class RunEventLogger : IRunEventLogger
     {
         try
         {
-            await foreach (var evt in _sessionEventStream.ReadAllAsync(cancellationToken))
+            await foreach (CopilotSessionLifecycleEvent evt in this._sessionEventStream.ReadAllAsync(cancellationToken))
             {
-                await _artefactStore.AppendEventAsync(runDirectory, new
+                await this._artefactStore.AppendEventAsync(runDirectory, new
                 {
                     runId,
                     source = "copilot.session",

@@ -30,7 +30,7 @@ public sealed class SecurityAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        string model = this.ResolveModel(request.ModelOverrides);
+        string model = base.ResolveModel(request.ModelOverrides);
         (string languageLabel, string guidelines) = SecurityPromptBuilder.BuildGuidanceContext(
             request.WorkspaceRoot,
             request.FilesTouched,
@@ -43,18 +43,18 @@ public sealed class SecurityAgent : AgentBase
             request.FilesTouched,
             request.Diff);
 
-        CopilotCompletionOptions options = this.ApplyToolPolicy(new CopilotCompletionOptions
+        CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 
-        _ = await this.CopilotClient.CompleteAsync(
+        _ = await base.CopilotClient.CompleteAsync(
             model,
             enforcementPrompt,
             options,
-            agentId: agentId ?? this.Id,
-            agentRole: agentRole ?? this.Role,
+            agentId: agentId ?? base.Id,
+            agentRole: agentRole ?? base.Role,
             cancellationToken);
 
         return SecurityAnalysisRunner.Analyze(request.Diff, request.WorkspaceRoot, request.FilesTouched, request.LanguageScope);

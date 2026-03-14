@@ -53,7 +53,7 @@ internal static class SetupFormRenderer
         Console.WriteLine();
 
         // Field rows
-        for (var i = 0; i < fields.Count; i++)
+        for (int i = 0; i < fields.Count; i++)
         {
             WriteInteractiveSetupRow(contentWidth, fields[i], isSelected: i == selectedIndex, isError: fields[i].Id == validationError);
         }
@@ -65,8 +65,8 @@ internal static class SetupFormRenderer
         Console.WriteLine();
 
         // Keyboard hint footer
-        var hint = " [Up/Down] Navigate  [Enter] Edit  [Left/Right] Cycle  [F5] Run  [Esc] Cancel";
-        var paddedHint = hint.Length <= contentWidth ? hint.PadRight(contentWidth) : hint[..contentWidth];
+        string hint = " [Up/Down] Navigate  [Enter] Edit  [Left/Right] Cycle  [F5] Run  [Esc] Cancel";
+        string paddedHint = hint.Length <= contentWidth ? hint.PadRight(contentWidth) : hint[..contentWidth];
         ChatTerminalRenderer.WriteColored("  |", ConsoleColor.Cyan);
         ChatTerminalRenderer.WriteColored(paddedHint, ConsoleColor.DarkCyan);
         ChatTerminalRenderer.WriteColored("|", ConsoleColor.Cyan);
@@ -81,8 +81,8 @@ internal static class SetupFormRenderer
         // Validation error status line
         if (validationError != null)
         {
-            var errorField = fields.FirstOrDefault(f => f.Id == validationError);
-            var errorLabel = errorField?.Label ?? validationError;
+            SetupField? errorField = fields.FirstOrDefault(f => f.Id == validationError);
+            string errorLabel = errorField?.Label ?? validationError;
             Console.WriteLine();
             ChatTerminalRenderer.WriteColored($"  ! Field required: {errorLabel}", ConsoleColor.Yellow);
             Console.WriteLine();
@@ -104,10 +104,10 @@ internal static class SetupFormRenderer
     {
         if (field.Id.StartsWith("__section__", StringComparison.Ordinal))
         {
-            var sectionLabel = $" {field.Label} ";
-            var padding = Math.Max(0, contentWidth - sectionLabel.Length);
-            var leftPad = padding / 2;
-            var paddedLabel = new string('─', leftPad) + sectionLabel + new string('─', padding - leftPad);
+            string sectionLabel = $" {field.Label} ";
+            int padding = Math.Max(0, contentWidth - sectionLabel.Length);
+            int leftPad = padding / 2;
+            string paddedLabel = new string('─', leftPad) + sectionLabel + new string('─', padding - leftPad);
             ChatTerminalRenderer.WriteColored("  |", ConsoleColor.Cyan);
             ChatTerminalRenderer.WriteColored(paddedLabel.PadRight(contentWidth), ConsoleColor.DarkCyan);
             ChatTerminalRenderer.WriteColored("|", ConsoleColor.Cyan);
@@ -115,9 +115,9 @@ internal static class SetupFormRenderer
             return;
         }
 
-        var isPlaceholder = string.IsNullOrWhiteSpace(field.Value) || field.Value == NONE_TEXT || field.IsPlaceholderValue;
-        var displayValue = isPlaceholder && !field.IsPlaceholderValue ? NONE_TEXT : field.Value;
-        var icon = GetFieldIconForId(field.Id);
+        bool isPlaceholder = string.IsNullOrWhiteSpace(field.Value) || field.Value == NONE_TEXT || field.IsPlaceholderValue;
+        string displayValue = isPlaceholder && !field.IsPlaceholderValue ? NONE_TEXT : field.Value;
+        string icon = GetFieldIconForId(field.Id);
         string selectionMarker;
         if (isError)
         {
@@ -131,8 +131,8 @@ internal static class SetupFormRenderer
         {
             selectionMarker = " ";
         }
-        var labelText = $" {selectionMarker} {icon} {field.Label.PadRight(16)} ";
-        var availableValueWidth = Math.Max(8, contentWidth - labelText.Length);
+        string labelText = $" {selectionMarker} {icon} {field.Label.PadRight(16)} ";
+        int availableValueWidth = Math.Max(8, contentWidth - labelText.Length);
 
         if (displayValue.Length > availableValueWidth)
         {

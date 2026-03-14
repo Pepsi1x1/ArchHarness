@@ -33,10 +33,10 @@ public sealed class BuildValidator : IBuildValidator
         IRunEventLogger eventLogger,
         IRunArtifactWriter artifactWriter)
     {
-        _buildRunner = buildRunner;
-        _orchestrationAgent = orchestrationAgent;
-        _eventLogger = eventLogger;
-        _artifactWriter = artifactWriter;
+        this._buildRunner = buildRunner;
+        this._orchestrationAgent = orchestrationAgent;
+        this._eventLogger = eventLogger;
+        this._artifactWriter = artifactWriter;
     }
 
     /// <summary>
@@ -68,7 +68,7 @@ public sealed class BuildValidator : IBuildValidator
             request.WorkspaceMode,
             request.ProjectName);
 
-        await _eventLogger.AppendEventAsync(runDirectory, new
+        await this._eventLogger.AppendEventAsync(runDirectory, new
         {
             runId,
             source = "build-selection",
@@ -78,12 +78,12 @@ public sealed class BuildValidator : IBuildValidator
             reason = finalBuildSelection.Reason
         }, cancellationToken);
 
-        BuildResult buildResult = await _buildRunner.RunAsync(finalBuildSelection.Command, adapter.RootPath, cancellationToken);
-        await _artifactWriter.WriteBuildResultAsync(runDirectory, buildResult, cancellationToken);
+        BuildResult buildResult = await this._buildRunner.RunAsync(finalBuildSelection.Command, adapter.RootPath, cancellationToken);
+        await this._artifactWriter.WriteBuildResultAsync(runDirectory, buildResult, cancellationToken);
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "build", buildResult.Passed ? "Build passed" : "Build failed or not executed"));
 
         bool buildCommandConfigured = !string.IsNullOrWhiteSpace(request.BuildCommand);
-        bool completed = await _orchestrationAgent.ValidateCompletionAsync(
+        bool completed = await this._orchestrationAgent.ValidateCompletionAsync(
             new CompletionValidationRequest(
                 Plan: plan,
                 Review: review,
@@ -91,8 +91,8 @@ public sealed class BuildValidator : IBuildValidator
                 BuildPassed: buildResult.Passed,
                 BuildCommandConfigured: buildCommandConfigured,
                 ModelOverrides: request.ModelOverrides),
-            _orchestrationAgent.Id,
-            _orchestrationAgent.Role,
+            this._orchestrationAgent.Id,
+            this._orchestrationAgent.Role,
             cancellationToken);
 
         return new BuildValidationResult(buildResult, completed);

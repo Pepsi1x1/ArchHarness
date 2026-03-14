@@ -216,8 +216,8 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
     {
         try
         {
-            var discovered = await client.ListModelsAsync();
-            var names = discovered
+            List<ModelInfo> discovered = await client.ListModelsAsync();
+            string?[] names = discovered
                 .Select(m =>
                     m.GetType().GetProperty("Id")?.GetValue(m)?.ToString()
                     ?? m.GetType().GetProperty("Name")?.GetValue(m)?.ToString()

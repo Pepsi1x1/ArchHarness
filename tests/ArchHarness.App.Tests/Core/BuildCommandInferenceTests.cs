@@ -7,14 +7,14 @@ public sealed class BuildCommandInferenceTests
     [Fact]
     public void Select_InjectsTarget_WhenUserCommandHasNoTarget()
     {
-        var root = CreateTempWorkspace();
+        string root = CreateTempWorkspace();
         try
         {
-            var slnPath = Path.Combine(root, "solution", "App.sln");
+            string slnPath = Path.Combine(root, "solution", "App.sln");
             Directory.CreateDirectory(Path.GetDirectoryName(slnPath)!);
             File.WriteAllText(slnPath, string.Empty);
 
-            var selection = BuildCommandInference.Select(root, "dotnet build -c Release", "existing-folder", null);
+            BuildCommandSelection selection = BuildCommandInference.Select(root, "dotnet build -c Release", "existing-folder", null);
 
             Assert.NotNull(selection.Command);
             Assert.Contains("dotnet build", selection.Command!, StringComparison.OrdinalIgnoreCase);
@@ -31,17 +31,17 @@ public sealed class BuildCommandInferenceTests
     [Fact]
     public void Select_AutoDiscoversCsproj_WhenNoCommandProvided()
     {
-        var root = CreateTempWorkspace();
+        string root = CreateTempWorkspace();
         try
         {
-            var appProj = Path.Combine(root, "src", "MyApp", "MyApp.csproj");
-            var testProj = Path.Combine(root, "tests", "MyApp.Tests", "MyApp.Tests.csproj");
+            string appProj = Path.Combine(root, "src", "MyApp", "MyApp.csproj");
+            string testProj = Path.Combine(root, "tests", "MyApp.Tests", "MyApp.Tests.csproj");
             Directory.CreateDirectory(Path.GetDirectoryName(appProj)!);
             Directory.CreateDirectory(Path.GetDirectoryName(testProj)!);
             File.WriteAllText(appProj, "<Project/>");
             File.WriteAllText(testProj, "<Project/>");
 
-            var selection = BuildCommandInference.Select(root, null, "existing-folder", null);
+            BuildCommandSelection selection = BuildCommandInference.Select(root, null, "existing-folder", null);
 
             Assert.NotNull(selection.Command);
             Assert.Contains(appProj, selection.Command!, StringComparison.OrdinalIgnoreCase);
@@ -58,10 +58,10 @@ public sealed class BuildCommandInferenceTests
     [Fact]
     public void Select_NewProjectFallback_WhenNoTargetsExist()
     {
-        var root = CreateTempWorkspace();
+        string root = CreateTempWorkspace();
         try
         {
-            var selection = BuildCommandInference.Select(root, null, "new-project", "DemoApp");
+            BuildCommandSelection selection = BuildCommandInference.Select(root, null, "new-project", "DemoApp");
 
             Assert.Equal("dotnet build --nologo", selection.Command);
             Assert.True(selection.Inferred);
@@ -75,11 +75,11 @@ public sealed class BuildCommandInferenceTests
     [Fact]
     public void Select_LeavesUserTargetedCommandUntouched()
     {
-        var root = CreateTempWorkspace();
+        string root = CreateTempWorkspace();
         try
         {
-            var command = "dotnet build \"./src/MyApp/MyApp.csproj\" -c Release";
-            var selection = BuildCommandInference.Select(root, command, "existing-folder", null);
+            string command = "dotnet build \"./src/MyApp/MyApp.csproj\" -c Release";
+            BuildCommandSelection selection = BuildCommandInference.Select(root, command, "existing-folder", null);
 
             Assert.Equal(command, selection.Command);
             Assert.False(selection.Inferred);
@@ -92,7 +92,7 @@ public sealed class BuildCommandInferenceTests
 
     private static string CreateTempWorkspace()
     {
-        var path = Path.Combine(Path.GetTempPath(), "ArchHarness.Tests", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(Path.GetTempPath(), "ArchHarness.Tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

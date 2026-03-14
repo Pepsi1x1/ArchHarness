@@ -19,7 +19,7 @@ public static partial class Redaction
             return text;
         }
 
-        var output = JsonSecretValueRegex().Replace(text, "$1***REDACTED***$2");
+        string output = JsonSecretValueRegex().Replace(text, "$1***REDACTED***$2");
         output = EnvSecretValueRegex().Replace(output, "$1=***REDACTED***");
         output = GitHubTokenRegex().Replace(output, "***REDACTED***");
         return output;
