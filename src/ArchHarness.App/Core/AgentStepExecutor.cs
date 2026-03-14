@@ -283,6 +283,15 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         /// <summary>Gets the architecture agent.</summary>
         public ArchitectureAgent Architecture { get; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="StepAgentDependencies"/> class.
+        /// </summary>
+        /// <param name="frontendDeveloper">The frontend developer agent.</param>
+        /// <param name="backendDeveloper">The backend developer agent.</param>
+        /// <param name="build">The build agent.</param>
+        /// <param name="codingStyle">The coding style agent.</param>
+        /// <param name="security">The security agent.</param>
+        /// <param name="architecture">The architecture agent.</param>
         public StepAgentDependencies(
             FrontendDeveloperAgent frontendDeveloper,
             BackendDeveloperAgent backendDeveloper,

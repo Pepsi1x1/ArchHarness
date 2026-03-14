@@ -20,6 +20,7 @@ internal sealed class SdkCopilotSession(
     SessionIdentity sessionIdentity,
     SessionTimeoutSettings timeoutSettings) : ICopilotSession
 {
+    /// <inheritdoc />
     public async Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken)
     {
         CopilotSessionFactory.SessionHandle handle = await factory.GetOrCreateSessionHandleAsync(model, options);

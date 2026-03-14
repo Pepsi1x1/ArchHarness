@@ -85,7 +85,7 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
         };
     }
 
-    private static readonly Regex DestructivePatternRegex = new Regex(
+    private static readonly Regex DESTRUCTIVE_PATTERN_REGEX = new Regex(
         "(?i)(rm\\s+-rf|drop\\s+table|truncate\\s+table|del\\s+/f|format\\s+[a-z]:)",
         RegexOptions.Compiled);
 
@@ -97,6 +97,6 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
         }
 
         string serialized = System.Text.Json.JsonSerializer.Serialize(toolArgs);
-        return DestructivePatternRegex.IsMatch(serialized);
+        return DESTRUCTIVE_PATTERN_REGEX.IsMatch(serialized);
     }
 }
