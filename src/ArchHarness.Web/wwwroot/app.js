@@ -289,6 +289,20 @@ function renderRuns() {
   });
 }
 
+function renderArtifactPreview() {
+  const selectedArtifact = state.artifacts.find(artifact => artifact.fullPath === state.selectedArtifactPath) || null;
+  elements.artifactPreview.textContent = selectedArtifact?.preview || "Artifact previews appear here.";
+}
+
+function clearSelectedRun() {
+  state.selectedRunId = null;
+  state.selectedArtifactPath = null;
+  state.artifacts = [];
+  elements.artifactContext.textContent = "No run selected";
+  renderRuns();
+  renderArtifacts();
+}
+
 function renderArtifacts() {
   elements.artifactList.innerHTML = "";
   if (state.artifacts.length === 0) {
@@ -451,7 +465,7 @@ async function loadRuns() {
   const workspacePath = elements.workspacePath.value.trim();
   if (!workspacePath) {
     state.recentRuns = [];
-    renderRuns();
+    clearSelectedRun();
     return;
   }
 
@@ -459,16 +473,37 @@ async function loadRuns() {
   state.recentRuns = await requestJson(`/api/runs?workspacePath=${encodeURIComponent(workspacePath)}`) || [];
   elements.historyHint.textContent = `Loaded ${state.recentRuns.length} runs from ${workspacePath}`;
   renderRuns();
+  await syncSelectedRun();
 }
 
 async function selectRun(run) {
+  const previousArtifactPath = run.runId === state.selectedRunId ? state.selectedArtifactPath : null;
   state.selectedRunId = run.runId;
   elements.artifactContext.textContent = `Run ${run.runId}`;
   state.artifacts = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/artifacts?workspacePath=${encodeURIComponent(elements.workspacePath.value.trim())}`) || [];
-  state.selectedArtifactPath = state.artifacts[0]?.fullPath || null;
-  elements.artifactPreview.textContent = state.artifacts[0]?.preview || "Artifact previews appear here.";
+  state.selectedArtifactPath = state.artifacts.find(artifact => artifact.fullPath === previousArtifactPath)?.fullPath || state.artifacts[0]?.fullPath || null;
+  renderArtifactPreview();
   renderRuns();
   renderArtifacts();
+}
+
+async function syncSelectedRun() {
+  if (state.recentRuns.length === 0) {
+    clearSelectedRun();
+    return;
+  }
+
+  const selectedRun = state.recentRuns.find(run => run.runId === state.selectedRunId) || state.recentRuns[0];
+  const shouldReloadArtifacts = selectedRun.runId !== state.selectedRunId || state.artifacts.length === 0;
+
+  if (shouldReloadArtifacts) {
+    await selectRun(selectedRun);
+    return;
+  }
+
+  renderRuns();
+  renderArtifacts();
+  renderArtifactPreview();
 }
 
 async function generateSummary() {

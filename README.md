@@ -23,6 +23,8 @@ It now ships with a shared runtime library, a console host for the existing term
 - `src/ArchHarness.App/`: shared runtime, agents, Copilot integration, storage, and TUI components
 - `src/ArchHarness.Console/`: console entry point for the existing interactive and scriptable workflow
 - `src/ArchHarness.Desktop/`: Avalonia desktop shell and host-specific UI services
+- `src/ArchHarness.Web/`: local ASP.NET Core host and browser-first control-room UI
+- `src/ArchHarness.Electron/`: Electron desktop wrapper that hosts the local web UI in a native window
 - `src/ArchHarness.App/Agents/`: agent implementations
 - `src/ArchHarness.App/Core/`: orchestration/runtime contracts and flow
 - `src/ArchHarness.App/Prompts/`: editable agent and orchestration prompt templates
@@ -103,6 +105,16 @@ dotnet run --project src/ArchHarness.Desktop/ArchHarness.Desktop.csproj
 ```
 
 The desktop host boots the same runtime service graph, runs startup preflight, allows you to configure and launch orchestrated runs, streams runtime progress and agent output, and lets you inspect prior runs stored under `.agent-harness/runs` for a chosen workspace.
+
+Electron wrapper:
+
+```bash
+cd src/ArchHarness.Electron
+npm install
+npm start
+```
+
+The Electron wrapper starts the local `ArchHarness.Web` host if it is not already running, waits for `/api/health`, and then opens the control-room UI in a native window.
 
 ## Configuration
 
