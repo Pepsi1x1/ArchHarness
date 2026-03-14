@@ -14,12 +14,10 @@ public sealed class OrchestratorRuntime
 
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
-    private readonly IRunContextAccessor _runContextAccessor;
+    private readonly RunInfrastructure _runInfrastructure;
     private readonly IArchitectureReviewLoop _architectureReviewLoop;
     private readonly IPlanExecutor _planExecutor;
     private readonly IBuildValidator _buildValidator;
-    private readonly IRunArtifactWriter _artifactWriter;
-    private readonly IRunEventLogger _eventLogger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
@@ -27,21 +25,17 @@ public sealed class OrchestratorRuntime
     public OrchestratorRuntime(
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
-        IRunContextAccessor runContextAccessor,
+        RunInfrastructure runInfrastructure,
         IArchitectureReviewLoop architectureReviewLoop,
         IPlanExecutor planExecutor,
-        IBuildValidator buildValidator,
-        IRunArtifactWriter artifactWriter,
-        IRunEventLogger eventLogger)
+        IBuildValidator buildValidator)
     {
         this._agentDependencies = agentDependencies;
         this._copilotClient = copilotClient;
-        this._runContextAccessor = runContextAccessor;
+        this._runInfrastructure = runInfrastructure;
         this._architectureReviewLoop = architectureReviewLoop;
         this._planExecutor = planExecutor;
         this._buildValidator = buildValidator;
-        this._artifactWriter = artifactWriter;
-        this._eventLogger = eventLogger;
     }
 
     /// <summary>
@@ -67,16 +61,16 @@ public sealed class OrchestratorRuntime
             request = request with { BuildCommand = initialBuildSelection.Command };
         }
 
-        string runDirectory = this._artifactWriter.CreateRunDirectory(adapter.RootPath);
+        string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
-        this._runContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
+        this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        Task sessionEventPump = Task.Run(async () => await this._eventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
+        Task sessionEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
 
         try
         {
-            await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run started" }, cancellationToken);
-            await this._eventLogger.AppendEventAsync(runDirectory, new
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run started" }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
                 source = "request",
@@ -89,7 +83,7 @@ public sealed class OrchestratorRuntime
                 buildCommand = request.BuildCommand,
                 modelOverrides = request.ModelOverrides
             }, cancellationToken);
-            await this._eventLogger.AppendEventAsync(runDirectory, new
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
                 source = "build-selection",
@@ -113,7 +107,7 @@ public sealed class OrchestratorRuntime
             }
             catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
             {
-                await this._eventLogger.AppendEventAsync(runDirectory, new
+                await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
                     source = ORCHESTRATOR_SOURCE,
@@ -149,7 +143,7 @@ public sealed class OrchestratorRuntime
             if (review.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase)
                 || securityReview.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase))
             {
-                await this._eventLogger.AppendEventAsync(runDirectory, new
+                await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
                     source = "architecture-loop",
@@ -158,8 +152,8 @@ public sealed class OrchestratorRuntime
                 }, cancellationToken);
             }
 
-            await this._artifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
-            await this._artifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
+            await this._runInfrastructure.ArtifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
+            await this._runInfrastructure.ArtifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
 
             BuildValidationResult validation = await this._buildValidator.ExecuteAndValidateAsync(
                 plan,
@@ -182,12 +176,12 @@ public sealed class OrchestratorRuntime
                 - BuildExecuted: {validation.BuildResult.Executed}
                 - BuildPassed: {validation.BuildResult.Passed}
                 """;
-            await this._artifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
+            await this._runInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 
             string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
             IReadOnlyList<CopilotModelUsage> usage = this._copilotClient.GetUsageSnapshot();
 
-            await this._artifactWriter.WriteRunLogAsync(runDirectory, new
+            await this._runInfrastructure.ArtifactWriter.WriteRunLogAsync(runDirectory, new
             {
                 status = validation.Completed ? "completed" : "incomplete",
                 request.WorkspaceMode,
@@ -205,7 +199,7 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run completed" }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run completed" }, cancellationToken);
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, ORCHESTRATOR_SOURCE, "Run completed"));
 
             await sessionEventCts.CancelAsync();
@@ -214,7 +208,7 @@ public sealed class OrchestratorRuntime
         }
         finally
         {
-            this._runContextAccessor.SetCurrent(null);
+            this._runInfrastructure.RunContextAccessor.SetCurrent(null);
         }
     }
 

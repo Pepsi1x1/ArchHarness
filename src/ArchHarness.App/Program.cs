@@ -57,6 +57,7 @@ builder.Services.AddSingleton<IPlanExecutor>(sp => sp.GetRequiredService<PlanExe
 builder.Services.AddSingleton<BuildValidator>();
 builder.Services.AddSingleton<IBuildValidator>(sp => sp.GetRequiredService<BuildValidator>());
 builder.Services.AddSingleton<SetupSummaryGenerator>();
+builder.Services.AddSingleton<RunInfrastructure>();
 builder.Services.AddSingleton<OrchestratorRuntime>();
 builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();
