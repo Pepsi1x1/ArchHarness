@@ -59,25 +59,4 @@ public sealed class CopilotOptions
     /// <summary>Gets or sets the base retry delay in milliseconds for exponential backoff.</summary>
     public int BaseRetryDelayMilliseconds { get; set; } = 250;
 
-    /// <summary>Gets or sets the list of supported model identifiers.</summary>
-    public List<string> SupportedModels { get; set; } = new List<string>()
-    {
-        "claude-sonnet-4.6",
-        "claude-sonnet-4.5",
-        "claude-haiku-4.5",
-        "claude-opus-4.6",
-        "claude-opus-4.6-fast",
-        "claude-opus-4.5",
-        "claude-sonnet-4",
-        "gemini-3-pro-preview",
-        "gpt-5.3-codex",
-        "gpt-5.2-codex",
-        "gpt-5.2",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex",
-        "gpt-5.1",
-        "gpt-5.1-codex-mini",
-        "gpt-5-mini",
-        "gpt-4.1"
-    };
 }

@@ -230,10 +230,6 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
             {
                 this._catalog.ReplaceModels(names!);
             }
-            else
-            {
-                this._catalog.ReplaceModels(this._options.SupportedModels);
-            }
         }
         catch (Exception ex)
         {
@@ -243,8 +239,6 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
                     "Communication error with Copilot CLI during models.list: not authenticated. Please authenticate first.",
                     ex);
             }
-
-            this._catalog.ReplaceModels(this._options.SupportedModels);
         }
     }
 

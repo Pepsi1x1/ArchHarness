@@ -118,10 +118,12 @@ Example (abbreviated):
 	"copilot": {
 		"streamingResponses": true,
 		"sessionAbsoluteTimeoutSeconds": 900,
-		"supportedModels": ["gpt-5.3-codex", "claude-sonnet-4.6"]
+		"maxRetries": 2
 	}
 }
 ```
+
+ArchHarness no longer uses a configured model allow list. When Copilot exposes a runtime model catalog, requested models are validated against that discovered list. If discovery is unavailable, ArchHarness passes the configured model name through to Copilot without local allow-list blocking.
 
 ## Run Artifacts
 

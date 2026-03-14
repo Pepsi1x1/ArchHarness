@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.App.Core;
 
 /// <summary>
-/// Resolves the model identifier for a given agent role, applying overrides and validating against supported models.
+/// Resolves the model identifier for a given agent role, applying overrides and validating against discovered Copilot models when available.
 /// </summary>
 public interface IModelResolver
 {
@@ -17,12 +17,12 @@ public interface IModelResolver
     string Resolve(string role, IDictionary<string, string>? overrides);
 
     /// <summary>
-    /// Validates that the specified model is in the supported model list, throwing if not.
+    /// Validates that the specified model is in the discovered Copilot model list when that list is available.
     /// </summary>
     /// <param name="model">The model identifier to validate.</param>
     void ValidateOrThrow(string model);
 
-    /// <summary>Gets the collection of supported model identifiers.</summary>
+    /// <summary>Gets the collection of discovered model identifiers, if available.</summary>
     IReadOnlyCollection<string> SupportedModels { get; }
 }
 
@@ -32,7 +32,7 @@ public interface IModelResolver
 public sealed class ModelResolver : IModelResolver
 {
     private readonly AgentsOptions _agents;
-    private readonly CopilotOptions _copilot;
+    private readonly string _conversationModel;
     private readonly IDiscoveredModelCatalog _catalog;
 
     /// <summary>
@@ -47,13 +47,13 @@ public sealed class ModelResolver : IModelResolver
         IDiscoveredModelCatalog catalog)
     {
         this._agents = agentOptions.Value;
-        this._copilot = copilotOptions.Value;
+        this._conversationModel = copilotOptions.Value.ConversationModel;
         this._catalog = catalog;
     }
 
     /// <inheritdoc />
     public IReadOnlyCollection<string> SupportedModels
-        => this._catalog.HasModels ? this._catalog.GetModels() : this._copilot.SupportedModels;
+        => this._catalog.HasModels ? this._catalog.GetModels() : Array.Empty<string>();
 
     /// <inheritdoc />
     public string Resolve(string role, IDictionary<string, string>? overrides)
@@ -73,7 +73,7 @@ public sealed class ModelResolver : IModelResolver
             "coding-style" => this._agents.CodingStyle.Model,
             "security" => this._agents.Security.Model,
             "architecture" => this._agents.Architecture.Model,
-            "conversation" => this._copilot.ConversationModel,
+            "conversation" => this._conversationModel,
             _ => throw new ArgumentOutOfRangeException(nameof(role), $"Unsupported role: {role}")
         };
 
@@ -87,14 +87,14 @@ public sealed class ModelResolver : IModelResolver
         IReadOnlyCollection<string> supported = this.SupportedModels;
         if (supported.Count == 0)
         {
-            throw new InvalidOperationException("No supported models configured.");
+            return;
         }
 
         bool isSupported = supported.Any(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
         if (!isSupported)
         {
             throw new InvalidOperationException(
-                $"Model '{model}' is not supported by the configured Copilot model allow-list. Supported models: {string.Join(", ", supported)}");
+                $"Model '{model}' is not available in the Copilot-discovered model list. Discovered models: {string.Join(", ", supported)}");
         }
     }
 }
