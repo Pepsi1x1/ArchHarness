@@ -98,10 +98,13 @@ internal static class SecurityAnalysisRunner
         return CANDIDATE_EXTENSIONS.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
     }
 
+    private static readonly Regex HardcodedSecretRegex = new Regex(
+        "(?im)(password|pwd|secret|api[_-]?key|token|clientsecret|connectionstring)\\s*[:=]\\s*[\"'][^\"'\\r\\n]{6,}[\"']",
+        RegexOptions.Compiled);
+
     private static void DetectHardcodedSecrets(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)
     {
-        Regex regex = new Regex("(?im)(password|pwd|secret|api[_-]?key|token|clientsecret|connectionstring)\\s*[:=]\\s*[\"'][^\"'\\r\\n]{6,}[\"']");
-        if (!regex.IsMatch(content))
+        if (!HardcodedSecretRegex.IsMatch(content))
         {
             return;
         }
@@ -116,10 +119,13 @@ internal static class SecurityAnalysisRunner
         requiredActions.Add("Remove hardcoded secrets and source them from secure configuration providers or environment variables.");
     }
 
+    private static readonly Regex InsecureTransportRegex = new Regex(
+        "http://(?!localhost|127\\.0\\.0\\.1)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static void DetectInsecureTransport(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)
     {
-        Regex regex = new Regex("http://(?!localhost|127\\.0\\.0\\.1)", RegexOptions.IgnoreCase);
-        if (!regex.IsMatch(content))
+        if (!InsecureTransportRegex.IsMatch(content))
         {
             return;
         }
@@ -134,11 +140,17 @@ internal static class SecurityAnalysisRunner
         requiredActions.Add("Replace insecure HTTP endpoints with HTTPS or document why plaintext transport is safe and isolated.");
     }
 
+    private static readonly Regex RawSqlRegex = new Regex(
+        "(FromSqlRaw|ExecuteSqlRaw)\\s*\\([^\\)]*(\\$\"|\\+)",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex ConcatenatedSqlRegex = new Regex(
+        "(?is)(SELECT|INSERT|UPDATE|DELETE)[^;\\r\\n]{0,200}(\\+|\\{)",
+        RegexOptions.Compiled);
+
     private static void DetectSqlInjection(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)
     {
-        Regex rawSqlRegex = new Regex("(FromSqlRaw|ExecuteSqlRaw)\\s*\\([^\\)]*(\\$\"|\\+)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        Regex concatenatedSqlRegex = new Regex("(?is)(SELECT|INSERT|UPDATE|DELETE)[^;\\r\\n]{0,200}(\\+|\\{)");
-        if (!rawSqlRegex.IsMatch(content) && !concatenatedSqlRegex.IsMatch(content))
+        if (!RawSqlRegex.IsMatch(content) && !ConcatenatedSqlRegex.IsMatch(content))
         {
             return;
         }
@@ -153,10 +165,13 @@ internal static class SecurityAnalysisRunner
         requiredActions.Add("Parameterize SQL queries and avoid raw string concatenation when building commands from external input.");
     }
 
+    private static readonly Regex XssRegex = new Regex(
+        "(v-html|innerHTML\\s*=|Html\\.Raw|dangerouslySetInnerHTML)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static void DetectXss(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)
     {
-        Regex regex = new Regex("(v-html|innerHTML\\s*=|Html\\.Raw|dangerouslySetInnerHTML)", RegexOptions.IgnoreCase);
-        if (!regex.IsMatch(content))
+        if (!XssRegex.IsMatch(content))
         {
             return;
         }
@@ -171,10 +186,13 @@ internal static class SecurityAnalysisRunner
         requiredActions.Add("Remove unsafe HTML sinks or sanitize untrusted content before rendering.");
     }
 
+    private static readonly Regex TlsBypassRegex = new Regex(
+        "(DangerousAcceptAnyServerCertificateValidator|ServerCertificateCustomValidationCallback\\s*=\\s*[^;]*=>\\s*true|rejectUnauthorized\\s*:\\s*false)",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
     private static void DetectInsecureTlsBypass(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)
     {
-        Regex regex = new Regex("(DangerousAcceptAnyServerCertificateValidator|ServerCertificateCustomValidationCallback\\s*=\\s*[^;]*=>\\s*true|rejectUnauthorized\\s*:\\s*false)", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (!regex.IsMatch(content))
+        if (!TlsBypassRegex.IsMatch(content))
         {
             return;
         }
