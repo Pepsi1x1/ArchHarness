@@ -47,7 +47,7 @@ internal static class CopilotClientOptionsFactory
         string? token = Environment.GetEnvironmentVariable(options.ApiTokenEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(token))
         {
-            clientOptions.GithubToken = token;
+            clientOptions.GitHubToken = token;
             clientOptions.UseLoggedInUser = false;
         }
 
