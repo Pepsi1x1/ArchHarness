@@ -116,6 +116,16 @@ npm start
 
 The Electron wrapper starts the local `ArchHarness.Web` host if it is not already running, waits for `/api/health`, and then opens the control-room UI in a native window.
 
+To build the wrapper with a published local web host bundled into the app:
+
+```bash
+cd src/ArchHarness.Electron
+npm install
+npm run pack:mac
+```
+
+That packaging flow first runs `dotnet publish` for `ArchHarness.Web` into `src/ArchHarness.Electron/build/web-host/`, then uses `electron-builder` to produce a macOS zip bundle under `src/ArchHarness.Electron/dist/`.
+
 ## Configuration
 
 Configuration is loaded from `src/ArchHarness.App/appsettings.json`.

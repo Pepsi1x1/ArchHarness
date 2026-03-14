@@ -7,6 +7,7 @@ const HOST_URL = process.env.ARCHHARNESS_WEB_URL || "http://127.0.0.1:5057";
 const HEALTH_URL = `${HOST_URL}/api/health`;
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const WEB_PROJECT_PATH = path.join(REPO_ROOT, "src", "ArchHarness.Web", "ArchHarness.Web.csproj");
+const DEV_PUBLISHED_WEB_HOST_DIRECTORY = path.join(__dirname, "build", "web-host");
 const STARTUP_TIMEOUT_MS = 45000;
 const HEALTH_POLL_MS = 500;
 
@@ -18,6 +19,18 @@ let shutdownComplete = false;
 
 function canLaunchLocalWebHost() {
   return fs.existsSync(WEB_PROJECT_PATH);
+}
+
+function getPublishedWebHostDirectory() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "web-host")
+    : DEV_PUBLISHED_WEB_HOST_DIRECTORY;
+}
+
+function getPublishedWebHostExecutablePath() {
+  const fileName = process.platform === "win32" ? "ArchHarness.Web.exe" : "ArchHarness.Web";
+  const candidate = path.join(getPublishedWebHostDirectory(), fileName);
+  return fs.existsSync(candidate) ? candidate : null;
 }
 
 async function isWebHostHealthy() {
@@ -57,7 +70,7 @@ async function waitForWebHostReady() {
 }
 
 function startLocalWebHost() {
-  if (webHostProcess || !canLaunchLocalWebHost()) {
+  if (webHostProcess) {
     return;
   }
 
@@ -66,11 +79,25 @@ function startLocalWebHost() {
     webHost__url: HOST_URL
   };
 
-  webHostProcess = spawn("dotnet", ["run", "--project", WEB_PROJECT_PATH, "--no-launch-profile"], {
-    cwd: REPO_ROOT,
-    env: environment,
-    stdio: ["ignore", "pipe", "pipe"]
-  });
+  const publishedExecutablePath = getPublishedWebHostExecutablePath();
+
+  if (publishedExecutablePath) {
+    webHostProcess = spawn(publishedExecutablePath, [], {
+      cwd: path.dirname(publishedExecutablePath),
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } else {
+    if (!canLaunchLocalWebHost()) {
+      return;
+    }
+
+    webHostProcess = spawn("dotnet", ["run", "--project", WEB_PROJECT_PATH, "--no-launch-profile"], {
+      cwd: REPO_ROOT,
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  }
 
   ownsWebHostProcess = true;
 
@@ -98,8 +125,8 @@ async function ensureWebHost() {
     return;
   }
 
-  if (!canLaunchLocalWebHost()) {
-    throw new Error(`Unable to find ${WEB_PROJECT_PATH}.`);
+  if (!getPublishedWebHostExecutablePath() && !canLaunchLocalWebHost()) {
+    throw new Error(`Unable to find a published web host or ${WEB_PROJECT_PATH}.`);
   }
 
   startLocalWebHost();

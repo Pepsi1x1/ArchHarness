@@ -6,9 +6,40 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "bundle:web-host": "node scripts/publish-web-host.mjs",
+    "pack:dir": "npm run bundle:web-host && electron-builder --dir",
+    "pack:mac": "npm run bundle:web-host && electron-builder --mac zip"
   },
   "devDependencies": {
-    "electron": "^35.7.4"
+    "electron": "^35.7.4",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.archharness.desktop",
+    "productName": "ArchHarness",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/web-host",
+        "to": "web-host",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "zip"
+      ]
+    }
   }
 }
