@@ -39,6 +39,7 @@ public sealed class ModelResolver : IModelResolver
 {
     private readonly AgentsOptions _agents;
     private readonly string _conversationModel;
+    private readonly string _cliPath;
     private readonly IDiscoveredModelCatalog _catalog;
 
     /// <summary>
@@ -54,6 +55,9 @@ public sealed class ModelResolver : IModelResolver
     {
         this._agents = agentOptions.Value;
         this._conversationModel = copilotOptions.Value.ConversationModel;
+        this._cliPath = string.IsNullOrWhiteSpace(copilotOptions.Value.CliPath)
+            ? "copilot"
+            : copilotOptions.Value.CliPath;
         this._catalog = catalog;
     }
 
@@ -131,7 +135,7 @@ public sealed class ModelResolver : IModelResolver
         if (invalid.Count > 0)
         {
             throw new InvalidOperationException(
-                $"Configured models are not available in the Copilot-discovered model list: {string.Join(", ", invalid)}. Discovered models: {string.Join(", ", supported)}");
+                $"Configured models are not available in the Copilot-discovered model list: {string.Join(", ", invalid)}. Discovered models: {string.Join(", ", supported)}. Copilot CliPath: {this._cliPath}");
         }
     }
 

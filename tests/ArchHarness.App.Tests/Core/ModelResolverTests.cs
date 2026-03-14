@@ -37,6 +37,7 @@ public sealed class ModelResolverTests
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => resolver.ValidateConfiguredModelsOrThrow());
 
         Assert.Contains("backend-developer=gpt-5.4", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CliPath: copilot", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -58,6 +59,7 @@ public sealed class ModelResolverTests
             }));
 
         Assert.Contains("override:conversation=not-a-real-model", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CliPath: copilot", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
