@@ -81,20 +81,22 @@ public static class ShadowRuntimeBootstrap
     {
         string entryAssemblyName = Assembly.GetEntryAssembly()?.GetName().Name ?? "ArchHarness.App";
         string shadowDllPath = Path.Combine(runDirectory, $"{entryAssemblyName}.dll");
-        string renderedArgs = string.Join(" ", args.Select(QuoteForCommandLine));
 
         if (File.Exists(shadowDllPath))
         {
-            string dotnetArguments = string.IsNullOrWhiteSpace(renderedArgs)
-                ? QuoteForCommandLine(shadowDllPath)
-                : $"{QuoteForCommandLine(shadowDllPath)} {renderedArgs}";
-
-            return new ProcessStartInfo("dotnet", dotnetArguments)
+            ProcessStartInfo info = new ProcessStartInfo("dotnet")
             {
                 UseShellExecute = false,
                 RedirectStandardOutput = false,
                 RedirectStandardError = false
             };
+            info.ArgumentList.Add(shadowDllPath);
+            foreach (string arg in args)
+            {
+                info.ArgumentList.Add(arg);
+            }
+
+            return info;
         }
 
         string? processPath = Environment.ProcessPath;
@@ -109,12 +111,18 @@ public static class ShadowRuntimeBootstrap
             return null;
         }
 
-        return new ProcessStartInfo(shadowExecutablePath, renderedArgs)
+        ProcessStartInfo execInfo = new ProcessStartInfo(shadowExecutablePath)
         {
             UseShellExecute = false,
             RedirectStandardOutput = false,
             RedirectStandardError = false
         };
+        foreach (string arg in args)
+        {
+            execInfo.ArgumentList.Add(arg);
+        }
+
+        return execInfo;
     }
 
     private static string GetShadowRootPath()
@@ -182,22 +190,6 @@ public static class ShadowRuntimeBootstrap
                 // Ignore cleanup failures.
             }
         }
-    }
-
-    private static string QuoteForCommandLine(string value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return "\"\"";
-        }
-
-        bool needsQuotes = value.Any(char.IsWhiteSpace) || value.Contains('"', StringComparison.Ordinal);
-        if (!needsQuotes)
-        {
-            return value;
-        }
-
-        return "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
     }
 
     private static bool IsLikelyInteractiveConsole()
