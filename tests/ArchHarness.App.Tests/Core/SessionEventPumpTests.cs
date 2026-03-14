@@ -5,8 +5,14 @@ using ArchHarness.App.Storage;
 
 namespace ArchHarness.App.Tests.Core;
 
+/// <summary>
+/// Verifies that SessionEventPump correctly forwards lifecycle events to the artefact store.
+/// </summary>
 public sealed class SessionEventPumpTests
 {
+    /// <summary>
+    /// Published events should be forwarded to the artefact store.
+    /// </summary>
     [Fact]
     public async Task PumpSessionEventsAsync_ForwardsEventsToArtefactStore()
     {
@@ -28,6 +34,9 @@ public sealed class SessionEventPumpTests
         Assert.Equal(2, artefactStore.AppendedEvents.Count);
     }
 
+    /// <summary>
+    /// Cancellation should stop the pump without throwing.
+    /// </summary>
     [Fact]
     public async Task PumpSessionEventsAsync_CancellationStopsCleanly()
     {
@@ -52,6 +61,9 @@ public sealed class SessionEventPumpTests
         Assert.True(artefactStore.AppendedEvents.Count >= 1);
     }
 
+    /// <summary>
+    /// An empty event stream should complete without error.
+    /// </summary>
     [Fact]
     public async Task PumpSessionEventsAsync_EmptyStream_CompletesWithoutError()
     {

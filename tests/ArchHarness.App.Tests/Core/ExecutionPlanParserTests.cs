@@ -2,10 +2,16 @@ using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Tests.Core;
 
+/// <summary>
+/// Verifies execution plan parsing, validation, and step ordering normalization.
+/// </summary>
 public sealed class ExecutionPlanParserTests
 {
     private readonly ExecutionPlanParser _parser = new ExecutionPlanParser(new WorkspaceContextAnalyzer());
 
+    /// <summary>
+    /// Valid JSON should parse into a well-formed execution plan.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_ValidJson_ReturnsCorrectPlan()
     {
@@ -41,6 +47,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// Missing required fields should cause a parse failure with a descriptive error.
+    /// </summary>
     [Theory]
     [InlineData("""{"iterationStrategy":{},"completionCriteria":["ok"]}""", "steps")]
     [InlineData("""{"steps":[],"iterationStrategy":{},"completionCriteria":["ok"]}""", "empty")]
@@ -63,6 +72,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// Invalid dependency IDs should cause a parse failure.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_InvalidDependencyIds_ReturnsFailure()
     {
@@ -94,6 +106,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// Step ordering should place CodingStyle before Security before Architecture.
+    /// </summary>
     [Fact]
     public void NormalizeStepOrdering_ProducesCodingStyleBeforeArchitecture()
     {
@@ -120,6 +135,9 @@ public sealed class ExecutionPlanParserTests
         Assert.True(securityIndex < archIndex, "Security must come before Architecture");
     }
 
+    /// <summary>
+    /// Architecture step should depend on the Security step after normalization.
+    /// </summary>
     [Fact]
     public void NormalizeStepOrdering_ArchitectureDependsOnSecurity()
     {
@@ -141,6 +159,9 @@ public sealed class ExecutionPlanParserTests
         Assert.Contains(securityStep.Id, archStep.DependsOnStepIds);
     }
 
+    /// <summary>
+    /// Input containing no JSON should return a parse failure.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_NoJsonInResponse_ReturnsFailure()
     {
@@ -159,6 +180,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// JSON wrapped in a markdown fence should be extracted and parsed successfully.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_JsonInMarkdownFence_ParsesSuccessfully()
     {
@@ -208,6 +232,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// A legacy agent name should cause a parse failure.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_LegacyStyleAgentName_ReturnsFailure()
     {
@@ -239,6 +266,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// A plan missing the Security step should have one automatically inserted.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_MissingSecurityStep_InsertsDefaultReviewStep()
     {
@@ -271,6 +301,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// A Build-only plan should have review steps auto-injected.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_BuildStep_ReturnsCorrectPlan()
     {
@@ -302,6 +335,9 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    /// <summary>
+    /// A trailing Build step should run after the full review chain.
+    /// </summary>
     [Fact]
     public void TryBuildExecutionPlan_FinalValidationBuildStep_RunsAfterReviewChain()
     {

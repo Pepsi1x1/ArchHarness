@@ -2,8 +2,14 @@ using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Tests.Core;
 
+/// <summary>
+/// Verifies build command inference and target discovery logic.
+/// </summary>
 public sealed class BuildCommandInferenceTests
 {
+    /// <summary>
+    /// A user command without a target should have the discovered target injected.
+    /// </summary>
     [Fact]
     public void Select_InjectsTarget_WhenUserCommandHasNoTarget()
     {
@@ -28,6 +34,9 @@ public sealed class BuildCommandInferenceTests
         }
     }
 
+    /// <summary>
+    /// When no command is provided, the non-test csproj should be auto-discovered.
+    /// </summary>
     [Fact]
     public void Select_AutoDiscoversCsproj_WhenNoCommandProvided()
     {
@@ -55,6 +64,9 @@ public sealed class BuildCommandInferenceTests
         }
     }
 
+    /// <summary>
+    /// A new project with no build targets should fall back to a generic build command.
+    /// </summary>
     [Fact]
     public void Select_NewProjectFallback_WhenNoTargetsExist()
     {
@@ -72,6 +84,9 @@ public sealed class BuildCommandInferenceTests
         }
     }
 
+    /// <summary>
+    /// A user command that already specifies a target should not be modified.
+    /// </summary>
     [Fact]
     public void Select_LeavesUserTargetedCommandUntouched()
     {
