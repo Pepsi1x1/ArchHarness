@@ -5,7 +5,7 @@ using ArchHarness.App.Workspace;
 namespace ArchHarness.App.Core;
 
 /// <summary>
-/// Orchestrates a full run by coordinating plan execution, architecture review, build validation,
+/// Orchestrates a full run by coordinating plan execution, architecture review,
 /// and artifact persistence through dedicated collaborator classes.
 /// </summary>
 public sealed class OrchestratorRuntime
@@ -34,7 +34,7 @@ public sealed class OrchestratorRuntime
 
     /// <summary>
     /// Executes a full orchestrated run: workspace initialization, plan execution, architecture review,
-    /// build validation, and artifact persistence.
+    /// completion validation, and artifact persistence.
     /// </summary>
     public async Task<RunArtefacts> RunAsync(
         RunRequest request,
@@ -149,26 +149,23 @@ public sealed class OrchestratorRuntime
             await this._runInfrastructure.ArtifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
             await this._runInfrastructure.ArtifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
 
-            BuildValidationResult validation = await this._runPhases.BuildValidator.ExecuteAndValidateAsync(
-                plan,
-                review,
-                securityReview,
-                adapter,
-                request,
-                runId,
-                runDirectory,
-                progress,
+            bool completed = await this._agentDependencies.OrchestrationAgent.ValidateCompletionAsync(
+                new CompletionValidationRequest(
+                    Plan: plan,
+                    Review: review,
+                    SecurityReview: securityReview,
+                    ModelOverrides: request.ModelOverrides),
+                this._agentDependencies.OrchestrationAgent.Id,
+                this._agentDependencies.OrchestrationAgent.Role,
                 cancellationToken);
 
             string summary = $"""
                 # Final Summary
-                - Completed: {validation.Completed}
+                - Completed: {completed}
                 - FrontendPlan: {frontendPlan}
                 - FilesTouched: {string.Join(", ", filesTouched)}
                 - SecurityHighFindings: {securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
                 - ArchitectureHighFindings: {review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
-                - BuildExecuted: {validation.BuildResult.Executed}
-                - BuildPassed: {validation.BuildResult.Passed}
                 """;
             await this._runInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 
@@ -177,7 +174,7 @@ public sealed class OrchestratorRuntime
 
             await this._runInfrastructure.ArtifactWriter.WriteRunLogAsync(runDirectory, new
             {
-                status = validation.Completed ? "completed" : "incomplete",
+                status = completed ? "completed" : "incomplete",
                 request.WorkspaceMode,
                 request.Workflow,
                 modelOverrides,
@@ -270,7 +267,7 @@ public sealed class OrchestratorRuntime
     }
 
     /// <summary>
-    /// Groups the run-phase collaborators (plan execution, architecture review, build validation)
+    /// Groups the run-phase collaborators (plan execution and architecture review)
     /// to reduce constructor over-injection in <see cref="OrchestratorRuntime"/>.
     /// </summary>
     public sealed class RunPhaseDependencies
@@ -280,15 +277,12 @@ public sealed class OrchestratorRuntime
         /// </summary>
         /// <param name="architectureReviewLoop">The architecture review iteration loop.</param>
         /// <param name="planExecutor">The execution plan builder and dispatcher.</param>
-        /// <param name="buildValidator">The final build and completion validator.</param>
         public RunPhaseDependencies(
             IArchitectureReviewLoop architectureReviewLoop,
-            IPlanExecutor planExecutor,
-            IBuildValidator buildValidator)
+            IPlanExecutor planExecutor)
         {
             this.ArchitectureReviewLoop = architectureReviewLoop;
             this.PlanExecutor = planExecutor;
-            this.BuildValidator = buildValidator;
         }
 
         /// <summary>Gets the architecture review iteration loop.</summary>
@@ -296,8 +290,5 @@ public sealed class OrchestratorRuntime
 
         /// <summary>Gets the execution plan builder and dispatcher.</summary>
         public IPlanExecutor PlanExecutor { get; }
-
-        /// <summary>Gets the final build and completion validator.</summary>
-        public IBuildValidator BuildValidator { get; }
     }
 }

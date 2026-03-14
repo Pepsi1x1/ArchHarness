@@ -150,15 +150,11 @@ public sealed record StyleEnforcementRequest(
 /// <param name="Plan">The execution plan that was executed.</param>
 /// <param name="Review">The final architecture review result.</param>
 /// <param name="SecurityReview">The final security review result.</param>
-/// <param name="BuildPassed">Whether the build command succeeded.</param>
-/// <param name="BuildCommandConfigured">Whether a build command was configured for this run.</param>
 /// <param name="ModelOverrides">Optional per-agent model override mappings.</param>
 public sealed record CompletionValidationRequest(
     ExecutionPlan Plan,
     ArchitectureReview Review,
     SecurityReview SecurityReview,
-    bool BuildPassed,
-    bool BuildCommandConfigured,
     IDictionary<string, string>? ModelOverrides);
 
 /// <summary>

@@ -38,16 +38,6 @@ public sealed class ConversationController
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             CliArgumentParser.NormalizeArchitectureLoopPrompt(this._agentsOptions.Architecture.ArchitectureLoopPrompt));
 
-        BuildCommandSelection setupSelection = BuildCommandInference.Select(
-            requestInteractive.WorkspacePath,
-            requestInteractive.BuildCommand,
-            requestInteractive.WorkspaceMode,
-            requestInteractive.ProjectName);
-        if (!string.Equals(setupSelection.Command, requestInteractive.BuildCommand, StringComparison.Ordinal))
-        {
-            requestInteractive = requestInteractive with { BuildCommand = setupSelection.Command };
-        }
-
         Console.Clear();
         Console.WriteLine("Preparing run configuration...");
         Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");

@@ -25,8 +25,7 @@ public static class SetupScreenRenderer
                 ("Task", request.TaskPrompt),
                 ("Workspace", request.WorkspacePath),
                 ("Mode", request.WorkspaceMode),
-                ("Workflow", "auto (orchestrator-driven)"),
-                ("Build", request.BuildCommand ?? "(none)")
+                ("Workflow", "auto (orchestrator-driven)")
             ]);
 
         Console.WriteLine();

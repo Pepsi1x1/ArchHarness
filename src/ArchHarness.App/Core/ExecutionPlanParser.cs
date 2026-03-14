@@ -201,21 +201,29 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     /// <returns>The reordered steps with corrected IDs and dependencies.</returns>
     public List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
     {
-        List<ExecutionPlanStep> nonReview = steps.Where(s => s.Agent != ARCHITECTURE_AGENT_NAME && s.Agent != CODING_STYLE_AGENT_NAME && s.Agent != SECURITY_AGENT_NAME).ToList();
-        List<ExecutionPlanStep> codingStyle = steps
+        List<ExecutionPlanStep> terminalValidationBuilds = steps
+            .Where(IsTerminalValidationBuildStep)
+            .ToList();
+        List<ExecutionPlanStep> nonTerminalSteps = steps
+            .Where(s => !IsTerminalValidationBuildStep(s))
+            .ToList();
+        List<ExecutionPlanStep> nonReview = nonTerminalSteps
+            .Where(s => s.Agent != ARCHITECTURE_AGENT_NAME && s.Agent != CODING_STYLE_AGENT_NAME && s.Agent != SECURITY_AGENT_NAME)
+            .ToList();
+        List<ExecutionPlanStep> codingStyle = nonTerminalSteps
             .Where(s => s.Agent == CODING_STYLE_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
-        List<ExecutionPlanStep> security = steps
+        List<ExecutionPlanStep> security = nonTerminalSteps
             .Where(s => s.Agent == SECURITY_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
-        List<ExecutionPlanStep> architecture = steps
+        List<ExecutionPlanStep> architecture = nonTerminalSteps
             .Where(s => s.Agent == ARCHITECTURE_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
 
-        if (nonReview.Count == 0)
+        if (nonReview.Count == 0 && terminalValidationBuilds.Count == 0)
         {
             return steps;
         }
@@ -278,6 +286,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 finalSecurity with { Id = -2, DependsOnStepIds = null },
                 finalArchitecture with { Id = -3, DependsOnStepIds = null }
             })
+            .Concat(terminalValidationBuilds.Select((step, index) => step with { Id = -100 - index, DependsOnStepIds = null }))
             .ToList();
 
         Dictionary<int, int> idMap = reordered
@@ -369,7 +378,50 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             };
         }
 
+        if (terminalValidationBuilds.Count > 0)
+        {
+            int previousDependencyId = architectureIndex >= 0 ? reordered[architectureIndex].Id : 0;
+            int[] terminalBuildIndexes = reordered
+                .Select((step, index) => new { step, index })
+                .Where(x => IsTerminalValidationBuildStep(x.step))
+                .Select(x => x.index)
+                .ToArray();
+
+            foreach (int buildIndex in terminalBuildIndexes)
+            {
+                ExecutionPlanStep buildStep = reordered[buildIndex];
+                int[] enforcedDepends = previousDependencyId > 0 ? new[] { previousDependencyId } : Array.Empty<int>();
+                reordered[buildIndex] = buildStep with
+                {
+                    DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
+                };
+                previousDependencyId = reordered[buildIndex].Id;
+            }
+        }
+
         return reordered;
+    }
+
+    private static bool IsTerminalValidationBuildStep(ExecutionPlanStep step)
+    {
+        if (step.Agent != BUILD_AGENT_NAME)
+        {
+            return false;
+        }
+
+        string objective = step.Objective.Trim();
+        if (objective.Length == 0)
+        {
+            return false;
+        }
+
+        return objective.Contains("final validation build", StringComparison.OrdinalIgnoreCase)
+            || objective.Contains("validation build", StringComparison.OrdinalIgnoreCase)
+            || objective.Contains("final build", StringComparison.OrdinalIgnoreCase)
+            || (objective.Contains("confirm the build succeeds", StringComparison.OrdinalIgnoreCase)
+                && objective.Contains("has not broken the build", StringComparison.OrdinalIgnoreCase))
+            || (objective.Contains("confirm all remediation applied", StringComparison.OrdinalIgnoreCase)
+                && objective.Contains("build", StringComparison.OrdinalIgnoreCase));
     }
 
     internal static string? NormalizeAgent(string raw)
@@ -466,8 +518,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         {
             "No high severity coding style findings",
             "No high severity security findings",
-            "No high severity architecture findings",
-            "Build passes (if command configured)"
+            "No high severity architecture findings"
         };
 
         if (!root.TryGetProperty("completionCriteria", out JsonElement criteriaEl) || criteriaEl.ValueKind != JsonValueKind.Array)
@@ -491,7 +542,6 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         EnsureCriteriaContains(criteria, "coding style", "No high severity coding style findings");
         EnsureCriteriaContains(criteria, "security", "No high severity security findings");
         EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
-        EnsureCriteriaContains(criteria, "build", "Build passes (if command configured)");
         return criteria;
     }
 

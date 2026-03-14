@@ -301,4 +301,40 @@ public sealed class ExecutionPlanParserTests
             CleanupTempWorkspace(workspaceRoot);
         }
     }
+
+    [Fact]
+    public void TryBuildExecutionPlan_FinalValidationBuildStep_RunsAfterReviewChain()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"Build","objective":"Run a baseline build and record warnings/errors"},
+                        {"id":2,"agent":"CodingStyle","objective":"Review and enforce coding style","dependsOn":[1],"languages":["dotnet"]},
+                        {"id":3,"agent":"Security","objective":"Review and enforce security","dependsOn":[2],"languages":["dotnet"]},
+                        {"id":4,"agent":"Architecture","objective":"Review and enforce architecture","dependsOn":[3],"languages":["dotnet"]},
+                        {"id":5,"agent":"Build","objective":"Run a final validation build of the solution. Confirm the build succeeds with zero errors. Confirm all remediation applied in prior steps has not broken the build.","dependsOn":[4]}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["No high severity coding style findings","No high severity security findings","No high severity architecture findings","Build passes"]
+                }
+                """;
+
+            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.Null(error);
+            Assert.Equal(new[] { "Build", "CodingStyle", "Security", "Architecture", "Build" }, plan.Steps.Select(step => step.Agent).ToArray());
+            Assert.Equal(new[] { 1 }, plan.Steps[1].DependsOnStepIds);
+            Assert.Equal(new[] { 2 }, plan.Steps[2].DependsOnStepIds);
+            Assert.Equal(new[] { 3 }, plan.Steps[3].DependsOnStepIds);
+            Assert.Equal(new[] { 4 }, plan.Steps[4].DependsOnStepIds);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
 }

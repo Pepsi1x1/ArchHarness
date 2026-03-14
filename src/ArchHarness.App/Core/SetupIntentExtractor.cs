@@ -40,7 +40,6 @@ public sealed class SetupIntentExtractor
             Workflow: {request.Workflow}
             WorkspaceMode: {request.WorkspaceMode}
             ProjectName: {request.ProjectName ?? NONE_TEXT}
-            BuildCommand: {request.BuildCommand ?? NONE_TEXT}
             """;
         _ = await this._copilotClient.CompleteAsync(model, prompt, cancellationToken: cancellationToken);
     }
@@ -61,7 +60,6 @@ public sealed class SetupIntentExtractor
             WorkspaceMode: {request.WorkspaceMode}
             Workflow: {request.Workflow}
             ProjectName: {request.ProjectName ?? NONE_TEXT}
-            BuildCommand: {request.BuildCommand ?? NONE_TEXT}
             Overrides: {FormatOverrides(request.ModelOverrides)}
             """;
 

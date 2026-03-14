@@ -83,12 +83,13 @@ public sealed class OrchestrationAgent : AgentBase
             - The harness auto-injects CodingStyle, Security, and Architecture review steps by default after implementation or build work when they are omitted.
             - Include FrontendDeveloper when UI/UX work is implied.
             - Include BackendDeveloper when backend or middle-tier implementation is implied.
-            - Use Build for baseline or intermediate build execution and build-result triage.
+            - Use Build for baseline, intermediate, or final validation build execution and build-result triage.
             - Do not ask FrontendDeveloper or BackendDeveloper to run baseline or validation builds.
             - CodingStyle, Security, and Architecture are review/enforcement steps when explicitly included.
             - CodingStyle must execute before Security.
             - Security must execute before Architecture.
             - Architecture must be a single final review/enforcement step only.
+            - When a final validation build is needed, represent it as a Build step that depends on Architecture and runs after all review/enforcement steps.
             - Never use Architecture for solution design/spec generation/planning.
             - Never use CodingStyle for solution design/spec generation/planning.
             - Never use Security for solution design/spec generation/planning.
@@ -234,8 +235,7 @@ public sealed class OrchestrationAgent : AgentBase
 
         bool hasHighFindings = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         bool hasHighSecurityFindings = request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-        bool buildRequired = request.BuildCommandConfigured && request.Plan.CompletionCriteria.Any(c => c.Contains("Build passes", StringComparison.OrdinalIgnoreCase));
-        return !hasHighFindings && !hasHighSecurityFindings && (!buildRequired || request.BuildPassed);
+        return !hasHighFindings && !hasHighSecurityFindings;
     }
 
     private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request)

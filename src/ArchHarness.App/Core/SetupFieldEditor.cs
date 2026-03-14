@@ -18,7 +18,6 @@ internal static class SetupFieldEditor
         ["ProjectName"] = (draft, value) => draft.ProjectName = value,
         ["Workflow"] = (draft, value) => draft.ModelOverrides = value,
         ["ModelOverrides"] = (draft, value) => draft.ModelOverrides = value,
-        ["BuildCommand"] = (draft, value) => draft.BuildCommand = value,
         ["ArchitectureLoopPrompt"] = (draft, value) => draft.ArchitectureLoopPrompt = string.IsNullOrWhiteSpace(value) ? null : value
     };
 
@@ -95,8 +94,7 @@ internal static class SetupFieldEditor
             new SetupField("TaskPrompt", "Task", draft.TaskPrompt),
             new SetupField("WorkspacePath", "Workspace Path", draft.WorkspacePath),
             new SetupField("WorkspaceMode", "Workspace Mode", draft.WorkspaceMode),
-            new SetupField("ModelOverrides", "Model Overrides", string.IsNullOrWhiteSpace(draft.ModelOverrides) ? NONE_TEXT : draft.ModelOverrides),
-            new SetupField("BuildCommand", "Build Command", string.IsNullOrWhiteSpace(draft.BuildCommand) ? NONE_TEXT : draft.BuildCommand)
+            new SetupField("ModelOverrides", "Model Overrides", string.IsNullOrWhiteSpace(draft.ModelOverrides) ? NONE_TEXT : draft.ModelOverrides)
         };
 
         if (string.Equals(draft.WorkspaceMode, NEW_PROJECT_MODE, StringComparison.OrdinalIgnoreCase))
@@ -136,7 +134,7 @@ internal static class SetupFieldEditor
             Workflow: draft.ArchitectureLoopMode ? "architecture-loop" : "auto",
             ProjectName: string.IsNullOrWhiteSpace(draft.ProjectName) ? null : draft.ProjectName,
             ModelOverrides: CliArgumentParser.ParseOverrides(draft.ModelOverrides),
-            BuildCommand: string.IsNullOrWhiteSpace(draft.BuildCommand) ? null : draft.BuildCommand,
+                BuildCommand: null,
             ArchitectureLoopMode: draft.ArchitectureLoopMode,
             ArchitectureLoopPrompt: string.IsNullOrWhiteSpace(draft.ArchitectureLoopPrompt) ? null : draft.ArchitectureLoopPrompt);
     }
