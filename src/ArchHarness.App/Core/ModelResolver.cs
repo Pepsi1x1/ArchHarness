@@ -24,6 +24,12 @@ public interface IModelResolver
 
     /// <summary>Gets the collection of discovered model identifiers, if available.</summary>
     IReadOnlyCollection<string> SupportedModels { get; }
+
+    /// <summary>
+    /// Validates the configured default models and any request overrides against the discovered Copilot model catalog when available.
+    /// </summary>
+    /// <param name="overrides">Optional per-role overrides to validate alongside configured defaults.</param>
+    void ValidateConfiguredModelsOrThrow(IDictionary<string, string>? overrides = null);
 }
 
 /// <summary>
@@ -95,6 +101,59 @@ public sealed class ModelResolver : IModelResolver
         {
             throw new InvalidOperationException(
                 $"Model '{model}' is not available in the Copilot-discovered model list. Discovered models: {string.Join(", ", supported)}");
+        }
+    }
+
+    /// <inheritdoc />
+    public void ValidateConfiguredModelsOrThrow(IDictionary<string, string>? overrides = null)
+    {
+        IReadOnlyCollection<string> supported = this.SupportedModels;
+        if (supported.Count == 0)
+        {
+            return;
+        }
+
+        List<string> invalid = new List<string>();
+        foreach ((string label, string model) in GetConfiguredModels(overrides))
+        {
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                continue;
+            }
+
+            bool isSupported = supported.Any(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
+            if (!isSupported)
+            {
+                invalid.Add($"{label}={model}");
+            }
+        }
+
+        if (invalid.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Configured models are not available in the Copilot-discovered model list: {string.Join(", ", invalid)}. Discovered models: {string.Join(", ", supported)}");
+        }
+    }
+
+    private IEnumerable<(string Label, string Model)> GetConfiguredModels(IDictionary<string, string>? overrides)
+    {
+        yield return ("conversation", this._conversationModel);
+        yield return ("orchestration", this._agents.Orchestration.Model);
+        yield return ("frontend-developer", this._agents.FrontendDeveloper.Model);
+        yield return ("backend-developer", this._agents.BackendDeveloper.Model);
+        yield return ("build", this._agents.Build.Model);
+        yield return ("coding-style", this._agents.CodingStyle.Model);
+        yield return ("security", this._agents.Security.Model);
+        yield return ("architecture", this._agents.Architecture.Model);
+
+        if (overrides is null)
+        {
+            yield break;
+        }
+
+        foreach (KeyValuePair<string, string> overridePair in overrides)
+        {
+            yield return ($"override:{overridePair.Key}", overridePair.Value);
         }
     }
 }

@@ -12,14 +12,16 @@ public sealed class ConversationController
 
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly AgentsOptions _agentsOptions;
+    private readonly IModelResolver _modelResolver;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversationController"/> class.
     /// </summary>
-    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions)
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver)
     {
         this._summaryGenerator = summaryGenerator;
         this._agentsOptions = agentsOptions.Value;
+        this._modelResolver = modelResolver;
     }
 
     /// <summary>
@@ -30,6 +32,7 @@ public sealed class ConversationController
         RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
+            this._modelResolver.ValidateConfiguredModelsOrThrow(cliRequest.ModelOverrides);
             string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
             return (cliRequest, setupSummary);
         }
@@ -40,6 +43,7 @@ public sealed class ConversationController
 
         Console.Clear();
         Console.WriteLine("Preparing run configuration...");
+        this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
         Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");
 
         try
