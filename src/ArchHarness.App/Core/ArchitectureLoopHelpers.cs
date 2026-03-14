@@ -39,14 +39,12 @@ internal static class ArchitectureLoopHelpers
     /// <param name="workspaceRoot">The root directory of the workspace.</param>
     /// <param name="architectureLoopPrompt">Optional user-supplied architecture loop prompt to append.</param>
     /// <returns>The decorated prompt string.</returns>
-    public static string BuildArchitectureLoopPrompt(string objective, string workspaceRoot, string? architectureLoopPrompt)
+    public static string BuildArchitectureLoopPrompt(string objective, string? architectureLoopPrompt)
     {
         string promptSection = string.IsNullOrWhiteSpace(architectureLoopPrompt)
             ? string.Empty
             : $"{Environment.NewLine}ArchitectureLoopPrompt: {architectureLoopPrompt.Trim()}";
         return $"""
-            SessionMode: architecture-loop
-            WorkspaceScope: entire workspace at {workspaceRoot}
             {objective}{promptSection}
             """;
     }

@@ -92,7 +92,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
 
             latestDiff = await adapter.DiffAsync(cancellationToken);
             string securityDelegatedPrompt = request.RunRequest.ArchitectureLoopMode
-                ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, adapter.RootPath, request.RunRequest.ArchitectureLoopPrompt)
+                ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
                 : remediationPrompt;
             IReadOnlyList<string> securityFiles = request.RunRequest.ArchitectureLoopMode
                 ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, request.SecurityLanguages)
@@ -113,7 +113,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
 
             latestDiff = await adapter.DiffAsync(cancellationToken);
             string delegatedPrompt = request.RunRequest.ArchitectureLoopMode
-                ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, adapter.RootPath, request.RunRequest.ArchitectureLoopPrompt)
+                ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
                 : remediationPrompt;
             review = await this._agents.Architecture.ReviewAsync(
                 new ArchitectureReviewRequest(

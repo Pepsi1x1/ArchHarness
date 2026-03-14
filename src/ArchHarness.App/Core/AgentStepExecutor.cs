@@ -122,7 +122,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                     ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, s.Languages)
                     : filesTouched;
                 string delegatedPrompt = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, adapter.RootPath, request.ArchitectureLoopPrompt)
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
                     : s.Objective;
                 securityReview = await this._agents.Security.ReviewAsync(
                     new SecurityReviewRequest(
@@ -143,7 +143,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                     ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, s.Languages)
                     : filesTouched;
                 string delegatedPrompt = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, adapter.RootPath, request.ArchitectureLoopPrompt)
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
                     : s.Objective;
                 review = await this._agents.Architecture.ReviewAsync(
                     new ArchitectureReviewRequest(

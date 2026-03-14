@@ -133,7 +133,7 @@ public sealed class OrchestrationAgent : AgentBase
             if (this._executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
             {
                 return request.ArchitectureLoopMode
-                    ? ApplyArchitectureLoopMode(parsedPlan, request, workspaceRoot)
+                    ? ApplyArchitectureLoopMode(parsedPlan, request)
                     : parsedPlan;
             }
         }
@@ -204,7 +204,7 @@ public sealed class OrchestrationAgent : AgentBase
             : response.Trim();
 
         return request.ArchitectureLoopMode
-            ? BuildArchitectureLoopObjective(remediationPrompt, workspaceRoot, request.ArchitectureLoopPrompt)
+            ? BuildArchitectureLoopObjective(remediationPrompt, request.ArchitectureLoopPrompt)
             : remediationPrompt;
     }
 
@@ -238,7 +238,7 @@ public sealed class OrchestrationAgent : AgentBase
         return !hasHighFindings && !hasHighSecurityFindings && (!buildRequired || request.BuildPassed);
     }
 
-    private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, string workspaceRoot)
+    private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request)
     {
         if (!request.ArchitectureLoopMode)
         {
@@ -251,14 +251,14 @@ public sealed class OrchestrationAgent : AgentBase
 
         IReadOnlyList<ExecutionPlanStep> updatedSteps = plan.Steps
             .Select(step => step.Agent is "Architecture" or "Security"
-                ? step with { Objective = BuildArchitectureLoopObjective(step.Objective, workspaceRoot, request.ArchitectureLoopPrompt) }
+                ? step with { Objective = BuildArchitectureLoopObjective(step.Objective, request.ArchitectureLoopPrompt) }
                 : step)
             .ToArray();
 
         return new ExecutionPlan(updatedSteps, loopIteration, plan.CompletionCriteria);
     }
 
-    private static string BuildArchitectureLoopObjective(string objective, string workspaceRoot, string? architectureLoopPrompt)
+    private static string BuildArchitectureLoopObjective(string objective, string? architectureLoopPrompt)
     {
         string baseObjective = string.IsNullOrWhiteSpace(objective)
             ? "Review and enforce architecture constraints over the entire workspace."
@@ -269,8 +269,6 @@ public sealed class OrchestrationAgent : AgentBase
             : $"{Environment.NewLine}ArchitectureLoopPrompt: {architectureLoopPrompt.Trim()}";
 
         return $"""
-            SessionMode: architecture-loop
-            Scope: Review and enforce over the entire workspace at {workspaceRoot}
             {baseObjective}{promptSection}
             """;
     }
