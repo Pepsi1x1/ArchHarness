@@ -4,6 +4,9 @@ using ArchHarness.Desktop.ViewModels;
 
 namespace ArchHarness.Desktop;
 
+/// <summary>
+/// The desktop main window that hosts the run inspector, setup panel, and agent streaming views.
+/// </summary>
 public partial class MainWindow : Window
 {
     private readonly MainWindowViewModel _viewModel;

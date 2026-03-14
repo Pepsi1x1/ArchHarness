@@ -7,8 +7,15 @@ using Microsoft.Extensions.Hosting;
 
 namespace ArchHarness.Desktop;
 
+/// <summary>
+/// Entry point for the Avalonia desktop host application.
+/// </summary>
 internal static class Program
 {
+    /// <summary>
+    /// Application entry point that builds the DI host and starts the Avalonia lifetime.
+    /// </summary>
+    /// <param name="args">Command-line arguments.</param>
     [STAThread]
     public static void Main(string[] args)
     {
@@ -27,6 +34,11 @@ internal static class Program
         BuildAvaloniaApp(host).StartWithClassicDesktopLifetime(args);
     }
 
+    /// <summary>
+    /// Configures the Avalonia application builder with the DI host.
+    /// </summary>
+    /// <param name="host">The built application host.</param>
+    /// <returns>The configured Avalonia app builder.</returns>
     public static AppBuilder BuildAvaloniaApp(IHost host)
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()

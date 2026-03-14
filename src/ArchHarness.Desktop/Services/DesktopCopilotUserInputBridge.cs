@@ -8,6 +8,10 @@ using GitHub.Copilot.SDK;
 
 namespace ArchHarness.Desktop;
 
+/// <summary>
+/// Avalonia desktop implementation of <see cref="ICopilotUserInputBridge"/> that presents a dialog
+/// when the Copilot session requires user input.
+/// </summary>
 public sealed class DesktopCopilotUserInputBridge : ICopilotUserInputBridge
 {
     private readonly IUserInputState _state;
@@ -20,6 +24,7 @@ public sealed class DesktopCopilotUserInputBridge : ICopilotUserInputBridge
         this._windowLocator = windowLocator;
     }
 
+    /// <inheritdoc />
     public async Task<UserInputResponse> RequestInputAsync(UserInputRequest request)
     {
         await this._gate.WaitAsync();

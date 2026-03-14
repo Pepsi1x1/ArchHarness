@@ -6,6 +6,10 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.Desktop.ViewModels;
 
+/// <summary>
+/// Primary view model for the desktop main window, managing run lifecycle, agent streaming,
+/// artifact inspection, and setup configuration.
+/// </summary>
 public sealed class MainWindowViewModel : ViewModelBase
 {
     private const string DEFAULT_TASK_PROMPT = "Implement requested change";
@@ -103,6 +107,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.SeedEmptyTimeline();
     }
 
+    /// <summary>
+    /// Creates a design-time preview instance populated with sample data.
+    /// </summary>
+    /// <returns>A view model instance suitable for XAML designer previews.</returns>
     public static MainWindowViewModel CreateDesignInstance()
     {
         MainWindowViewModel viewModel = new MainWindowViewModel();
@@ -126,92 +134,112 @@ public sealed class MainWindowViewModel : ViewModelBase
         return viewModel;
     }
 
+    /// <summary>Gets the collection of recent runs displayed in the left rail.</summary>
     public ObservableCollection<RunSummaryViewModel> RecentRuns { get; }
 
+    /// <summary>Gets the collection of artifacts for the selected run.</summary>
     public ObservableCollection<ArtifactItemViewModel> Artifacts { get; }
 
+    /// <summary>Gets the collection of timeline entries for the current session.</summary>
     public ObservableCollection<TimelineItemViewModel> TimelineItems { get; }
 
+    /// <summary>Gets the collection of streaming agents discovered during a run.</summary>
     public ObservableCollection<AgentItemViewModel> AvailableAgents { get; }
 
+    /// <summary>Gets the collection of Copilot session lifecycle events.</summary>
     public ObservableCollection<SessionEventItemViewModel> SessionEvents { get; }
 
+    /// <summary>Gets the available workspace initialization modes.</summary>
     public IReadOnlyList<string> WorkspaceModes { get; }
 
+    /// <summary>Gets the available permission approval modes.</summary>
     public IReadOnlyList<string> PermissionModes { get; }
 
+    /// <summary>Gets or sets the workspace file-system path.</summary>
     public string WorkspacePath
     {
         get => this._workspacePath;
         set => this.SetProperty(ref this._workspacePath, value);
     }
 
+    /// <summary>Gets or sets the user-supplied task prompt.</summary>
     public string TaskPrompt
     {
         get => this._taskPrompt;
         set => this.SetProperty(ref this._taskPrompt, value);
     }
 
+    /// <summary>Gets or sets the workflow identifier that selects the execution pipeline.</summary>
     public string Workflow
     {
         get => this._workflow;
         set => this.SetProperty(ref this._workflow, value);
     }
 
+    /// <summary>Gets or sets the workspace initialization mode.</summary>
     public string WorkspaceMode
     {
         get => this._workspaceMode;
         set => this.SetProperty(ref this._workspaceMode, value);
     }
 
+    /// <summary>Gets or sets the permission approval mode for Copilot tool requests.</summary>
     public string PermissionHandlerMode
     {
         get => this._permissionHandlerMode;
         set => this.SetProperty(ref this._permissionHandlerMode, NormalizePermissionMode(value));
     }
 
+    /// <summary>Gets or sets the optional project name used when creating a new workspace.</summary>
     public string ProjectName
     {
         get => this._projectName;
         set => this.SetProperty(ref this._projectName, value);
     }
 
+    /// <summary>Gets or sets the comma-separated model override text (e.g., "role=model,role=model").</summary>
     public string ModelOverridesText
     {
         get => this._modelOverridesText;
         set => this.SetProperty(ref this._modelOverridesText, value);
     }
 
+    /// <summary>Gets or sets the optional build command to execute for validation.</summary>
     public string BuildCommand
     {
         get => this._buildCommand;
         set => this.SetProperty(ref this._buildCommand, value);
     }
 
+    /// <summary>Gets or sets the optional supplementary prompt for architecture loop iterations.</summary>
     public string ArchitectureLoopPrompt
     {
         get => this._architectureLoopPrompt;
         set => this.SetProperty(ref this._architectureLoopPrompt, value);
     }
 
+    /// <summary>Gets or sets whether coding style enforcement is enabled in the review loop.</summary>
     public bool ReviewLoopCodingStyleEnabled
     {
         get => this._reviewLoopCodingStyleEnabled;
         set => this.SetProperty(ref this._reviewLoopCodingStyleEnabled, value);
     }
 
+    /// <summary>Gets or sets whether security review is enabled in the review loop.</summary>
     public bool ReviewLoopSecurityEnabled
     {
         get => this._reviewLoopSecurityEnabled;
         set => this.SetProperty(ref this._reviewLoopSecurityEnabled, value);
     }
 
+    /// <summary>Gets or sets whether architecture review is enabled in the review loop.</summary>
     public bool ReviewLoopArchitectureEnabled
     {
         get => this._reviewLoopArchitectureEnabled;
         set => this.SetProperty(ref this._reviewLoopArchitectureEnabled, value);
     }
 
+    /// <summary>Gets or sets whether iterative architecture review mode is active.</summary>
     public bool ArchitectureLoopMode
     {
         get => this._architectureLoopMode;
@@ -225,6 +253,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets a value indicating whether an orchestrated run is currently in progress.</summary>
     public bool IsRunInProgress
     {
         get => this._isRunInProgress;
@@ -239,10 +268,13 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets a value indicating whether a new run can be started.</summary>
     public bool CanStartRun => !this.IsRunInProgress;
 
+    /// <summary>Gets a value indicating whether the active run can be canceled.</summary>
     public bool CanCancelRun => this.IsRunInProgress;
 
+    /// <summary>Gets the current human-readable run status label.</summary>
     public string RunStatus
     {
         get => this._runStatus;
@@ -255,12 +287,14 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets the generated setup summary text.</summary>
     public string SetupSummary
     {
         get => this._setupSummary;
         private set => this.SetProperty(ref this._setupSummary, value);
     }
 
+    /// <summary>Gets the current setup validation error message, if any.</summary>
     public string SetupValidationMessage
     {
         get => this._setupValidationMessage;
@@ -273,8 +307,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets a value indicating whether a setup validation message is present.</summary>
     public bool HasSetupValidationMessage => !string.IsNullOrWhiteSpace(this.SetupValidationMessage);
 
+    /// <summary>Gets or sets the currently selected run in the left rail.</summary>
     public RunSummaryViewModel? SelectedRun
     {
         get => this._selectedRun;
@@ -288,12 +324,14 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets the currently selected artifact, or <see langword="null"/> if none is selected.</summary>
     public ArtifactItemViewModel? SelectedArtifact
     {
         get => this._selectedArtifact;
         private set => this.SetProperty(ref this._selectedArtifact, value);
     }
 
+    /// <summary>Gets or sets the currently selected streaming agent.</summary>
     public AgentItemViewModel? SelectedAgent
     {
         get => this._selectedAgent;
@@ -306,26 +344,31 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets the text preview of the selected artifact.</summary>
     public string SelectedArtifactPreview
     {
         get => this._selectedArtifactPreview;
         private set => this.SetProperty(ref this._selectedArtifactPreview, value);
     }
 
+    /// <summary>Gets the accumulated transcript text of the selected streaming agent.</summary>
     public string SelectedAgentTranscript
     {
         get => this._selectedAgentTranscript;
         private set => this.SetProperty(ref this._selectedAgentTranscript, value);
     }
 
+    /// <summary>Gets the headline text derived from the selected run.</summary>
     public string Headline => this.SelectedRun is null ? "Desktop run inspector" : this.SelectedRun.Title;
 
+    /// <summary>Gets the contextual subheadline describing the current state.</summary>
     public string Subheadline => this.IsRunInProgress
         ? "Live runtime progress, agent streaming output, and artefact generation are active in the desktop host."
         : this.SelectedRun is null
             ? "The desktop host can now launch runs, stream progress, and inspect persisted sessions from the same shell."
             : "Inspect persisted run artefacts or start a new orchestrated session from the setup panel.";
 
+    /// <summary>Gets the preflight validation title label.</summary>
     public string PreflightStatusTitle
     {
         get => this._preflightStatusTitle;
@@ -338,24 +381,33 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Gets the preflight validation detail text.</summary>
     public string PreflightStatusDetail
     {
         get => this._preflightStatusDetail;
         private set => this.SetProperty(ref this._preflightStatusDetail, value);
     }
 
+    /// <summary>Gets the preflight badge label indicating readiness status.</summary>
     public string PreflightBadge => this.PreflightStatusTitle.Contains("Ready", StringComparison.OrdinalIgnoreCase) ? "Preflight ready" : "Preflight pending";
 
+    /// <summary>Gets the run state badge label indicating whether a run is active.</summary>
     public string RunStateBadge => this.IsRunInProgress ? "Run active" : this.RunStatus;
 
+    /// <summary>Gets the badge label showing the total number of persisted runs.</summary>
     public string RunCountBadge => $"{this.RecentRuns.Count} runs";
 
+    /// <summary>Gets the display title of the selected run, or a placeholder when none is selected.</summary>
     public string SelectedRunTitle => this.SelectedRun?.Title ?? "No run selected";
 
+    /// <summary>Gets the detail text for the selected run, or a placeholder when none is selected.</summary>
     public string SelectedRunDetail => this.SelectedRun is null
         ? "Point the shell at a workspace to load persisted run artefacts from .agent-harness/runs."
         : this.SelectedRun.RunDirectory;
 
+    /// <summary>
+    /// Initializes the view model by loading workspace history and running preflight validation.
+    /// </summary>
     public async Task InitializeAsync()
     {
         if (this._initialized)
@@ -368,9 +420,16 @@ public sealed class MainWindowViewModel : ViewModelBase
         await this.RefreshPreflightAsync();
     }
 
+    /// <summary>
+    /// Refreshes the workspace run list, selecting the latest run by default.
+    /// </summary>
     public async Task RefreshWorkspaceAsync()
         => await this.RefreshWorkspaceAsync(selectLatestRun: true);
 
+    /// <summary>
+    /// Refreshes the workspace run list with optional run selection behavior.
+    /// </summary>
+    /// <param name="selectLatestRun">When <see langword="true"/>, automatically selects the most recent run.</param>
     public async Task RefreshWorkspaceAsync(bool selectLatestRun)
     {
         string normalizedWorkspace = string.IsNullOrWhiteSpace(this.WorkspacePath)
@@ -406,9 +465,16 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.RaisePropertyChanged(nameof(this.Subheadline));
     }
 
+    /// <summary>
+    /// Selects a run and loads its artifacts and timeline.
+    /// </summary>
+    /// <param name="run">The run to select.</param>
     public async Task SelectRunAsync(RunSummaryViewModel run)
         => await this.SelectRunAsync(run, rebuildTimeline: true);
 
+    /// <summary>
+    /// Starts an orchestrated run using the current setup configuration.
+    /// </summary>
     public async Task StartRunAsync()
     {
         if (this.IsRunInProgress)
@@ -453,7 +519,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         Task agentStreamTask = this.ConsumeAgentStreamAsync(this._runCts.Token);
         Task sessionEventTask = this.ConsumeSessionEventsAsync(this._runCts.Token);
         Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
-            this.AppendTimelineItem(evt.Source, evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss"), evt.Message, AccentForSource(evt.Source)));
+        {
+            string timestamp = evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
+            string accent = AccentForSource(evt.Source);
+            this.AppendTimelineItem(evt.Source, timestamp, evt.Message, accent);
+        });
 
         try
         {
@@ -508,6 +578,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Requests cancellation of the active run.
+    /// </summary>
     public async Task CancelRunAsync()
     {
         if (this._runCts is null)
@@ -519,6 +592,9 @@ public sealed class MainWindowViewModel : ViewModelBase
         await this._runCts.CancelAsync();
     }
 
+    /// <summary>
+    /// Generates a setup summary from the current configuration without starting a run.
+    /// </summary>
     public async Task GenerateSetupSummaryAsync()
     {
         RunRequest? request = this.TryBuildRunRequest(out string? validationMessage);
@@ -562,6 +638,10 @@ public sealed class MainWindowViewModel : ViewModelBase
         await Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Selects an artifact and updates the preview pane.
+    /// </summary>
+    /// <param name="artifact">The artifact to select.</param>
     public void SelectArtifact(ArtifactItemViewModel artifact)
     {
         this.SelectedArtifact = artifact;
@@ -690,12 +770,15 @@ public sealed class MainWindowViewModel : ViewModelBase
             {
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
-                    this.SessionEvents.Add(new SessionEventItemViewModel(
+                    string formattedTime = evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
+                    string detail = evt.Details ?? "No additional details.";
+                    SessionEventItemViewModel sessionEvent = new SessionEventItemViewModel(
                         evt.EventType,
-                        evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss"),
+                        formattedTime,
                         evt.Model,
                         evt.SessionId,
-                        evt.Details ?? "No additional details."));
+                        detail);
+                    this.SessionEvents.Add(sessionEvent);
 
                     if (this.SessionEvents.Count > 100)
                     {

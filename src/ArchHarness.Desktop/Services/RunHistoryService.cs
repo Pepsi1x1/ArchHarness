@@ -4,8 +4,12 @@ using ArchHarness.Desktop.ViewModels;
 
 namespace ArchHarness.Desktop;
 
+/// <summary>
+/// Default implementation of <see cref="IRunHistoryService"/> that reads persisted runs from the file system.
+/// </summary>
 public sealed class RunHistoryService : IRunHistoryService
 {
+    /// <inheritdoc />
     public IReadOnlyList<RunSummaryViewModel> GetRecentRuns(string workspacePath, int maxCount = 20)
     {
         string root = Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs");
@@ -21,6 +25,7 @@ public sealed class RunHistoryService : IRunHistoryService
             .ToList();
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<ArtifactItemViewModel> GetArtifacts(string runDirectory, int previewLength = 2400)
     {
         if (!Directory.Exists(runDirectory))
@@ -41,7 +46,9 @@ public sealed class RunHistoryService : IRunHistoryService
         string rawText = TryReadText(filePath);
         string kind = Classify(extension);
         string preview = FormatPreview(rawText, extension, previewLength);
-        string description = $"{kind} • {FormatSize(new FileInfo(filePath).Length)} • {filePath}";
+        long fileSizeBytes = new FileInfo(filePath).Length;
+        string formattedSize = FormatSize(fileSizeBytes);
+        string description = $"{kind} • {formattedSize} • {filePath}";
         return new ArtifactItemViewModel(name, filePath, kind, description, preview);
     }
 
