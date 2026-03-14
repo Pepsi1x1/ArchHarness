@@ -1,4 +1,5 @@
 using ArchHarness.App.Core;
+using ArchHarness.App.Tests.TestHelpers;
 
 namespace ArchHarness.App.Tests.Core;
 
@@ -218,19 +219,13 @@ public sealed class ExecutionPlanParserTests
 
     private static string CreateTempWorkspace()
     {
-        string path = Path.Combine(Path.GetTempPath(), "ArchHarness.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
+        string path = TempWorkspaceHelper.CreateTempWorkspace();
         File.WriteAllText(Path.Combine(path, "App.csproj"), "<Project/>");
         return path;
     }
 
     private static void CleanupTempWorkspace(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            Directory.Delete(path, recursive: true);
-        }
-    }
+        => TempWorkspaceHelper.CleanupTempWorkspace(path);
 
     /// <summary>
     /// A legacy agent name should cause a parse failure.

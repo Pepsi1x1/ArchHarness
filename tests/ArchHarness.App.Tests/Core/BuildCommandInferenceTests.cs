@@ -1,4 +1,5 @@
 using ArchHarness.App.Core;
+using ArchHarness.App.Tests.TestHelpers;
 
 namespace ArchHarness.App.Tests.Core;
 
@@ -106,17 +107,8 @@ public sealed class BuildCommandInferenceTests
     }
 
     private static string CreateTempWorkspace()
-    {
-        string path = Path.Combine(Path.GetTempPath(), "ArchHarness.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
+        => TempWorkspaceHelper.CreateTempWorkspace();
 
     private static void CleanupTempWorkspace(string path)
-    {
-        if (Directory.Exists(path))
-        {
-            Directory.Delete(path, recursive: true);
-        }
-    }
+        => TempWorkspaceHelper.CleanupTempWorkspace(path);
 }

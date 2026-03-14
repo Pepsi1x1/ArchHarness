@@ -10,8 +10,6 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class OrchestratorRuntime
 {
-    private const string ORCHESTRATOR_SOURCE = "orchestrator";
-
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
     private readonly RunInfrastructure _runInfrastructure;
@@ -63,7 +61,7 @@ public sealed class OrchestratorRuntime
 
         try
         {
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run started" }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Run started" }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
@@ -86,7 +84,7 @@ public sealed class OrchestratorRuntime
                 inferred = initialBuildSelection.Inferred,
                 reason = initialBuildSelection.Reason
             }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, ORCHESTRATOR_SOURCE, "Run started"));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.Orchestrator, "Run started"));
 
             PlanExecutionResult planResult;
             try
@@ -104,7 +102,7 @@ public sealed class OrchestratorRuntime
                 await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = ORCHESTRATOR_SOURCE,
+                    source = WellKnownSources.Orchestrator,
                     status = "failed",
                     failureType = "parse_error",
                     stage = "planning",
@@ -191,8 +189,8 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run completed" }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, ORCHESTRATOR_SOURCE, "Run completed"));
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Run completed" }, cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.Orchestrator, "Run completed"));
 
             await sessionEventCts.CancelAsync();
             await sessionEventPump;

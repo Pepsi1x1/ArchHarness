@@ -17,8 +17,6 @@ public sealed record PlanExecutionResult(
 /// </summary>
 public sealed class PlanExecutor : IPlanExecutor
 {
-    private const string ORCHESTRATOR_SOURCE = "orchestrator";
-
     private readonly OrchestrationAgent _orchestrationAgent;
     private readonly IAgentStepExecutor _agentStepExecutor;
     private readonly IRunEventLogger _eventLogger;
@@ -68,7 +66,7 @@ public sealed class PlanExecutor : IPlanExecutor
             this._orchestrationAgent.Role,
             cancellationToken);
 
-        await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Execution plan built" }, cancellationToken);
+        await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Execution plan built" }, cancellationToken);
         await this._artifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
 
         AgentStepExecutor.StepExecutionResult stepResult = await this._agentStepExecutor.ExecuteAsync(

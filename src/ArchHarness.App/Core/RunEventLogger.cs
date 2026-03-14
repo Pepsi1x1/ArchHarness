@@ -5,11 +5,12 @@ namespace ArchHarness.App.Core;
 
 /// <summary>
 /// Handles run event logging and Copilot session event pumping for the orchestrator.
+/// Delegates the pump to <see cref="SessionEventPump"/> to avoid duplicating that logic.
 /// </summary>
 public sealed class RunEventLogger : IRunEventLogger
 {
     private readonly IArtefactStore _artefactStore;
-    private readonly ICopilotSessionEventStream _sessionEventStream;
+    private readonly SessionEventPump _sessionEventPump;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RunEventLogger"/> class.
@@ -19,7 +20,7 @@ public sealed class RunEventLogger : IRunEventLogger
     public RunEventLogger(IArtefactStore artefactStore, ICopilotSessionEventStream sessionEventStream)
     {
         this._artefactStore = artefactStore;
-        this._sessionEventStream = sessionEventStream;
+        this._sessionEventPump = new SessionEventPump(sessionEventStream, artefactStore);
     }
 
     /// <summary>
@@ -34,33 +35,12 @@ public sealed class RunEventLogger : IRunEventLogger
 
     /// <summary>
     /// Continuously reads Copilot session events and persists them to the run log
-    /// until cancellation is requested.
+    /// until cancellation is requested. Delegates to <see cref="SessionEventPump"/>.
     /// </summary>
     /// <param name="runDirectory">The run artefact directory.</param>
     /// <param name="runId">The unique run identifier.</param>
     /// <param name="cancellationToken">Token to signal shutdown.</param>
     /// <returns>A task that completes when the pump stops.</returns>
-    public async Task PumpSessionEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (CopilotSessionLifecycleEvent evt in this._sessionEventStream.ReadAllAsync(cancellationToken))
-            {
-                await this._artefactStore.AppendEventAsync(runDirectory, new
-                {
-                    runId,
-                    source = "copilot.session",
-                    eventType = evt.EventType,
-                    sessionId = evt.SessionId,
-                    model = evt.Model,
-                    details = evt.Details,
-                    timestampUtc = evt.TimestampUtc
-                }, cancellationToken);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected on run shutdown when stopping event pump.
-        }
-    }
+    public Task PumpSessionEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken)
+        => this._sessionEventPump.PumpSessionEventsAsync(runDirectory, runId, cancellationToken);
 }

@@ -9,7 +9,6 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class AgentStepExecutor : IAgentStepExecutor
 {
-    private const string ORCHESTRATOR_SOURCE = "orchestrator";
     private readonly StepAgentDependencies _agents;
     private readonly IArtefactStore _artefactStore;
 
@@ -173,7 +172,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 await this._artefactStore.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = ORCHESTRATOR_SOURCE,
+                    source = WellKnownSources.Orchestrator,
                     message = $"Dependency deadlock detected; force-executing step {step.Id}."
                 }, cancellationToken);
             }

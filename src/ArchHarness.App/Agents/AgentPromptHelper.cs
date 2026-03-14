@@ -44,6 +44,56 @@ internal static class AgentPromptHelper
     }
 
     /// <summary>
+    /// Resolves the language label and guideline text for a review agent using a per-language file-name mapper.
+    /// Consolidates the duplicated BuildGuidanceContext pattern from individual prompt builders.
+    /// </summary>
+    /// <param name="workspaceRoot">The workspace root path.</param>
+    /// <param name="filesTouched">Files modified during the run.</param>
+    /// <param name="diff">The current diff snapshot.</param>
+    /// <param name="languageScope">Optional explicit language scope.</param>
+    /// <param name="guidelineSubfolder">The Guidelines subfolder name (e.g. "Architecture Review", "Security", "CodingStyle").</param>
+    /// <param name="sectionTitlePrefix">Prefix for the section title (e.g. "GUIDELINES", "SECURITY GUIDELINES").</param>
+    /// <param name="fileNameMapper">Maps a language identifier to the guideline file name.</param>
+    /// <param name="fallbackMessage">Fallback text when a guideline file is not found.</param>
+    /// <returns>A tuple of the language label and concatenated guidelines text.</returns>
+    public static (string LanguageLabel, string Guidelines) BuildGuidanceContext(
+        string workspaceRoot,
+        IReadOnlyList<string> filesTouched,
+        string diff,
+        IReadOnlyList<string>? languageScope,
+        string guidelineSubfolder,
+        string sectionTitlePrefix,
+        Func<string, string> fileNameMapper,
+        string fallbackMessage)
+    {
+        IReadOnlyList<string> languages = ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
+        string languageLabel = string.Join(", ", languages);
+        string guidelines = LoadGuidelinesForLanguages(languages, guidelineSubfolder, sectionTitlePrefix, fileNameMapper, fallbackMessage);
+        return (languageLabel, guidelines);
+    }
+
+    /// <summary>
+    /// Loads and concatenates guideline sections for the given languages.
+    /// </summary>
+    private static string LoadGuidelinesForLanguages(
+        IReadOnlyList<string> languages,
+        string guidelineSubfolder,
+        string sectionTitlePrefix,
+        Func<string, string> fileNameMapper,
+        string fallbackMessage)
+    {
+        List<string> sections = new List<string>();
+        foreach (string language in languages)
+        {
+            string fileName = fileNameMapper(language);
+            string text = GuidelineLoader.Load(guidelineSubfolder, fileName, fallbackMessage);
+            sections.Add($"=== {language.ToUpperInvariant()} {sectionTitlePrefix} ==={Environment.NewLine}{text}");
+        }
+
+        return string.Join(Environment.NewLine + Environment.NewLine, sections);
+    }
+
+    /// <summary>
     /// Resolves the language scope for review agents based on workspace contents, touched files,
     /// diff content, and explicit scope overrides.
     /// </summary>

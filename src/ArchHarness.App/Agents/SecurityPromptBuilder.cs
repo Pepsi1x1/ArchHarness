@@ -46,25 +46,14 @@ internal static class SecurityPromptBuilder
         string diff,
         IReadOnlyList<string>? languageScope)
     {
-        IReadOnlyList<string> languages = AgentPromptHelper.ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
-        string languageLabel = string.Join(", ", languages);
-        string guidelines = LoadGuidelinesForLanguages(languages);
-        return (languageLabel, guidelines);
-    }
-
-    private static string LoadGuidelinesForLanguages(IReadOnlyList<string> languages)
-    {
-        List<string> sections = new List<string>();
-        foreach (string language in languages)
-        {
-            string fileName = language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+        return AgentPromptHelper.BuildGuidanceContext(
+            workspaceRoot, filesTouched, diff, languageScope,
+            "Security",
+            "SECURITY GUIDELINES",
+            language => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
                 ? "vue3-security-review-agent.md"
-                : "dotnet-security-review-agent.md";
-
-            string text = GuidelineLoader.Load("Security", fileName, "No security guideline file found. Review against OWASP Top 10 and remediate vulnerabilities directly.");
-            sections.Add($"=== {language.ToUpperInvariant()} SECURITY GUIDELINES ==={Environment.NewLine}{text}");
-        }
-
-        return string.Join(Environment.NewLine + Environment.NewLine, sections);
+                : "dotnet-security-review-agent.md",
+            "No security guideline file found. Review against OWASP Top 10 and remediate vulnerabilities directly.");
     }
+
 }

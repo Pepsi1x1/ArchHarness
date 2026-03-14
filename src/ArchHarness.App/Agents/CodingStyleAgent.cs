@@ -67,10 +67,14 @@ public sealed class CodingStyleAgent : AgentBase
         string diff,
         IReadOnlyList<string>? languageScope)
     {
-        IReadOnlyList<string> languages = AgentPromptHelper.ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
-        string languageLabel = string.Join(", ", languages);
-        string guidelines = LoadGuidelinesForLanguages(languages);
-        return (languageLabel, guidelines);
+        return AgentPromptHelper.BuildGuidanceContext(
+            workspaceRoot, filesTouched, diff, languageScope,
+            "CodingStyle",
+            "STYLE GUIDELINES",
+            language => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+                ? "vue3-style-review-agent.md"
+                : "dotnet-style-review-agent.md",
+            "No coding style guideline file found. Apply strict naming, readability, and language coding standards.");
     }
 
     private static string BuildSystemPrompt(string guidelines, string languageLabel)
@@ -85,23 +89,4 @@ public sealed class CodingStyleAgent : AgentBase
             {guidelines}
             """;
     }
-
-    private static string LoadGuidelinesForLanguages(IReadOnlyList<string> languages)
-    {
-        List<string> sections = new List<string>();
-        foreach (string language in languages)
-        {
-            string fileName = language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
-                ? "vue3-style-review-agent.md"
-                : "dotnet-style-review-agent.md";
-
-            string text = TryLoadGuidelineFile(fileName);
-            sections.Add($"=== {language.ToUpperInvariant()} STYLE GUIDELINES ==={Environment.NewLine}{text}");
-        }
-
-        return string.Join(Environment.NewLine + Environment.NewLine, sections);
-    }
-
-    private static string TryLoadGuidelineFile(string fileName)
-        => GuidelineLoader.Load("CodingStyle", fileName, "No coding style guideline file found. Apply strict naming, readability, and language coding standards.");
 }

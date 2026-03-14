@@ -46,25 +46,14 @@ internal static class ArchitecturePromptBuilder
         string diff,
         IReadOnlyList<string>? languageScope)
     {
-        IReadOnlyList<string> languages = AgentPromptHelper.ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
-        string languageLabel = string.Join(", ", languages);
-        string guidelines = LoadGuidelinesForLanguages(languages);
-        return (languageLabel, guidelines);
-    }
-
-    private static string LoadGuidelinesForLanguages(IReadOnlyList<string> languages)
-    {
-        List<string> sections = new List<string>();
-        foreach (string language in languages)
-        {
-            string fileName = language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+        return AgentPromptHelper.BuildGuidanceContext(
+            workspaceRoot, filesTouched, diff, languageScope,
+            "Architecture Review",
+            "GUIDELINES",
+            language => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
                 ? "vue3-architecture-review-agent.md"
-                : "dotnet-architecture-review-agent.md";
-
-            string text = GuidelineLoader.Load("Architecture Review", fileName, "No guideline file found. Apply strict SOLID/DRY review and enforce architecture consistency.");
-            sections.Add($"=== {language.ToUpperInvariant()} GUIDELINES ==={Environment.NewLine}{text}");
-        }
-
-        return string.Join(Environment.NewLine + Environment.NewLine, sections);
+                : "dotnet-architecture-review-agent.md",
+            "No guideline file found. Apply strict SOLID/DRY review and enforce architecture consistency.");
     }
+
 }

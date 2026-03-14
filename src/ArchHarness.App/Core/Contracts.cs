@@ -1,6 +1,17 @@
 namespace ArchHarness.App.Core;
 
 /// <summary>
+/// Well-known event source identifiers used across orchestration components.
+/// </summary>
+internal static class WellKnownSources
+{
+    /// <summary>
+    /// The event source identifier for the orchestrator.
+    /// </summary>
+    public const string Orchestrator = "orchestrator";
+}
+
+/// <summary>
 /// Represents an incoming request to execute an orchestrated run.
 /// </summary>
 /// <param name="TaskPrompt">The user-supplied task description that drives planning and execution.</param>
