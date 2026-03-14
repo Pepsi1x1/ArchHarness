@@ -13,28 +13,15 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     /// Status string appended to required actions when consecutive review iterations produce identical findings, indicating no remediation progress.
     /// </summary>
     public const string NO_PROGRESS_BLOCKED_STATUS = "blocked:no-progress-identical-findings";
-    private readonly OrchestrationAgent _orchestrationAgent;
-    private readonly CodingStyleAgent _codingStyleAgent;
-    private readonly SecurityAgent _securityAgent;
-    private readonly ArchitectureAgent _architectureAgent;
+    private readonly LoopAgentDependencies _agents;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArchitectureReviewLoop"/> class.
     /// </summary>
-    /// <param name="orchestrationAgent">Agent used to build remediation prompts.</param>
-    /// <param name="codingStyleAgent">Agent used to enforce coding style before architecture review.</param>
-    /// <param name="securityAgent">Agent used to enforce security before architecture review.</param>
-    /// <param name="architectureAgent">Agent used to perform architecture reviews.</param>
-    public ArchitectureReviewLoop(
-        OrchestrationAgent orchestrationAgent,
-        CodingStyleAgent codingStyleAgent,
-        SecurityAgent securityAgent,
-        ArchitectureAgent architectureAgent)
+    /// <param name="agents">Grouped agent references needed for the review loop.</param>
+    public ArchitectureReviewLoop(LoopAgentDependencies agents)
     {
-        this._orchestrationAgent = orchestrationAgent;
-        this._codingStyleAgent = codingStyleAgent;
-        this._securityAgent = securityAgent;
-        this._architectureAgent = architectureAgent;
+        this._agents = agents;
     }
 
     /// <summary>
@@ -78,18 +65,18 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            string remediationPrompt = await this._orchestrationAgent.BuildRemediationPromptAsync(
+            string remediationPrompt = await this._agents.Orchestration.BuildRemediationPromptAsync(
                 request.RunRequest,
                 adapter.RootPath,
                 combinedRequiredActions,
                 iteration,
-                this._orchestrationAgent.Id,
-                this._orchestrationAgent.Role,
+                this._agents.Orchestration.Id,
+                this._agents.Orchestration.Role,
                 cancellationToken);
 
             string latestDiff = await adapter.DiffAsync(cancellationToken);
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "CodingStyle", "Coding style enforcement prompt started", remediationPrompt));
-            await this._codingStyleAgent.EnforceAsync(
+            await this._agents.CodingStyle.EnforceAsync(
                 new StyleEnforcementRequest(
                     DelegatedPrompt: remediationPrompt,
                     Diff: latestDiff,
@@ -97,8 +84,8 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                     FilesTouched: currentFiles,
                     LanguageScope: request.ArchitectureLanguages,
                     ModelOverrides: request.RunRequest.ModelOverrides),
-                this._codingStyleAgent.Id,
-                this._codingStyleAgent.Role,
+                this._agents.CodingStyle.Id,
+                this._agents.CodingStyle.Role,
                 cancellationToken);
 
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Security", "Security enforcement prompt started", remediationPrompt));
@@ -110,7 +97,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             IReadOnlyList<string> securityFiles = request.RunRequest.ArchitectureLoopMode
                 ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, request.SecurityLanguages)
                 : currentFiles;
-            securityReview = await this._securityAgent.ReviewAsync(
+            securityReview = await this._agents.Security.ReviewAsync(
                 new SecurityReviewRequest(
                     DelegatedPrompt: securityDelegatedPrompt,
                     Diff: latestDiff,
@@ -118,8 +105,8 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                     FilesTouched: securityFiles,
                     LanguageScope: request.SecurityLanguages,
                     ModelOverrides: request.RunRequest.ModelOverrides),
-                this._securityAgent.Id,
-                this._securityAgent.Role,
+                this._agents.Security.Id,
+                this._agents.Security.Role,
                 cancellationToken);
 
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", remediationPrompt));
@@ -128,7 +115,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             string delegatedPrompt = request.RunRequest.ArchitectureLoopMode
                 ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, adapter.RootPath, request.RunRequest.ArchitectureLoopPrompt)
                 : remediationPrompt;
-            review = await this._architectureAgent.ReviewAsync(
+            review = await this._agents.Architecture.ReviewAsync(
                 new ArchitectureReviewRequest(
                     DelegatedPrompt: delegatedPrompt,
                     Diff: latestDiff,
@@ -136,8 +123,8 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                     FilesTouched: currentFiles,
                     LanguageScope: request.ArchitectureLanguages,
                     ModelOverrides: request.RunRequest.ModelOverrides),
-                this._architectureAgent.Id,
-                this._architectureAgent.Role,
+                this._agents.Architecture.Id,
+                this._agents.Architecture.Role,
                 cancellationToken);
 
             string currentFindingsFingerprint = BuildFindingsFingerprint(review.Findings);
@@ -214,5 +201,28 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             findings
                 .Select(f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.OwaspCategory}::{f.Rationale}")
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Groups the agent references required for the architecture review loop, reducing constructor over-injection.
+    /// </summary>
+    public sealed class LoopAgentDependencies
+    {
+        public OrchestrationAgent Orchestration { get; }
+        public CodingStyleAgent CodingStyle { get; }
+        public SecurityAgent Security { get; }
+        public ArchitectureAgent Architecture { get; }
+
+        public LoopAgentDependencies(
+            OrchestrationAgent orchestration,
+            CodingStyleAgent codingStyle,
+            SecurityAgent security,
+            ArchitectureAgent architecture)
+        {
+            this.Orchestration = orchestration;
+            this.CodingStyle = codingStyle;
+            this.Security = security;
+            this.Architecture = architecture;
+        }
     }
 }

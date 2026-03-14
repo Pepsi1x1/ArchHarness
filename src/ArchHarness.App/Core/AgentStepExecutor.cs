@@ -10,35 +10,19 @@ namespace ArchHarness.App.Core;
 public sealed class AgentStepExecutor : IAgentStepExecutor
 {
     private const string ORCHESTRATOR_SOURCE = "orchestrator";
-    private readonly FrontendDeveloperAgent _frontendDeveloperAgent;
-    private readonly BackendDeveloperAgent _backendDeveloperAgent;
-    private readonly CodingStyleAgent _codingStyleAgent;
-    private readonly SecurityAgent _securityAgent;
-    private readonly ArchitectureAgent _architectureAgent;
+    private readonly StepAgentDependencies _agents;
     private readonly IArtefactStore _artefactStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentStepExecutor"/> class.
     /// </summary>
-    /// <param name="frontendDeveloperAgent">Agent that creates frontend plans.</param>
-    /// <param name="backendDeveloperAgent">Agent that implements backend code changes.</param>
-    /// <param name="codingStyleAgent">Agent that enforces coding style standards.</param>
-    /// <param name="securityAgent">Agent that performs security reviews.</param>
-    /// <param name="architectureAgent">Agent that performs architecture reviews.</param>
+    /// <param name="agents">Grouped agent references needed for step execution.</param>
     /// <param name="artefactStore">Store for persisting run events.</param>
     public AgentStepExecutor(
-        FrontendDeveloperAgent frontendDeveloperAgent,
-        BackendDeveloperAgent backendDeveloperAgent,
-        CodingStyleAgent codingStyleAgent,
-        SecurityAgent securityAgent,
-        ArchitectureAgent architectureAgent,
+        StepAgentDependencies agents,
         IArtefactStore artefactStore)
     {
-        this._frontendDeveloperAgent = frontendDeveloperAgent;
-        this._backendDeveloperAgent = backendDeveloperAgent;
-        this._codingStyleAgent = codingStyleAgent;
-        this._securityAgent = securityAgent;
-        this._architectureAgent = architectureAgent;
+        this._agents = agents;
         this._artefactStore = artefactStore;
     }
 
@@ -72,12 +56,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         {
             ["FrontendDeveloper"] = async (ExecutionPlanStep s) =>
             {
-                IReadOnlyList<string> newFiles = await this._frontendDeveloperAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._agents.FrontendDeveloper.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
-                    this._frontendDeveloperAgent.Id,
-                    this._frontendDeveloperAgent.Role,
+                    this._agents.FrontendDeveloper.Id,
+                    this._agents.FrontendDeveloper.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -91,13 +75,13 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             },
             ["BackendDeveloper"] = async (ExecutionPlanStep s) =>
             {
-                IReadOnlyList<string> newFiles = await this._backendDeveloperAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._agents.BackendDeveloper.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
                     null,
-                    this._backendDeveloperAgent.Id,
-                    this._backendDeveloperAgent.Role,
+                    this._agents.BackendDeveloper.Id,
+                    this._agents.BackendDeveloper.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -108,7 +92,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             ["CodingStyle"] = async (ExecutionPlanStep s) =>
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken);
-                await this._codingStyleAgent.EnforceAsync(
+                await this._agents.CodingStyle.EnforceAsync(
                     new StyleEnforcementRequest(
                         DelegatedPrompt: s.Objective,
                         Diff: latestDiff,
@@ -116,8 +100,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                         FilesTouched: filesTouched,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
-                    this._codingStyleAgent.Id,
-                    this._codingStyleAgent.Role,
+                    this._agents.CodingStyle.Id,
+                    this._agents.CodingStyle.Role,
                     cancellationToken);
             },
             ["Security"] = async (ExecutionPlanStep s) =>
@@ -129,7 +113,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 string delegatedPrompt = request.ArchitectureLoopMode
                     ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, adapter.RootPath, request.ArchitectureLoopPrompt)
                     : s.Objective;
-                securityReview = await this._securityAgent.ReviewAsync(
+                securityReview = await this._agents.Security.ReviewAsync(
                     new SecurityReviewRequest(
                         DelegatedPrompt: delegatedPrompt,
                         Diff: latestDiff,
@@ -137,8 +121,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                         FilesTouched: securityFiles,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
-                    this._securityAgent.Id,
-                    this._securityAgent.Role,
+                    this._agents.Security.Id,
+                    this._agents.Security.Role,
                     cancellationToken);
             },
             ["Architecture"] = async (ExecutionPlanStep s) =>
@@ -150,7 +134,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 string delegatedPrompt = request.ArchitectureLoopMode
                     ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, adapter.RootPath, request.ArchitectureLoopPrompt)
                     : s.Objective;
-                review = await this._architectureAgent.ReviewAsync(
+                review = await this._agents.Architecture.ReviewAsync(
                     new ArchitectureReviewRequest(
                         DelegatedPrompt: delegatedPrompt,
                         Diff: latestDiff,
@@ -158,8 +142,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                         FilesTouched: architectureFiles,
                         LanguageScope: s.Languages,
                         ModelOverrides: request.ModelOverrides),
-                    this._architectureAgent.Id,
-                    this._architectureAgent.Role,
+                    this._agents.Architecture.Id,
+                    this._agents.Architecture.Role,
                     cancellationToken);
             }
         };
@@ -269,4 +253,30 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         IReadOnlyList<string> FilesTouched,
         ArchitectureReview Review,
         SecurityReview SecurityReview);
+
+    /// <summary>
+    /// Groups the agent references required for plan step execution, reducing constructor over-injection.
+    /// </summary>
+    public sealed class StepAgentDependencies
+    {
+        public FrontendDeveloperAgent FrontendDeveloper { get; }
+        public BackendDeveloperAgent BackendDeveloper { get; }
+        public CodingStyleAgent CodingStyle { get; }
+        public SecurityAgent Security { get; }
+        public ArchitectureAgent Architecture { get; }
+
+        public StepAgentDependencies(
+            FrontendDeveloperAgent frontendDeveloper,
+            BackendDeveloperAgent backendDeveloper,
+            CodingStyleAgent codingStyle,
+            SecurityAgent security,
+            ArchitectureAgent architecture)
+        {
+            this.FrontendDeveloper = frontendDeveloper;
+            this.BackendDeveloper = backendDeveloper;
+            this.CodingStyle = codingStyle;
+            this.Security = security;
+            this.Architecture = architecture;
+        }
+    }
 }

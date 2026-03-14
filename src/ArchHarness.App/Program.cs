@@ -41,6 +41,8 @@ builder.Services.AddSingleton<IRunStore, RunStore>();
 builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();
 builder.Services.AddSingleton<IBuildRunner, BuildRunner>();
 builder.Services.AddSingleton<OrchestratorRuntime.OrchestratorAgentDependencies>();
+builder.Services.AddSingleton<AgentStepExecutor.StepAgentDependencies>();
+builder.Services.AddSingleton<ArchitectureReviewLoop.LoopAgentDependencies>();
 builder.Services.AddSingleton<ArchitectureReviewLoop>();
 builder.Services.AddSingleton<IArchitectureReviewLoop>(sp => sp.GetRequiredService<ArchitectureReviewLoop>());
 builder.Services.AddSingleton<AgentStepExecutor>();
