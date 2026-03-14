@@ -8,10 +8,15 @@ const state = {
   eventSource: null,
   pendingInteraction: null,
   interactionPollHandle: null,
+  pendingInteractionAbortController: null,
+  pendingInteractionInFlight: false,
+  isUnloading: false,
   timeline: []
 };
 
 const STORAGE_KEY = "archharness.web.form-state";
+const IDLE_INTERACTION_POLL_MS = 5000;
+const ACTIVE_INTERACTION_POLL_MS = 400;
 
 const elements = {
   preflightTitle: document.getElementById("preflight-title"),
@@ -63,6 +68,42 @@ async function requestJson(url, options) {
   return response.json();
 }
 
+function closeEventStream(status = "disconnected") {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+
+  elements.eventStreamState.textContent = status;
+}
+
+function clearPendingInteractionPoll() {
+  if (state.interactionPollHandle) {
+    window.clearTimeout(state.interactionPollHandle);
+    state.interactionPollHandle = null;
+  }
+}
+
+function abortPendingInteractionPoll() {
+  if (state.pendingInteractionAbortController) {
+    state.pendingInteractionAbortController.abort();
+    state.pendingInteractionAbortController = null;
+  }
+}
+
+function schedulePendingInteractionPoll(delayMs) {
+  clearPendingInteractionPoll();
+
+  if (state.isUnloading || document.hidden) {
+    return;
+  }
+
+  state.interactionPollHandle = window.setTimeout(() => {
+    state.interactionPollHandle = null;
+    void pollPendingInteraction();
+  }, delayMs);
+}
+
 function setSetupMessage(message, tone = "neutral") {
   elements.setupMessage.textContent = message;
   elements.setupMessage.dataset.tone = tone;
@@ -99,7 +140,7 @@ function collectRunRequest() {
 }
 
 function parseOverrides(raw) {
-  const segments = raw.split(",").map(s => s.trim()).filter(Boolean);
+  const segments = raw.split(",").map(segment => segment.trim()).filter(Boolean);
   if (segments.length === 0) {
     return null;
   }
@@ -139,6 +180,9 @@ function renderActiveRun() {
     elements.activeRunStatus.textContent = "Idle";
     elements.activeRunDetail.textContent = "No run is active yet.";
     elements.cancelRun.disabled = true;
+    if (!state.isUnloading) {
+      closeEventStream("idle");
+    }
     return;
   }
 
@@ -149,6 +193,10 @@ function renderActiveRun() {
   if (activeRun.runId) bits.push(`Run ${activeRun.runId}`);
   if (activeRun.failureMessage) bits.push(activeRun.failureMessage);
   elements.activeRunDetail.textContent = bits.join(" • ") || "Awaiting run details.";
+
+  if (!activeRun.isRunning && !state.isUnloading) {
+    closeEventStream("idle");
+  }
 }
 
 function saveFormState() {
@@ -473,8 +521,11 @@ async function cancelRun() {
 }
 
 function connectEventStream() {
-  if (state.eventSource) {
-    state.eventSource.close();
+  if (state.eventSource || !state.activeRun?.isRunning) {
+    if (!state.activeRun?.isRunning) {
+      elements.eventStreamState.textContent = "idle";
+    }
+    return;
   }
 
   const eventSource = new EventSource("/api/runs/active/events");
@@ -489,34 +540,65 @@ function connectEventStream() {
   ["run-state", "runtime-progress", "agent-delta", "copilot-session"].forEach(kind => {
     eventSource.addEventListener(kind, event => {
       state.timeline.push(JSON.parse(event.data));
-      refreshActiveRun();
+      void refreshActiveRun().then(snapshot => {
+        if (!snapshot?.isRunning) {
+          closeEventStream("idle");
+        }
+      });
       renderTimeline();
       if (kind === "run-state") {
-        loadRuns();
+        void loadRuns();
       }
     });
   });
 
   eventSource.onerror = () => {
-    elements.eventStreamState.textContent = "reconnecting";
+    if (state.isUnloading) {
+      return;
+    }
+
+    closeEventStream(state.activeRun?.isRunning ? "reconnecting" : "idle");
+    if (state.activeRun?.isRunning) {
+      window.setTimeout(connectEventStream, 1000);
+    }
   };
 }
 
 async function refreshActiveRun() {
   state.activeRun = await requestJson("/api/runs/active");
   renderActiveRun();
+  return state.activeRun;
 }
 
 async function pollPendingInteraction() {
-  try {
-    state.pendingInteraction = await requestJson("/api/interactions/pending");
-  } catch {
-    state.pendingInteraction = null;
+  if (state.pendingInteractionInFlight || state.isUnloading || document.hidden) {
+    schedulePendingInteractionPoll(IDLE_INTERACTION_POLL_MS);
+    return;
   }
-  renderInteraction();
+
+  state.pendingInteractionInFlight = true;
+  const controller = new AbortController();
+  state.pendingInteractionAbortController = controller;
+
+  try {
+    state.pendingInteraction = await requestJson("/api/interactions/pending", {
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      state.pendingInteraction = null;
+    }
+  } finally {
+    state.pendingInteractionAbortController = null;
+    state.pendingInteractionInFlight = false;
+    renderInteraction();
+    schedulePendingInteractionPoll(state.pendingInteraction ? ACTIVE_INTERACTION_POLL_MS : IDLE_INTERACTION_POLL_MS);
+  }
 }
 
 async function submitUserInput(answer) {
+  clearPendingInteractionPoll();
+  abortPendingInteractionPoll();
   await requestJson("/api/interactions/user-input", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -526,6 +608,8 @@ async function submitUserInput(answer) {
 }
 
 async function submitPermission(approved) {
+  clearPendingInteractionPoll();
+  abortPendingInteractionPoll();
   await requestJson("/api/interactions/permission", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -534,18 +618,29 @@ async function submitPermission(approved) {
   await pollPendingInteraction();
 }
 
+function handleVisibilityChange() {
+  if (document.hidden) {
+    clearPendingInteractionPoll();
+    abortPendingInteractionPoll();
+    return;
+  }
+
+  void pollPendingInteraction();
+}
+
 function attachHandlers() {
   elements.generateSummary.addEventListener("click", generateSummary);
   elements.startRun.addEventListener("click", startRun);
   elements.cancelRun.addEventListener("click", cancelRun);
   elements.refreshHistory.addEventListener("click", loadRuns);
   elements.workspacePath.addEventListener("change", loadRuns);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
   elements.architectureLoopMode.addEventListener("change", () => {
     if (elements.architectureLoopMode.checked) {
       elements.workflow.value = "architecture-loop";
     }
 
-	  saveFormState();
+    saveFormState();
   });
 
   [
@@ -574,17 +669,13 @@ async function init() {
   await refreshActiveRun();
   connectEventStream();
   await pollPendingInteraction();
-  state.interactionPollHandle = window.setInterval(pollPendingInteraction, 1500);
 }
 
 window.addEventListener("beforeunload", () => {
-  if (state.eventSource) {
-    state.eventSource.close();
-  }
-
-  if (state.interactionPollHandle) {
-    window.clearInterval(state.interactionPollHandle);
-  }
+  state.isUnloading = true;
+  closeEventStream();
+  clearPendingInteractionPoll();
+  abortPendingInteractionPoll();
 });
 
 init().catch(error => {
