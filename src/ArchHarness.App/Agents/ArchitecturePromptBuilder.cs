@@ -5,7 +5,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class ArchitecturePromptBuilder
 {
-    private const string ARCHITECTURE_INSTRUCTIONS = """
+    private const string ARCHITECTURE_INSTRUCTIONS_FALLBACK = """
         You are the Architecture Agent.
         Enforce SOLID, structural cohesion, separation of concerns, and DRY by directly editing files.
         Run in agent mode and use built-in tools to make required architecture changes.
@@ -20,13 +20,17 @@ internal static class ArchitecturePromptBuilder
     /// <param name="languageLabel">Comma-separated language identifiers.</param>
     /// <returns>The complete system prompt.</returns>
     public static string BuildSystemPrompt(string guidelines, string languageLabel)
-        => $"""
-            {ARCHITECTURE_INSTRUCTIONS}
+    {
+        string systemInstructions = PromptLoader.Load("Architecture", "system.md", ARCHITECTURE_INSTRUCTIONS_FALLBACK);
+
+        return $"""
+            {systemInstructions}
 
             LanguageContext: {languageLabel}
             Apply the following architecture guidelines for this language:
             {guidelines}
             """;
+    }
 
     /// <summary>
     /// Resolves the language label and matching guideline text for the given workspace context.

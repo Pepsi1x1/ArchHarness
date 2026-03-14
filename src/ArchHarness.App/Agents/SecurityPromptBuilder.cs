@@ -5,7 +5,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class SecurityPromptBuilder
 {
-    private const string SECURITY_INSTRUCTIONS = """
+    private const string SECURITY_INSTRUCTIONS_FALLBACK = """
         You are the Security Agent.
         Enforce secure coding practices and remediate OWASP Top 10 risks by directly editing files.
         Run in agent mode and use built-in tools to make required security fixes.
@@ -20,13 +20,17 @@ internal static class SecurityPromptBuilder
     /// <param name="languageLabel">Comma-separated language identifiers.</param>
     /// <returns>The complete system prompt.</returns>
     public static string BuildSystemPrompt(string guidelines, string languageLabel)
-        => $"""
-            {SECURITY_INSTRUCTIONS}
+    {
+        string systemInstructions = PromptLoader.Load("Security", "system.md", SECURITY_INSTRUCTIONS_FALLBACK);
+
+        return $"""
+            {systemInstructions}
 
             LanguageContext: {languageLabel}
             Apply the following security guidelines for this language:
             {guidelines}
             """;
+    }
 
     /// <summary>
     /// Resolves the language label and matching guideline text for the given workspace context.

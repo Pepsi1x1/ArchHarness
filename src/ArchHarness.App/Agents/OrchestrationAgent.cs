@@ -10,22 +10,68 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class OrchestrationAgent : AgentBase
 {
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
 
-    private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS = """
+    private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK = """
         You are the orchestration planner.
         Your role is planning and delegation only.
         Never modify workspace files directly and never perform implementation work.
         Never invoke file editing tools, including edit_file, this is the delegated agents job.
         Produce delegated prompts and validation outputs for specialized agents.
         """;
+    private const string ORCHESTRATION_PLANNING_PROMPT_FALLBACK = """
+        You are the orchestration planner. Return ONLY strict JSON with this schema:
+        {
+            "steps": [{"id":1,"agent":"FrontendDeveloper|BackendDeveloper|Build|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+            "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+            "completionCriteria": ["string"]
+        }
 
-    private static readonly CopilotCompletionOptions ORCHESTRATION_COMPLETION_OPTIONS = new CopilotCompletionOptions()
-    {
-        SystemMessage = ORCHESTRATION_SYSTEM_INSTRUCTIONS,
-        SystemMessageMode = CopilotSystemMessageMode.Append,
-        ExcludedTools = new[] { "edit_file" }
-    };
+        Constraints:
+        - The harness auto-injects CodingStyle, Security, and Architecture review steps by default after implementation or build work when they are omitted.
+        - Include FrontendDeveloper when UI/UX work is implied.
+        - Include BackendDeveloper when backend or middle-tier implementation is implied.
+        - Use Build for baseline, intermediate, or final validation build execution and build-result triage.
+        - Do not ask FrontendDeveloper or BackendDeveloper to run baseline or validation builds.
+        - CodingStyle, Security, and Architecture are review/enforcement steps when explicitly included.
+        - CodingStyle must execute before Security.
+        - Security must execute before Architecture.
+        - Architecture must be a single final review/enforcement step only.
+        - When a final validation build is needed, represent it as a Build step that depends on Architecture and runs after all review/enforcement steps.
+        - Never use Architecture for solution design/spec generation/planning.
+        - Never use CodingStyle for solution design/spec generation/planning.
+        - Never use Security for solution design/spec generation/planning.
+        - Never use Build for source-code implementation work.
+        - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
+        - If a step has no dependencies, omit dependsOn or set it to []. Do NOT use 0.
+        - Use languages on CodingStyle/Security/Architecture steps to declare review scope (dotnet and/or vue3).
+        - All filesystem paths in objectives must be under WorkspaceRoot.
+        - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
+        - Use as many steps as necessary; do not pad or compress the plan to hit a target step count.
+        - completionCriteria must include coding style, security, architecture, and build verification.
+        - Each objective must be a concrete delegated prompt the target agent can execute directly.
+        - If ArchitectureLoopMode is true, Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
+
+        TaskPrompt: {{TaskPrompt}}
+        WorkspaceRoot: {{WorkspaceRoot}}
+        WorkspaceMode: {{WorkspaceMode}}
+        BuildCommand: {{BuildCommand}}
+        ArchitectureLoopMode: {{ArchitectureLoopMode}}
+        ArchitectureLoopPrompt: {{ArchitectureLoopPrompt}}
+        """;
+    private const string ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK = """
+        You are the orchestration planner.
+        Generate a single delegated prompt for the Architecture agent.
+        Focus only on remediation actions from architecture review.
+        Return plain text only (no markdown, no JSON).
+
+        Iteration: {{Iteration}}
+        OriginalTask: {{OriginalTask}}
+        WorkspaceRoot: {{WorkspaceRoot}}
+        ArchitectureLoopMode: {{ArchitectureLoopMode}}
+        {{RequiredActionsSection}}
+        {{ArchitectureLoopPromptSection}}
+        """;
 
     private readonly IExecutionPlanParser _executionPlanParser;
 
@@ -47,7 +93,7 @@ public sealed class OrchestrationAgent : AgentBase
     /// Returns the completion options used for warm-up calls with the orchestration system instructions and tool policy applied.
     /// </summary>
     internal CopilotCompletionOptions GetWarmUpCompletionOptions()
-        => base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        => base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
 
     /// <summary>
     /// Builds an execution plan by prompting the orchestration model and parsing the returned JSON into an <see cref="ExecutionPlan"/>.
@@ -71,48 +117,17 @@ public sealed class OrchestrationAgent : AgentBase
         string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? "(none)";
         string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, architectureLoopMode);
 
-        string planningPrompt = $$"""
-            You are the orchestration planner. Return ONLY strict JSON with this schema:
-            {
-                "steps": [{"id":1,"agent":"FrontendDeveloper|BackendDeveloper|Build|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
-                "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
-                "completionCriteria": ["string"]
-            }
+        string planningTemplate = PromptLoader.Load("Orchestration", "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
+        string planningPrompt = PromptLoader.Render(
+            planningTemplate,
+            ("{{TaskPrompt}}", effectiveTaskPrompt),
+            ("{{WorkspaceRoot}}", workspaceRoot),
+            ("{{WorkspaceMode}}", request.WorkspaceMode),
+            ("{{BuildCommand}}", buildCommand),
+            ("{{ArchitectureLoopMode}}", architectureLoopMode.ToString()),
+            ("{{ArchitectureLoopPrompt}}", architectureLoopPrompt));
 
-            Constraints:
-            - The harness auto-injects CodingStyle, Security, and Architecture review steps by default after implementation or build work when they are omitted.
-            - Include FrontendDeveloper when UI/UX work is implied.
-            - Include BackendDeveloper when backend or middle-tier implementation is implied.
-            - Use Build for baseline, intermediate, or final validation build execution and build-result triage.
-            - Do not ask FrontendDeveloper or BackendDeveloper to run baseline or validation builds.
-            - CodingStyle, Security, and Architecture are review/enforcement steps when explicitly included.
-            - CodingStyle must execute before Security.
-            - Security must execute before Architecture.
-            - Architecture must be a single final review/enforcement step only.
-            - When a final validation build is needed, represent it as a Build step that depends on Architecture and runs after all review/enforcement steps.
-            - Never use Architecture for solution design/spec generation/planning.
-            - Never use CodingStyle for solution design/spec generation/planning.
-            - Never use Security for solution design/spec generation/planning.
-            - Never use Build for source-code implementation work.
-            - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
-            - If a step has no dependencies, omit dependsOn or set it to []. Do NOT use 0.
-            - Use languages on CodingStyle/Security/Architecture steps to declare review scope (dotnet and/or vue3).
-            - All filesystem paths in objectives must be under WorkspaceRoot.
-            - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
-            - Use as many steps as necessary; do not pad or compress the plan to hit a target step count.
-            - completionCriteria must include coding style, security, architecture, and build verification.
-            - Each objective must be a concrete delegated prompt the target agent can execute directly.
-            - If ArchitectureLoopMode is true, Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
-
-            TaskPrompt: {{effectiveTaskPrompt}}
-            WorkspaceRoot: {{workspaceRoot}}
-            WorkspaceMode: {{request.WorkspaceMode}}
-            BuildCommand: {{buildCommand}}
-            ArchitectureLoopMode: {{architectureLoopMode}}
-            ArchitectureLoopPrompt: {{architectureLoopPrompt}}
-            """;
-
-        CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
         const int MAX_PLANNING_ATTEMPTS = 3;
         string? lastResponse = null;
         string? lastValidationError = null;
@@ -177,21 +192,17 @@ public sealed class OrchestrationAgent : AgentBase
             ? string.Empty
             : $"{Environment.NewLine}ArchitectureLoopPrompt:{Environment.NewLine}{request.ArchitectureLoopPrompt}";
 
-        string prompt = $"""
-            You are the orchestration planner.
-            Generate a single delegated prompt for the Architecture agent.
-            Focus only on remediation actions from architecture review.
-            Return plain text only (no markdown, no JSON).
+        string remediationTemplate = PromptLoader.Load("Orchestration", "remediation.md", ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK);
+        string prompt = PromptLoader.Render(
+            remediationTemplate,
+            ("{{Iteration}}", iteration.ToString()),
+            ("{{OriginalTask}}", effectiveTaskPrompt),
+            ("{{WorkspaceRoot}}", workspaceRoot),
+            ("{{ArchitectureLoopMode}}", request.ArchitectureLoopMode.ToString()),
+            ("{{RequiredActionsSection}}", requiredActionsSection),
+            ("{{ArchitectureLoopPromptSection}}", architectureLoopPromptSection));
 
-            Iteration: {iteration}
-            OriginalTask: {effectiveTaskPrompt}
-            WorkspaceRoot: {workspaceRoot}
-            ArchitectureLoopMode: {request.ArchitectureLoopMode}
-            {requiredActionsSection}
-            {architectureLoopPromptSection}
-            """;
-
-        CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
         string response = await base.CopilotClient.CompleteAsync(
             model,
             prompt,
@@ -224,7 +235,7 @@ public sealed class OrchestrationAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         string model = base.ResolveModel(request.ModelOverrides);
-        CopilotCompletionOptions options = base.ApplyToolPolicy(ORCHESTRATION_COMPLETION_OPTIONS);
+        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
         _ = await base.CopilotClient.CompleteAsync(
             model,
             "Validate completion",
@@ -280,8 +291,24 @@ public sealed class OrchestrationAgent : AgentBase
             return inputTaskPrompt ?? string.Empty;
         }
 
+        string defaultArchitectureLoopTaskPrompt = PromptLoader.Load(
+            "Orchestration",
+            "default-architecture-loop-task.md",
+            DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK);
+
         return string.IsNullOrWhiteSpace(inputTaskPrompt)
-            ? DEFAULT_ARCH_LOOP_TASK_PROMPT
+            ? defaultArchitectureLoopTaskPrompt
             : inputTaskPrompt;
+    }
+
+    private static CopilotCompletionOptions CreateOrchestrationCompletionOptions()
+    {
+        string systemInstructions = PromptLoader.Load("Orchestration", "system.md", ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK);
+        return new CopilotCompletionOptions()
+        {
+            SystemMessage = systemInstructions,
+            SystemMessageMode = CopilotSystemMessageMode.Append,
+            ExcludedTools = new[] { "edit_file" }
+        };
     }
 }

@@ -5,6 +5,18 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class AgentPromptHelper
 {
+    private const string REVIEW_ENFORCEMENT_PROMPT_FALLBACK = """
+        WorkspaceRoot: {{WorkspaceRoot}}
+        Write boundaries: You may modify any file or directory under WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
+
+        DelegatedPrompt:
+        {{DelegatedPrompt}}
+
+        FilesTouched: {{FilesTouched}}
+        CurrentDiffSnapshot:
+        {{CurrentDiffSnapshot}}
+        """;
+
     /// <summary>
     /// Builds the enforcement prompt sent to review agents (CodingStyle, Security, and Architecture).
     /// </summary>
@@ -21,18 +33,14 @@ internal static class AgentPromptHelper
     {
         string touched = filesTouched.Count == 0 ? "(none)" : string.Join(", ", filesTouched);
         string diffPreview = diff.Length <= 4000 ? diff : diff[..4000];
+        string promptTemplate = PromptLoader.Load("Shared", "review-enforcement.md", REVIEW_ENFORCEMENT_PROMPT_FALLBACK);
 
-        return $"""
-            WorkspaceRoot: {workspaceRoot}
-            Write boundaries: You may modify any file or directory under WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
-
-            DelegatedPrompt:
-            {delegatedPrompt}
-
-            FilesTouched: {touched}
-            CurrentDiffSnapshot:
-            {diffPreview}
-            """;
+        return PromptLoader.Render(
+            promptTemplate,
+            ("{{WorkspaceRoot}}", workspaceRoot),
+            ("{{DelegatedPrompt}}", delegatedPrompt),
+            ("{{FilesTouched}}", touched),
+            ("{{CurrentDiffSnapshot}}", diffPreview));
     }
 
     /// <summary>

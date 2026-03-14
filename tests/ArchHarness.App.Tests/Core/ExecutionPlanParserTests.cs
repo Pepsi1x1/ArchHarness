@@ -25,7 +25,7 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
 
             Assert.True(result, $"Expected success but got error: {error}");
             Assert.Null(error);
@@ -51,7 +51,7 @@ public sealed class ExecutionPlanParserTests
         string workspaceRoot = CreateTempWorkspace();
         try
         {
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
 
             Assert.False(result);
             Assert.NotNull(error);
@@ -82,7 +82,7 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
 
             Assert.False(result);
             Assert.NotNull(error);
@@ -106,7 +106,7 @@ public sealed class ExecutionPlanParserTests
         };
         IReadOnlyList<string> languages = new[] { "dotnet" };
 
-        List<ExecutionPlanStep> ordered = _parser.NormalizeStepOrdering(steps, languages);
+        List<ExecutionPlanStep> ordered = this._parser.NormalizeStepOrdering(steps, languages);
 
         int codingStyleIndex = ordered.FindIndex(s => s.Agent == "CodingStyle");
         int securityIndex = ordered.FindIndex(s => s.Agent == "Security");
@@ -132,7 +132,7 @@ public sealed class ExecutionPlanParserTests
         };
         IReadOnlyList<string> languages = new[] { "dotnet" };
 
-        List<ExecutionPlanStep> ordered = _parser.NormalizeStepOrdering(steps, languages);
+        List<ExecutionPlanStep> ordered = this._parser.NormalizeStepOrdering(steps, languages);
 
         ExecutionPlanStep archStep = ordered.Last(s => s.Agent == "Architecture");
         ExecutionPlanStep securityStep = ordered.Last(s => s.Agent == "Security");
@@ -147,7 +147,7 @@ public sealed class ExecutionPlanParserTests
         string workspaceRoot = CreateTempWorkspace();
         try
         {
-            bool result = _parser.TryBuildExecutionPlan("No JSON here at all", workspaceRoot, out _, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan("No JSON here at all", workspaceRoot, out _, out string? error);
 
             Assert.False(result);
             Assert.NotNull(error);
@@ -181,7 +181,7 @@ public sealed class ExecutionPlanParserTests
                 ```
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(raw, workspaceRoot, out ExecutionPlan plan, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(raw, workspaceRoot, out ExecutionPlan plan, out string? error);
 
             Assert.True(result, $"Expected success but got error: {error}");
             Assert.NotNull(plan);
@@ -227,7 +227,7 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
 
             Assert.False(result);
             Assert.NotNull(error);
@@ -257,7 +257,7 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
 
             Assert.True(result, $"Expected success but got error: {error}");
             Assert.Null(error);
@@ -287,7 +287,7 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
 
             Assert.True(result, $"Expected success but got error: {error}");
             Assert.Null(error);
@@ -322,7 +322,7 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
 
             Assert.True(result, $"Expected success but got error: {error}");
             Assert.Null(error);

@@ -23,6 +23,7 @@ It provides a terminal UI for setup and monitoring, delegates work to specialize
 - `src/ArchHarness.App/`: main application
 - `src/ArchHarness.App/Agents/`: agent implementations
 - `src/ArchHarness.App/Core/`: orchestration/runtime contracts and flow
+- `src/ArchHarness.App/Prompts/`: editable agent and orchestration prompt templates
 - `src/ArchHarness.App/Copilot/`: Copilot SDK session/client integration
 - `src/ArchHarness.App/Tui/`: terminal UI and screen rendering
 - `src/ArchHarness.App/Storage/`: artifact and run log persistence
@@ -101,6 +102,8 @@ Top-level sections:
 
 - `agents`: default model per agent role
 - `copilot`: transport, tools, timeouts, model catalog, retry settings
+
+Prompt templates are stored under `src/ArchHarness.App/Prompts/` and copied to the build output. You can customize role instructions and orchestration templates there without editing C# source.
 
 Example (abbreviated):
 

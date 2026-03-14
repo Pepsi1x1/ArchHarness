@@ -10,12 +10,22 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class BuildAgent : AgentBase
 {
-    private const string BUILD_INSTRUCTIONS = """
+    private const string BUILD_INSTRUCTIONS_FALLBACK = """
         You are the Build Agent.
         Your role is build execution and build-result triage only.
         Use terminal tools to run the provided build command from WorkspaceRoot.
         Do not edit workspace files or apply code changes.
         Return a concise summary including whether the build passed and the most important failures when it did not.
+        """;
+    private const string BUILD_EXECUTION_PROMPT_FALLBACK = """
+        WorkspaceRoot: {{WorkspaceRoot}}
+        BuildCommand: {{BuildCommand}}
+
+        DelegatedPrompt:
+        {{Objective}}
+
+        Execute the build-related work directly. If BuildCommand is provided, use it exactly unless the delegated prompt explicitly says otherwise.
+        Return a concise completion summary.
         """;
 
     /// <summary>
@@ -47,20 +57,17 @@ public sealed class BuildAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        string prompt = $"""
-            WorkspaceRoot: {workspace.RootPath}
-            BuildCommand: {buildCommand ?? "(none)"}
-
-            DelegatedPrompt:
-            {objective}
-
-            Execute the build-related work directly. If BuildCommand is provided, use it exactly unless the delegated prompt explicitly says otherwise.
-            Return a concise completion summary.
-            """;
+        string promptTemplate = PromptLoader.Load("Build", "execution.md", BUILD_EXECUTION_PROMPT_FALLBACK);
+        string prompt = PromptLoader.Render(
+            promptTemplate,
+            ("{{WorkspaceRoot}}", workspace.RootPath),
+            ("{{BuildCommand}}", buildCommand ?? "(none)"),
+            ("{{Objective}}", objective));
+        string systemInstructions = PromptLoader.Load("Build", "system.md", BUILD_INSTRUCTIONS_FALLBACK);
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
-            SystemMessage = BUILD_INSTRUCTIONS,
+            SystemMessage = systemInstructions,
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 

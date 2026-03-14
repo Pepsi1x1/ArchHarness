@@ -10,7 +10,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class BackendDeveloperAgent : AgentBase
 {
-    private const string BACKEND_DEVELOPER_INSTRUCTIONS = """
+    private const string BACKEND_DEVELOPER_INSTRUCTIONS_FALLBACK = """
         You are the Backend Developer Agent.
         Execute the delegated prompt using agent-mode built-in tools.
         Create and edit workspace files directly where required.
@@ -18,6 +18,15 @@ public sealed class BackendDeveloperAgent : AgentBase
         Do not run baseline or validation builds unless the delegated prompt explicitly requires a build-system change.
         The dedicated Build agent owns routine build execution and build-result triage.
         Return a concise completion summary and list key changed files.
+        """;
+    private const string BACKEND_DEVELOPER_EXECUTION_PROMPT_FALLBACK = """
+        WorkspaceRoot: {{WorkspaceRoot}}
+        Write boundaries: You may modify any file or directory contained in WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
+        Execution mode: use built-in file and terminal tools as needed.
+
+        DelegatedPrompt:
+        {{Objective}}
+        {{RequiredActionsSection}}
         """;
 
     /// <summary>
@@ -87,28 +96,25 @@ public sealed class BackendDeveloperAgent : AgentBase
         string requiredActionsSection = requiredActions is { Count: > 0 }
             ? $"{Environment.NewLine}RequiredActions:{Environment.NewLine}{string.Join(" | ", requiredActions)}"
             : string.Empty;
-
-        return $"""
-            WorkspaceRoot: {workspace.RootPath}
-            Write boundaries: You may modify any file or directory contained in WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
-            Execution mode: use built-in file and terminal tools as needed.
-
-            DelegatedPrompt:
-            {objective}
-            {requiredActionsSection}
-            """;
+        string promptTemplate = PromptLoader.Load("Backend Developer", "execution.md", BACKEND_DEVELOPER_EXECUTION_PROMPT_FALLBACK);
+        return PromptLoader.Render(
+            promptTemplate,
+            ("{{WorkspaceRoot}}", workspace.RootPath),
+            ("{{Objective}}", objective),
+            ("{{RequiredActionsSection}}", requiredActionsSection));
     }
 
     private static string BuildSystemPrompt(bool disableGuidelines = false)
     {
+        string systemInstructions = PromptLoader.Load("Backend Developer", "system.md", BACKEND_DEVELOPER_INSTRUCTIONS_FALLBACK);
         string backendDeveloperGuidelines = LoadBackendDeveloperGuidelines();
         if (disableGuidelines)
         {
-            return BACKEND_DEVELOPER_INSTRUCTIONS;
+            return systemInstructions;
         }
 
         return $"""
-            {BACKEND_DEVELOPER_INSTRUCTIONS}
+            {systemInstructions}
 
             Apply the following backend developer guidelines:
             {backendDeveloperGuidelines}

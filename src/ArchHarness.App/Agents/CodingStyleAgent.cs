@@ -9,7 +9,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class CodingStyleAgent : AgentBase
 {
-    private const string CODING_STYLE_INSTRUCTIONS = """
+    private const string CODING_STYLE_INSTRUCTIONS_FALLBACK = """
         You are the Coding Style Agent.
         Enforce coding style, naming conventions, and language-specific coding standards by directly editing files.
         Run in agent mode and use built-in tools to apply required style and standards fixes.
@@ -74,13 +74,17 @@ public sealed class CodingStyleAgent : AgentBase
     }
 
     private static string BuildSystemPrompt(string guidelines, string languageLabel)
-        => $"""
-            {CODING_STYLE_INSTRUCTIONS}
+    {
+        string systemInstructions = PromptLoader.Load("CodingStyle", "system.md", CODING_STYLE_INSTRUCTIONS_FALLBACK);
+
+        return $"""
+            {systemInstructions}
 
             LanguageContext: {languageLabel}
             Apply the following coding style guidelines for this language:
             {guidelines}
             """;
+    }
 
     private static string LoadGuidelinesForLanguages(IReadOnlyList<string> languages)
     {
