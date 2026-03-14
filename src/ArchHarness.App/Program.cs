@@ -25,6 +25,7 @@ builder.Services.AddSingleton<IStartupPreflightValidator, CopilotStartupPrefligh
 builder.Services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
 builder.Services.AddSingleton<CopilotClientProvider>();
 builder.Services.AddSingleton<ICopilotClientProvider>(sp => sp.GetRequiredService<CopilotClientProvider>());
+builder.Services.AddSingleton<CopilotSessionFactory.SessionHooksDependencies>();
 builder.Services.AddSingleton<CopilotSessionFactory.CopilotSessionContext>();
 builder.Services.AddSingleton<ICopilotClient, CopilotClient>();
 builder.Services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStream>();
@@ -43,6 +44,7 @@ builder.Services.AddSingleton<IRunStore, RunStore>();
 builder.Services.AddSingleton<IArtefactStore, ArtefactStore>();
 builder.Services.AddSingleton<IBuildRunner, BuildRunner>();
 builder.Services.AddSingleton<OrchestratorRuntime.OrchestratorAgentDependencies>();
+builder.Services.AddSingleton<OrchestratorRuntime.RunPhaseDependencies>();
 builder.Services.AddSingleton<AgentStepExecutor.StepAgentDependencies>();
 builder.Services.AddSingleton<ArchitectureReviewLoop.LoopAgentDependencies>();
 builder.Services.AddSingleton<ArchitectureReviewLoop>();

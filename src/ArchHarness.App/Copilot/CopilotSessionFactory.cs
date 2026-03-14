@@ -34,8 +34,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
 {
     private readonly CopilotOptions _options;
     private readonly ICopilotClientProvider _clientProvider;
-    private readonly ICopilotGovernancePolicy _governance;
-    private readonly ICopilotUserInputBridge _userInputBridge;
+    private readonly SessionHooksDependencies _hooks;
     private readonly CopilotSessionContext _sessionContext;
     private readonly ILogger<CopilotSessionFactory> _logger;
     private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>>();
@@ -47,22 +46,19 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     /// </summary>
     /// <param name="options">Copilot configuration options.</param>
     /// <param name="clientProvider">Provides the initialized SDK client.</param>
-    /// <param name="governance">Governance policy for tool-use hooks.</param>
-    /// <param name="userInputBridge">Bridge for forwarding user-input requests from the SDK.</param>
+    /// <param name="hooks">Grouped governance and user-input hook dependencies.</param>
     /// <param name="sessionContext">Grouped session runtime dependencies.</param>
     /// <param name="logger">Logger instance.</param>
     public CopilotSessionFactory(
         IOptions<CopilotOptions> options,
         ICopilotClientProvider clientProvider,
-        ICopilotGovernancePolicy governance,
-        ICopilotUserInputBridge userInputBridge,
+        SessionHooksDependencies hooks,
         CopilotSessionContext sessionContext,
         ILogger<CopilotSessionFactory> logger)
     {
         this._options = options.Value;
         this._clientProvider = clientProvider;
-        this._governance = governance;
-        this._userInputBridge = userInputBridge;
+        this._hooks = hooks;
         this._sessionContext = sessionContext;
         this._logger = logger;
         this._sessionInactivityTimeoutSeconds = Math.Max(0, options.Value.SessionResponseTimeoutSeconds);
@@ -163,11 +159,11 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             {
                 Model = model,
                 Streaming = this._options.StreamingResponses,
-                OnUserInputRequest = async (request, _) => await this._userInputBridge.RequestInputAsync(request).ConfigureAwait(false),
+                OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
                 Hooks = new SessionHooks
                 {
-                    OnPreToolUse = async (input, _) => await this._governance.OnPreToolUseAsync(input).ConfigureAwait(false),
-                    OnPostToolUse = async (input, _) => await this._governance.OnPostToolUseAsync(input).ConfigureAwait(false)
+                    OnPreToolUse = async (input, _) => await this._hooks.Governance.OnPreToolUseAsync(input).ConfigureAwait(false),
+                    OnPostToolUse = async (input, _) => await this._hooks.Governance.OnPostToolUseAsync(input).ConfigureAwait(false)
                 }
             };
 
@@ -266,6 +262,31 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         string ExcludedTools);
 
     internal sealed record SessionHandle(CopilotSession Session, SemaphoreSlim Gate);
+
+    /// <summary>
+    /// Groups the governance policy and user-input bridge dependencies used during session creation.
+    /// </summary>
+    public sealed class SessionHooksDependencies
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SessionHooksDependencies"/> class.
+        /// </summary>
+        /// <param name="governance">Governance policy for tool-use hooks.</param>
+        /// <param name="userInputBridge">Bridge for forwarding user-input requests from the SDK.</param>
+        public SessionHooksDependencies(
+            ICopilotGovernancePolicy governance,
+            ICopilotUserInputBridge userInputBridge)
+        {
+            this.Governance = governance;
+            this.UserInputBridge = userInputBridge;
+        }
+
+        /// <summary>Gets the governance policy for tool-use hooks.</summary>
+        public ICopilotGovernancePolicy Governance { get; }
+
+        /// <summary>Gets the bridge for forwarding user-input requests from the SDK.</summary>
+        public ICopilotUserInputBridge UserInputBridge { get; }
+    }
 
     /// <summary>
     /// Groups the session-scoped runtime dependencies injected into each <see cref="ICopilotSession"/>.

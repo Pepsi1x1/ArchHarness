@@ -15,9 +15,7 @@ public sealed class OrchestratorRuntime
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
     private readonly RunInfrastructure _runInfrastructure;
-    private readonly IArchitectureReviewLoop _architectureReviewLoop;
-    private readonly IPlanExecutor _planExecutor;
-    private readonly IBuildValidator _buildValidator;
+    private readonly RunPhaseDependencies _runPhases;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
@@ -26,16 +24,12 @@ public sealed class OrchestratorRuntime
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
         RunInfrastructure runInfrastructure,
-        IArchitectureReviewLoop architectureReviewLoop,
-        IPlanExecutor planExecutor,
-        IBuildValidator buildValidator)
+        RunPhaseDependencies runPhases)
     {
         this._agentDependencies = agentDependencies;
         this._copilotClient = copilotClient;
         this._runInfrastructure = runInfrastructure;
-        this._architectureReviewLoop = architectureReviewLoop;
-        this._planExecutor = planExecutor;
-        this._buildValidator = buildValidator;
+        this._runPhases = runPhases;
     }
 
     /// <summary>
@@ -97,7 +91,7 @@ public sealed class OrchestratorRuntime
             PlanExecutionResult planResult;
             try
             {
-                planResult = await this._planExecutor.BuildAndExecuteAsync(
+                planResult = await this._runPhases.PlanExecutor.BuildAndExecuteAsync(
                     request,
                     adapter,
                     runId,
@@ -127,7 +121,7 @@ public sealed class OrchestratorRuntime
 
             IReadOnlyList<string>? architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
             IReadOnlyList<string>? securityLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Security")?.Languages;
-            (review, securityReview, filesTouched) = await this._architectureReviewLoop.RunAsync(
+            (review, securityReview, filesTouched) = await this._runPhases.ArchitectureReviewLoop.RunAsync(
                 new ArchitectureLoopRequest(
                     IterationStrategy: plan.IterationStrategy,
                     InitialReview: review,
@@ -155,7 +149,7 @@ public sealed class OrchestratorRuntime
             await this._runInfrastructure.ArtifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
             await this._runInfrastructure.ArtifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
 
-            BuildValidationResult validation = await this._buildValidator.ExecuteAndValidateAsync(
+            BuildValidationResult validation = await this._runPhases.BuildValidator.ExecuteAndValidateAsync(
                 plan,
                 review,
                 securityReview,
@@ -273,5 +267,37 @@ public sealed class OrchestratorRuntime
         /// Gets the architecture agent used for architecture review and enforcement.
         /// </summary>
         public ArchitectureAgent ArchitectureAgent { get; }
+    }
+
+    /// <summary>
+    /// Groups the run-phase collaborators (plan execution, architecture review, build validation)
+    /// to reduce constructor over-injection in <see cref="OrchestratorRuntime"/>.
+    /// </summary>
+    public sealed class RunPhaseDependencies
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="RunPhaseDependencies"/> class.
+        /// </summary>
+        /// <param name="architectureReviewLoop">The architecture review iteration loop.</param>
+        /// <param name="planExecutor">The execution plan builder and dispatcher.</param>
+        /// <param name="buildValidator">The final build and completion validator.</param>
+        public RunPhaseDependencies(
+            IArchitectureReviewLoop architectureReviewLoop,
+            IPlanExecutor planExecutor,
+            IBuildValidator buildValidator)
+        {
+            this.ArchitectureReviewLoop = architectureReviewLoop;
+            this.PlanExecutor = planExecutor;
+            this.BuildValidator = buildValidator;
+        }
+
+        /// <summary>Gets the architecture review iteration loop.</summary>
+        public IArchitectureReviewLoop ArchitectureReviewLoop { get; }
+
+        /// <summary>Gets the execution plan builder and dispatcher.</summary>
+        public IPlanExecutor PlanExecutor { get; }
+
+        /// <summary>Gets the final build and completion validator.</summary>
+        public IBuildValidator BuildValidator { get; }
     }
 }
