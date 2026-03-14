@@ -10,8 +10,8 @@ namespace ArchHarness.App.Core;
 public sealed class AgentStepExecutor : IAgentStepExecutor
 {
     private const string ORCHESTRATOR_SOURCE = "orchestrator";
-    private readonly FrontendAgent _frontendAgent;
-    private readonly BackendImplementationAgent _backendImplementationAgent;
+    private readonly FrontendDeveloperAgent _frontendDeveloperAgent;
+    private readonly BackendDeveloperAgent _backendDeveloperAgent;
     private readonly CodingStyleAgent _codingStyleAgent;
     private readonly SecurityAgent _securityAgent;
     private readonly ArchitectureAgent _architectureAgent;
@@ -20,22 +20,22 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentStepExecutor"/> class.
     /// </summary>
-    /// <param name="frontendAgent">Agent that creates frontend plans.</param>
-    /// <param name="backendImplementationAgent">Agent that implements backend code changes.</param>
+    /// <param name="frontendDeveloperAgent">Agent that creates frontend plans.</param>
+    /// <param name="backendDeveloperAgent">Agent that implements backend code changes.</param>
     /// <param name="codingStyleAgent">Agent that enforces coding style standards.</param>
     /// <param name="securityAgent">Agent that performs security reviews.</param>
     /// <param name="architectureAgent">Agent that performs architecture reviews.</param>
     /// <param name="artefactStore">Store for persisting run events.</param>
     public AgentStepExecutor(
-        FrontendAgent frontendAgent,
-        BackendImplementationAgent backendImplementationAgent,
+        FrontendDeveloperAgent frontendDeveloperAgent,
+        BackendDeveloperAgent backendDeveloperAgent,
         CodingStyleAgent codingStyleAgent,
         SecurityAgent securityAgent,
         ArchitectureAgent architectureAgent,
         IArtefactStore artefactStore)
     {
-        this._frontendAgent = frontendAgent;
-        this._backendImplementationAgent = backendImplementationAgent;
+        this._frontendDeveloperAgent = frontendDeveloperAgent;
+        this._backendDeveloperAgent = backendDeveloperAgent;
         this._codingStyleAgent = codingStyleAgent;
         this._securityAgent = securityAgent;
         this._architectureAgent = architectureAgent;
@@ -70,14 +70,14 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
         Dictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies = new Dictionary<string, Func<ExecutionPlanStep, Task>>
         {
-            ["Frontend"] = async (ExecutionPlanStep s) =>
+            ["FrontendDeveloper"] = async (ExecutionPlanStep s) =>
             {
-                IReadOnlyList<string> newFiles = await this._frontendAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._frontendDeveloperAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
-                    this._frontendAgent.Id,
-                    this._frontendAgent.Role,
+                    this._frontendDeveloperAgent.Id,
+                    this._frontendDeveloperAgent.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -86,18 +86,18 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                     .ToArray();
 
                 frontendPlan = newFiles.Count > 0
-                    ? $"Frontend implemented and touched {newFiles.Count} file(s)."
-                    : "Frontend step executed.";
+                    ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
+                    : "Frontend developer step executed.";
             },
-            ["BackendImplementation"] = async (ExecutionPlanStep s) =>
+            ["BackendDeveloper"] = async (ExecutionPlanStep s) =>
             {
-                IReadOnlyList<string> newFiles = await this._backendImplementationAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._backendDeveloperAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
                     null,
-                    this._backendImplementationAgent.Id,
-                    this._backendImplementationAgent.Role,
+                    this._backendDeveloperAgent.Id,
+                    this._backendDeveloperAgent.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -261,8 +261,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     /// <summary>
     /// Contains the aggregated results from executing all plan steps.
     /// </summary>
-    /// <param name="FrontendPlan">The frontend plan produced by the Frontend agent.</param>
-    /// <param name="FilesTouched">Files modified by the Backend Implementation agent.</param>
+    /// <param name="FrontendPlan">The frontend plan produced by the Frontend Developer agent.</param>
+    /// <param name="FilesTouched">Files modified by the Backend Developer agent.</param>
     /// <param name="Review">The architecture review produced by the Architecture agent.</param>
     public sealed record StepExecutionResult(
         string FrontendPlan,

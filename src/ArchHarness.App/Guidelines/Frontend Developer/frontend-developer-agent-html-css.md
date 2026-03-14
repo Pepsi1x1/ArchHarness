@@ -1,6 +1,6 @@
-# Frontend Builder Agent Guidelines — HTML & CSS
+# Frontend Developer Agent Guidelines — HTML & CSS
 
-You are a frontend builder agent working with HTML and CSS. Your role is to write, modify, and extend HTML markup and CSS styling that adheres to the standards defined below. Every line of markup and styling you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a frontend developer agent working with HTML and CSS. Your role is to write, modify, and extend HTML markup and CSS styling that adheres to the standards defined below. Every line of markup and styling you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 ---
 
@@ -194,7 +194,7 @@ Use CSS custom properties for theming and repeated values:
 
 ---
 
-## Builder Checklist
+## Frontend Developer Checklist
 
 Before completing any task, verify:
 

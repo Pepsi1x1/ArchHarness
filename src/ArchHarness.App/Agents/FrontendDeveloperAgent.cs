@@ -6,21 +6,21 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.App.Agents;
 
 /// <summary>
-/// Frontend agent responsible for implementing UI/UX changes in the workspace.
+/// Frontend Developer agent responsible for implementing UI/UX changes in the workspace.
 /// </summary>
-public sealed class FrontendAgent : AgentBase
+public sealed class FrontendDeveloperAgent : AgentBase
 {
     private static readonly SearchOption RECURSIVE = SearchOption.AllDirectories;
-    private const string FRONTEND_INSTRUCTIONS = """
-        You are the Frontend Agent.
+    private const string FRONTEND_DEVELOPER_INSTRUCTIONS = """
+        You are the Frontend Developer Agent.
         Execute delegated frontend tasks using agent-mode built-in tools.
         Focus on UI/UX design, component architecture, accessibility, and state management decisions.
         Create and edit frontend-related files directly within the workspace.
         Return a concise completion summary.
         """;
 
-    public FrontendAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
-        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "frontend", Guid.NewGuid().ToString("N")) { }
+    public FrontendDeveloperAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "frontend-developer", Guid.NewGuid().ToString("N")) { }
 
     /// <summary>
     /// Implements frontend changes in the workspace based on the given delegated prompt.
@@ -73,11 +73,11 @@ public sealed class FrontendAgent : AgentBase
     {
         if (disableGuidelines)
         {
-            return FRONTEND_INSTRUCTIONS;
+            return FRONTEND_DEVELOPER_INSTRUCTIONS;
         }
 
         return $"""
-            {FRONTEND_INSTRUCTIONS}
+            {FRONTEND_DEVELOPER_INSTRUCTIONS}
 
             Apply the following frontend guidelines:
             {guidelines}
@@ -116,18 +116,18 @@ public sealed class FrontendAgent : AgentBase
         bool explicitHtmlCssPrompt = prompt.Contains("html", StringComparison.Ordinal) || prompt.Contains("css", StringComparison.Ordinal);
         bool hasHtmlCssFiles = HasAnyFiles(workspaceRoot, "*.html", "*.css");
 
-        AddIf(output, hasVue, "frontend-builder-agent-vue3.md");
-        AddIf(output, hasBlazor, "frontend-builder-agent-dotnet-blazor.md");
-        AddIf(output, hasTypeScript, "frontend-builder-agent-typescript.md");
-        AddIf(output, hasJavaScript, "frontend-builder-agent-javascript.md");
+        AddIf(output, hasVue, "frontend-developer-agent-vue3.md");
+        AddIf(output, hasBlazor, "frontend-developer-agent-dotnet-blazor.md");
+        AddIf(output, hasTypeScript, "frontend-developer-agent-typescript.md");
+        AddIf(output, hasJavaScript, "frontend-developer-agent-javascript.md");
 
         // Avoid defaulting to generic HTML/CSS guidance for dotnet workspaces unless explicitly requested.
         bool hasHtmlCss = explicitHtmlCssPrompt || (!hasDotnet && hasHtmlCssFiles);
-        AddIf(output, hasHtmlCss, "frontend-builder-agent-html-css.md");
+        AddIf(output, hasHtmlCss, "frontend-developer-agent-html-css.md");
 
         if (output.Count == 0)
         {
-            output.Add(hasDotnet ? "frontend-builder-agent-dotnet-blazor.md" : "frontend-builder-agent-html-css.md");
+            output.Add(hasDotnet ? "frontend-developer-agent-dotnet-blazor.md" : "frontend-developer-agent-html-css.md");
         }
 
         return output.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -145,5 +145,5 @@ public sealed class FrontendAgent : AgentBase
     }
 
     private static string TryLoadGuidelineFile(string fileName)
-        => GuidelineLoader.Load("Frontend", fileName, $"No guideline file found for {fileName}. Apply strong frontend architecture and accessibility standards.");
+        => GuidelineLoader.Load("Frontend Developer", fileName, $"No guideline file found for {fileName}. Apply strong frontend architecture and accessibility standards.");
 }

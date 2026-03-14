@@ -18,7 +18,7 @@ public abstract class AgentBase
     /// <summary>Gets the unique identifier for this agent instance.</summary>
     public string Id { get; }
 
-    /// <summary>Gets the role identifier for this agent (e.g., "frontend", "backend-implementation").</summary>
+    /// <summary>Gets the role identifier for this agent (e.g., "frontend-developer", "backend-developer").</summary>
     public string Role { get; }
 
     /// <summary>

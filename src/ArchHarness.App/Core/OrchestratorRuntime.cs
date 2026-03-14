@@ -196,8 +196,8 @@ public sealed class OrchestratorRuntime
                 agents = new[]
                 {
                     new { role = "orchestration", model = _agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "frontend", model = _agentDependencies.FrontendAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "backend-implementation", model = _agentDependencies.BackendImplementationAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "frontend-developer", model = _agentDependencies.FrontendDeveloperAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "backend-developer", model = _agentDependencies.BackendDeveloperAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "coding-style", model = _agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "security", model = _agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "architecture", model = _agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
@@ -228,15 +228,15 @@ public sealed class OrchestratorRuntime
         /// </summary>
         public OrchestratorAgentDependencies(
             OrchestrationAgent orchestrationAgent,
-            FrontendAgent frontendAgent,
-            BackendImplementationAgent backendImplementationAgent,
+            FrontendDeveloperAgent frontendDeveloperAgent,
+            BackendDeveloperAgent backendDeveloperAgent,
             CodingStyleAgent codingStyleAgent,
             SecurityAgent securityAgent,
             ArchitectureAgent architectureAgent)
         {
             OrchestrationAgent = orchestrationAgent;
-            FrontendAgent = frontendAgent;
-            BackendImplementationAgent = backendImplementationAgent;
+            FrontendDeveloperAgent = frontendDeveloperAgent;
+            BackendDeveloperAgent = backendDeveloperAgent;
             CodingStyleAgent = codingStyleAgent;
             SecurityAgent = securityAgent;
             ArchitectureAgent = architectureAgent;
@@ -244,9 +244,9 @@ public sealed class OrchestratorRuntime
 
         public OrchestrationAgent OrchestrationAgent { get; }
 
-        public FrontendAgent FrontendAgent { get; }
+        public FrontendDeveloperAgent FrontendDeveloperAgent { get; }
 
-        public BackendImplementationAgent BackendImplementationAgent { get; }
+        public BackendDeveloperAgent BackendDeveloperAgent { get; }
 
         public CodingStyleAgent CodingStyleAgent { get; }
 

@@ -10,8 +10,8 @@ It provides a terminal UI for setup and monitoring, delegates work to specialize
 - Builds an execution plan with an orchestration agent.
 - Delegates implementation/review steps to specialized agents:
 	- `Orchestration`: planning and completion validation
-	- `Frontend`: frontend planning
-	- `BackendImplementation`: backend implementation changes
+	- `FrontendDeveloper`: frontend implementation changes
+	- `BackendDeveloper`: backend implementation changes
 	- `Architecture`: architecture enforcement and findings
 - Optionally loops architecture remediation until high-severity findings are cleared (or max iterations reached).
 - Runs build validation and records final status.
@@ -76,7 +76,7 @@ dotnet run --project src/ArchHarness.App/ArchHarness.App.csproj -- \
 	"existing-folder" \
 	"auto" \
 	"ArchHarness.App" \
-	"orchestration=gpt-5.3-codex,backend-implementation=gpt-5.3-codex" \
+	"orchestration=gpt-5.3-codex,frontend-developer=claude-sonnet-4.6,backend-developer=gpt-5.3-codex" \
 	"dotnet build \"C:\\path\\to\\workspace\\ArchHarness.App.sln\" --nologo"
 ```
 
@@ -107,7 +107,8 @@ Example (abbreviated):
 {
 	"agents": {
 		"orchestration": { "model": "claude-sonnet-4.6" },
-		"backendImplementation": { "model": "gpt-5.3-codex" }
+		"frontendDeveloper": { "model": "claude-sonnet-4.6" },
+		"backendDeveloper": { "model": "gpt-5.3-codex" }
 	},
 	"copilot": {
 		"streamingResponses": true,

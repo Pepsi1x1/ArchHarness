@@ -67,8 +67,8 @@ public sealed class ModelResolver : IModelResolver
         string model = role.ToLowerInvariant() switch
         {
             "orchestration" => this._agents.Orchestration.Model,
-            "frontend" => this._agents.Frontend.Model,
-            "backend-implementation" => this._agents.BackendImplementation.Model,
+            "frontend-developer" => this._agents.FrontendDeveloper.Model,
+            "backend-developer" => this._agents.BackendDeveloper.Model,
             "coding-style" => this._agents.CodingStyle.Model,
             "security" => this._agents.Security.Model,
             "architecture" => this._agents.Architecture.Model,

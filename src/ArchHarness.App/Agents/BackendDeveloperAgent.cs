@@ -6,20 +6,20 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.App.Agents;
 
 /// <summary>
-/// Backend Implementation agent responsible for implementing code changes in the workspace.
+/// Backend Developer agent responsible for implementing code changes in the workspace.
 /// </summary>
-public sealed class BackendImplementationAgent : AgentBase
+public sealed class BackendDeveloperAgent : AgentBase
 {
-    private const string BACKEND_IMPLEMENTATION_INSTRUCTIONS = """
-        You are the Backend Implementation Agent.
+    private const string BACKEND_DEVELOPER_INSTRUCTIONS = """
+        You are the Backend Developer Agent.
         Execute the delegated prompt using agent-mode built-in tools.
         Create and edit workspace files directly where required.
         Add or update tests when applicable.
         Return a concise completion summary and list key changed files.
         """;
 
-    public BackendImplementationAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
-        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "backend-implementation", Guid.NewGuid().ToString("N")) { }
+    public BackendDeveloperAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "backend-developer", Guid.NewGuid().ToString("N")) { }
 
     /// <summary>
     /// Implements code changes in the workspace based on the given objective and optional required actions.
@@ -92,20 +92,20 @@ public sealed class BackendImplementationAgent : AgentBase
 
     private static string BuildSystemPrompt(bool disableGuidelines = false)
     {
-        string backendImplementationGuidelines = LoadBackendImplementationGuidelines();
+        string backendDeveloperGuidelines = LoadBackendDeveloperGuidelines();
         if (disableGuidelines)
         {
-            return BACKEND_IMPLEMENTATION_INSTRUCTIONS;
+            return BACKEND_DEVELOPER_INSTRUCTIONS;
         }
 
         return $"""
-            {BACKEND_IMPLEMENTATION_INSTRUCTIONS}
+            {BACKEND_DEVELOPER_INSTRUCTIONS}
 
-            Apply the following backend implementation guidelines:
-            {backendImplementationGuidelines}
+            Apply the following backend developer guidelines:
+            {backendDeveloperGuidelines}
             """;
     }
 
-    private static string LoadBackendImplementationGuidelines()
-        => GuidelineLoader.Load("Backend Implementation", "backend-implementation-agent.md", "No backend implementation guideline file found. Follow strict backend implementation standards and add tests.");
+    private static string LoadBackendDeveloperGuidelines()
+        => GuidelineLoader.Load("Backend Developer", "backend-developer-agent.md", "No backend developer guideline file found. Follow strict backend implementation standards and add tests.");
 }

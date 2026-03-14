@@ -32,8 +32,8 @@ builder.Services.AddSingleton<IAgentToolPolicyProvider, AgentToolPolicyProvider>
 builder.Services.AddSingleton<IRunContextAccessor, RunContextAccessor>();
 builder.Services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
 builder.Services.AddSingleton<OrchestrationAgent>();
-builder.Services.AddSingleton<FrontendAgent>();
-builder.Services.AddSingleton<BackendImplementationAgent>();
+builder.Services.AddSingleton<FrontendDeveloperAgent>();
+builder.Services.AddSingleton<BackendDeveloperAgent>();
 builder.Services.AddSingleton<CodingStyleAgent>();
 builder.Services.AddSingleton<SecurityAgent>();
 builder.Services.AddSingleton<ArchitectureAgent>();

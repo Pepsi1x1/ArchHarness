@@ -29,11 +29,11 @@ public sealed class AgentsOptions
     /// <summary>Gets or sets the orchestration agent options.</summary>
     public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
 
-    /// <summary>Gets or sets the frontend agent options.</summary>
-    public AgentModelOptions Frontend { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
+    /// <summary>Gets or sets the frontend developer agent options.</summary>
+    public AgentModelOptions FrontendDeveloper { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
 
-    /// <summary>Gets or sets the backend implementation agent options.</summary>
-    public AgentModelOptions BackendImplementation { get; set; } = new AgentModelOptions() { Model = "gpt-5.3-codex" };
+    /// <summary>Gets or sets the backend developer agent options.</summary>
+    public AgentModelOptions BackendDeveloper { get; set; } = new AgentModelOptions() { Model = "gpt-5.3-codex" };
 
     /// <summary>Gets or sets the coding style agent options.</summary>
     public AgentModelOptions CodingStyle { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
@@ -51,8 +51,8 @@ public sealed class AgentsOptions
     /// <returns>The matching agent model options.</returns>
     public AgentModelOptions ForRole(string role) => role.ToLowerInvariant() switch
     {
-        "frontend" => Frontend,
-        "backend-implementation" => BackendImplementation,
+        "frontend-developer" => FrontendDeveloper,
+        "backend-developer" => BackendDeveloper,
         "coding-style" => CodingStyle,
         "security" => Security,
         "architecture" => Architecture,

@@ -1,6 +1,6 @@
-# Frontend Builder Agent Guidelines — JavaScript
+# Frontend Developer Agent Guidelines — JavaScript
 
-You are a frontend builder agent working with JavaScript. Your role is to write, modify, and extend JavaScript frontend code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a frontend developer agent working with JavaScript. Your role is to write, modify, and extend JavaScript frontend code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 **Note:** Where possible, prefer TypeScript over JavaScript for new projects. These guidelines apply when working within an existing JavaScript codebase or when TypeScript is not feasible.
 
@@ -252,7 +252,7 @@ Ensure ESLint is configured for the project. All rules must pass with zero error
 
 ---
 
-## Builder Checklist
+## Frontend Developer Checklist
 
 Before completing any task, verify:
 

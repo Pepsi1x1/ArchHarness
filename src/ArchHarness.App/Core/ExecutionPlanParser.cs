@@ -9,8 +9,8 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ExecutionPlanParser : IExecutionPlanParser
 {
-    private const string FRONTEND_AGENT_NAME = "Frontend";
-    private const string BACKEND_IMPLEMENTATION_AGENT_NAME = "BackendImplementation";
+    private const string FRONTEND_DEVELOPER_AGENT_NAME = "FrontendDeveloper";
+    private const string BACKEND_DEVELOPER_AGENT_NAME = "BackendDeveloper";
     private const string CODING_STYLE_AGENT_NAME = "CodingStyle";
     private const string SECURITY_AGENT_NAME = "Security";
     private const string ARCHITECTURE_AGENT_NAME = "Architecture";
@@ -105,7 +105,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         List<JsonElement> stepsArray = stepsEl.EnumerateArray().ToList();
         if (stepsArray.Count == 0)
         {
-            error = "Field 'steps' array is empty. Must include at least 4 steps (BackendImplementation, CodingStyle, Security, Architecture).";
+            error = "Field 'steps' array is empty. Must include at least 4 steps (BackendDeveloper, CodingStyle, Security, Architecture).";
             return false;
         }
 
@@ -131,10 +131,10 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             }
 
             string? agentValue = agentEl.GetString()?.Trim().ToLowerInvariant();
-            if (!new[] { "frontend", "backendimplementation", "backend-implementation", "codingstyle", "coding-style", "security", "secure", "architecture", "review" }
+            if (!new[] { "frontenddeveloper", "frontend-developer", "backenddeveloper", "backend-developer", "codingstyle", "coding-style", "security", "secure", "architecture", "review" }
                 .Contains(agentValue))
             {
-                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: Frontend, BackendImplementation, CodingStyle, Security, Architecture.";
+                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: FrontendDeveloper, BackendDeveloper, CodingStyle, Security, Architecture.";
                 return false;
             }
 
@@ -373,8 +373,8 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
 
     internal static string? NormalizeAgent(string raw)
     {
-        if (raw.Equals("frontend", StringComparison.OrdinalIgnoreCase)) return FRONTEND_AGENT_NAME;
-        if (raw.Equals("backendimplementation", StringComparison.OrdinalIgnoreCase) || raw.Equals("backend-implementation", StringComparison.OrdinalIgnoreCase)) return BACKEND_IMPLEMENTATION_AGENT_NAME;
+        if (raw.Equals("frontenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("frontend-developer", StringComparison.OrdinalIgnoreCase)) return FRONTEND_DEVELOPER_AGENT_NAME;
+        if (raw.Equals("backenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("backend-developer", StringComparison.OrdinalIgnoreCase)) return BACKEND_DEVELOPER_AGENT_NAME;
         if (raw.Equals("codingstyle", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase)) return CODING_STYLE_AGENT_NAME;
         if (raw.Equals("security", StringComparison.OrdinalIgnoreCase) || raw.Equals("secure", StringComparison.OrdinalIgnoreCase)) return SECURITY_AGENT_NAME;
         if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ARCHITECTURE_AGENT_NAME;
@@ -406,7 +406,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
 
         if (!ContainsRequiredAgents(steps))
         {
-            error = "Execution plan must include at least one BackendImplementation, one CodingStyle, one Security, and one Architecture step.";
+            error = "Execution plan must include at least one BackendDeveloper, one CodingStyle, one Security, and one Architecture step.";
             return false;
         }
 
@@ -438,7 +438,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     }
 
     private static bool ContainsRequiredAgents(IEnumerable<ExecutionPlanStep> steps)
-        => steps.Any(s => s.Agent == BACKEND_IMPLEMENTATION_AGENT_NAME)
+        => steps.Any(s => s.Agent == BACKEND_DEVELOPER_AGENT_NAME)
         && steps.Any(s => s.Agent == CODING_STYLE_AGENT_NAME)
         && steps.Any(s => s.Agent == SECURITY_AGENT_NAME)
         && steps.Any(s => s.Agent == ARCHITECTURE_AGENT_NAME);

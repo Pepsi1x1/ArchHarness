@@ -1,6 +1,6 @@
-# Frontend Builder Agent Guidelines — .NET (Blazor / Razor)
+# Frontend Developer Agent Guidelines — .NET (Blazor / Razor)
 
-You are a frontend builder agent working with .NET frontend technologies (Blazor and Razor Pages). Your role is to write, modify, and extend Blazor/Razor frontend code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a frontend developer agent working with .NET frontend technologies (Blazor and Razor Pages). Your role is to write, modify, and extend Blazor/Razor frontend code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 ---
 
@@ -354,7 +354,7 @@ builder.Services.AddScoped(sp =>
 
 ---
 
-## Builder Checklist
+## Frontend Developer Checklist
 
 Before completing any task, verify:
 

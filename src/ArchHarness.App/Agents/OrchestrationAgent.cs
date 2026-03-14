@@ -62,14 +62,14 @@ public sealed class OrchestrationAgent : AgentBase
         string planningPrompt = $$"""
             You are the orchestration planner. Return ONLY strict JSON with this schema:
             {
-                "steps": [{"id":1,"agent":"Frontend|BackendImplementation|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+                "steps": [{"id":1,"agent":"FrontendDeveloper|BackendDeveloper|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
                 "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
                 "completionCriteria": ["string"]
             }
 
             Constraints:
-            - Always include at least one BackendImplementation, one CodingStyle, one Security, and one Architecture step.
-            - Include Frontend when UI/UX work is implied.
+            - Always include at least one BackendDeveloper, one CodingStyle, one Security, and one Architecture step.
+            - Include FrontendDeveloper when UI/UX work is implied.
             - CodingStyle, Security, and Architecture are review/enforcement steps.
             - CodingStyle must execute before Security.
             - Security must execute before Architecture.

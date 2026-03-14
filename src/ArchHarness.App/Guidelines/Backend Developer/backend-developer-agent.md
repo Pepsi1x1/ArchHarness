@@ -1,6 +1,6 @@
-# Backend Implementation Agent Guidelines
+# Backend Developer Agent Guidelines
 
-You are a backend implementation agent. Your role is to write, modify, and extend .NET backend and middle-tier code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a backend developer agent. Your role is to write, modify, and extend .NET backend and middle-tier code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 ---
 

@@ -62,8 +62,8 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
     {
         AgentToolOptions tools = role.ToLowerInvariant() switch
         {
-            "frontend" => this._options.Frontend.Tools,
-            "backend-implementation" => this._options.BackendImplementation.Tools,
+            "frontend-developer" => this._options.FrontendDeveloper.Tools,
+            "backend-developer" => this._options.BackendDeveloper.Tools,
             "coding-style" => this._options.CodingStyle.Tools,
             "security" => this._options.Security.Tools,
             "architecture" => this._options.Architecture.Tools,
@@ -74,8 +74,8 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
         return role.ToLowerInvariant() switch
         {
             "orchestration" => BuildPolicy(tools, Array.Empty<string>(), DefaultOrchestrationExcluded),
-            "frontend" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
-            "backend-implementation" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
+            "frontend-developer" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
+            "backend-developer" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "coding-style" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "security" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "architecture" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),

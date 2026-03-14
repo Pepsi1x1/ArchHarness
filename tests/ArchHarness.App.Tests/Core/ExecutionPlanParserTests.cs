@@ -15,7 +15,7 @@ public sealed class ExecutionPlanParserTests
             string json = """
                 {
                     "steps": [
-                        {"id":1,"agent":"BackendImplementation","objective":"Implement feature X"},
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature X"},
                         {"id":2,"agent":"CodingStyle","objective":"Review and enforce coding style"},
                         {"id":3,"agent":"Security","objective":"Review and enforce security","dependsOn":[2]},
                         {"id":4,"agent":"Architecture","objective":"Review and enforce architecture","dependsOn":[3]}
@@ -44,8 +44,8 @@ public sealed class ExecutionPlanParserTests
     [Theory]
     [InlineData("""{"iterationStrategy":{},"completionCriteria":["ok"]}""", "steps")]
     [InlineData("""{"steps":[],"iterationStrategy":{},"completionCriteria":["ok"]}""", "empty")]
-    [InlineData("""{"steps":[{"id":1,"agent":"BackendImplementation","objective":"build"}],"completionCriteria":["ok"]}""", "iterationStrategy")]
-    [InlineData("""{"steps":[{"id":1,"agent":"BackendImplementation","objective":"build"}],"iterationStrategy":{}}""", "completionCriteria")]
+    [InlineData("""{"steps":[{"id":1,"agent":"BackendDeveloper","objective":"build"}],"completionCriteria":["ok"]}""", "iterationStrategy")]
+    [InlineData("""{"steps":[{"id":1,"agent":"BackendDeveloper","objective":"build"}],"iterationStrategy":{}}""", "completionCriteria")]
     public void TryBuildExecutionPlan_MissingRequiredFields_ReturnsFailure(string json, string expectedErrorToken)
     {
         string workspaceRoot = CreateTempWorkspace();
@@ -72,7 +72,7 @@ public sealed class ExecutionPlanParserTests
             string json = """
                 {
                     "steps": [
-                        {"id":1,"agent":"BackendImplementation","objective":"build things"},
+                        {"id":1,"agent":"BackendDeveloper","objective":"build things"},
                         {"id":2,"agent":"CodingStyle","objective":"review coding style","dependsOn":[0]},
                         {"id":3,"agent":"Security","objective":"review security"},
                         {"id":4,"agent":"Architecture","objective":"review architecture"}
@@ -99,7 +99,7 @@ public sealed class ExecutionPlanParserTests
     {
         List<ExecutionPlanStep> steps = new List<ExecutionPlanStep>
         {
-            new ExecutionPlanStep(1, "BackendImplementation", "Implement feature"),
+            new ExecutionPlanStep(1, "BackendDeveloper", "Implement feature"),
             new ExecutionPlanStep(2, "CodingStyle", "Review and enforce coding style conventions"),
             new ExecutionPlanStep(3, "Security", "Review and enforce security patterns"),
             new ExecutionPlanStep(4, "Architecture", "Review and enforce architecture patterns")
@@ -125,7 +125,7 @@ public sealed class ExecutionPlanParserTests
     {
         List<ExecutionPlanStep> steps = new List<ExecutionPlanStep>
         {
-            new ExecutionPlanStep(1, "BackendImplementation", "Build the project"),
+            new ExecutionPlanStep(1, "BackendDeveloper", "Build the project"),
             new ExecutionPlanStep(2, "CodingStyle", "Enforce coding style rules"),
             new ExecutionPlanStep(3, "Security", "Enforce security rules"),
             new ExecutionPlanStep(4, "Architecture", "Enforce architecture rules")
@@ -170,7 +170,7 @@ public sealed class ExecutionPlanParserTests
                 ```json
                 {
                     "steps": [
-                        {"id":1,"agent":"BackendImplementation","objective":"Build feature"},
+                        {"id":1,"agent":"BackendDeveloper","objective":"Build feature"},
                         {"id":2,"agent":"CodingStyle","objective":"Review coding style enforcement"},
                         {"id":3,"agent":"Security","objective":"Review security enforcement"},
                         {"id":4,"agent":"Architecture","objective":"Review architecture enforcement"}
@@ -217,7 +217,7 @@ public sealed class ExecutionPlanParserTests
             string json = """
                 {
                     "steps": [
-                        {"id":1,"agent":"BackendImplementation","objective":"Implement feature X"},
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature X"},
                         {"id":2,"agent":"Style","objective":"Review and enforce style"},
                         {"id":3,"agent":"Security","objective":"Review and enforce security","dependsOn":[2]},
                         {"id":4,"agent":"Architecture","objective":"Review and enforce architecture","dependsOn":[3]}
@@ -248,7 +248,7 @@ public sealed class ExecutionPlanParserTests
             string json = """
                 {
                     "steps": [
-                        {"id":1,"agent":"BackendImplementation","objective":"Implement feature X"},
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature X"},
                         {"id":2,"agent":"CodingStyle","objective":"Review and enforce coding style"},
                         {"id":3,"agent":"Architecture","objective":"Review and enforce architecture","dependsOn":[2]}
                     ],

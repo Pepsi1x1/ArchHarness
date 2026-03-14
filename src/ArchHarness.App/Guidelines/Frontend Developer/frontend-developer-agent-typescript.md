@@ -1,6 +1,6 @@
-# Frontend Builder Agent Guidelines — TypeScript
+# Frontend Developer Agent Guidelines — TypeScript
 
-You are a frontend builder agent working with TypeScript. Your role is to write, modify, and extend TypeScript frontend code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a frontend developer agent working with TypeScript. Your role is to write, modify, and extend TypeScript frontend code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 ---
 
@@ -258,7 +258,7 @@ Ensure ESLint is configured with TypeScript support. All rules must pass with ze
 
 ---
 
-## Builder Checklist
+## Frontend Developer Checklist
 
 Before completing any task, verify:
 

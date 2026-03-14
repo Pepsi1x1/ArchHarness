@@ -1,6 +1,6 @@
-# Frontend Builder Agent Guidelines — Vue 3
+# Frontend Developer Agent Guidelines — Vue 3
 
-You are a frontend builder agent working with Vue 3. Your role is to write, modify, and extend Vue 3 application code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a frontend developer agent working with Vue 3. Your role is to write, modify, and extend Vue 3 application code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 ---
 
@@ -385,7 +385,7 @@ export default defineConfigWithVueTs(
 
 ---
 
-## Builder Checklist
+## Frontend Developer Checklist
 
 Before completing any task, verify:
 
