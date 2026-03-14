@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ArchHarness.App\ArchHarness.App.csproj" />
+    <ProjectReference Include="..\..\src\ArchHarness.Desktop\ArchHarness.Desktop.csproj" />
   </ItemGroup>
 
   <ItemGroup>

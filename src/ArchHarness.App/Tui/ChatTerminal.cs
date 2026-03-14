@@ -8,6 +8,7 @@ namespace ArchHarness.App.Tui;
 /// rendering, and run monitoring to focused collaborators.
 /// </summary>
 public sealed class ChatTerminal
+    : IApplicationHost
 {
     private readonly OrchestratorRuntime _runtime;
     private readonly ConversationController _conversationController;
