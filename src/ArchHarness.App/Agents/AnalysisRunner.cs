@@ -80,6 +80,8 @@ internal static class AnalysisRunner
     internal static List<string> ResolveCandidateFiles(string diff, string workspaceRoot)
     {
         List<string> output = new List<string>();
+        string normalizedRoot = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
         string[] lines = diff.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (string line in lines)
         {
@@ -97,7 +99,7 @@ internal static class AnalysisRunner
             }
 
             string fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, line));
-            if (File.Exists(fullPath))
+            if (fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
             {
                 output.Add(fullPath);
             }

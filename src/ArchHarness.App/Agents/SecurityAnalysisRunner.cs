@@ -48,14 +48,17 @@ internal static class SecurityAnalysisRunner
     private static IReadOnlyList<string> ResolveCandidateFiles(string diff, string workspaceRoot, IReadOnlyList<string> filesTouched)
     {
         HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string normalizedRoot = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
 
         foreach (string touched in filesTouched)
         {
             string fullPath = Path.IsPathRooted(touched)
-                ? touched
+                ? Path.GetFullPath(touched)
                 : Path.GetFullPath(Path.Combine(workspaceRoot, touched));
 
-            if (File.Exists(fullPath) && IsCandidateFile(fullPath))
+            if (fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(fullPath) && IsCandidateFile(fullPath))
             {
                 files.Add(fullPath);
             }
@@ -64,7 +67,8 @@ internal static class SecurityAnalysisRunner
         foreach (string line in diff.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             string fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, line));
-            if (File.Exists(fullPath) && IsCandidateFile(fullPath))
+            if (fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(fullPath) && IsCandidateFile(fullPath))
             {
                 files.Add(fullPath);
             }

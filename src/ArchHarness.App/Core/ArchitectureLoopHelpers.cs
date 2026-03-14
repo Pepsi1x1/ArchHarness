@@ -21,8 +21,12 @@ internal static class ArchitectureLoopHelpers
 
         return Directory
             .EnumerateFiles(workspaceRoot, "*.*", SearchOption.AllDirectories)
-            .Where(path => !path.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) &&
-                           !path.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase))
+            .Where(path =>
+            {
+                string normalized = path.Replace('\\', '/');
+                return !normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
+                    && !normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase);
+            })
             .Where(path => extensions.Contains(Path.GetExtension(path)))
             .Select(path => Path.GetRelativePath(workspaceRoot, path))
             .ToArray();

@@ -22,15 +22,19 @@ public static partial class Redaction
         string output = JsonSecretValueRegex().Replace(text, "$1***REDACTED***$2");
         output = EnvSecretValueRegex().Replace(output, "$1=***REDACTED***");
         output = GitHubTokenRegex().Replace(output, "***REDACTED***");
+        output = BearerTokenRegex().Replace(output, "$1***REDACTED***");
         return output;
     }
 
-    [GeneratedRegex(@"(?i)(""(?:password|secret|token|api[_-]?key)""\s*:\s*"")[^""]*("")")]
+    [GeneratedRegex(@"(?i)(""(?:password|secret|token|api[_-]?key|connectionstring|client[_-]?secret)""\s*:\s*"")[^""]*("")")]
     private static partial Regex JsonSecretValueRegex();
 
-    [GeneratedRegex(@"(?i)(password|secret|token|api[_-]?key)\s*=\s*[^\s,;]+")]
+    [GeneratedRegex(@"(?i)(password|secret|token|api[_-]?key|connectionstring|client[_-]?secret)\s*=\s*[^\s,;]+")]
     private static partial Regex EnvSecretValueRegex();
 
     [GeneratedRegex("gh[pousr]_[A-Za-z0-9_]{16,}")]
     private static partial Regex GitHubTokenRegex();
+
+    [GeneratedRegex(@"(?i)(Bearer\s+)[A-Za-z0-9\-._~+/]+=*")]
+    private static partial Regex BearerTokenRegex();
 }
