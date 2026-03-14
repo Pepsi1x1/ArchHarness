@@ -1,5 +1,6 @@
 using ArchHarness.App.Core;
 using ArchHarness.App.Tests.TestHelpers;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Tests.Core;
 
@@ -367,5 +368,85 @@ public sealed class ExecutionPlanParserTests
         {
             CleanupTempWorkspace(workspaceRoot);
         }
+    }
+
+    /// <summary>
+    /// Disabled review agents should not be auto-injected into a build-only plan.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_DisabledSecurityAndArchitecture_DoesNotInjectThem()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            ExecutionPlanParser parser = CreateParser(options =>
+            {
+                options.Security.UseInReviewLoop = false;
+                options.Architecture.UseInReviewLoop = false;
+            });
+
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"Build","objective":"Run the solution build and summarize failures"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 1, "reviewRequired": true},
+                    "completionCriteria": ["Build status summarized"]
+                }
+                """;
+
+            bool result = parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.Equal(new[] { "Build", "CodingStyle" }, plan.Steps.Select(step => step.Agent).ToArray());
+            Assert.False(plan.IterationStrategy.ReviewRequired);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
+    /// Explicit disabled review steps should be removed during normalization.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_DisabledSecurity_RemovesExplicitSecurityStep()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            ExecutionPlanParser parser = CreateParser(options => options.Security.UseInReviewLoop = false);
+
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature X"},
+                        {"id":2,"agent":"CodingStyle","objective":"Review and enforce coding style"},
+                        {"id":3,"agent":"Security","objective":"Review and enforce security"},
+                        {"id":4,"agent":"Architecture","objective":"Review and enforce architecture"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Build passes"]
+                }
+                """;
+
+            bool result = parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.DoesNotContain(plan.Steps, step => step.Agent == "Security");
+            Assert.Contains(plan.Steps, step => step.Agent == "Architecture");
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    private static ExecutionPlanParser CreateParser(Action<AgentsOptions> configure)
+    {
+        AgentsOptions options = new AgentsOptions();
+        configure(options);
+        return new ExecutionPlanParser(new WorkspaceContextAnalyzer(), Options.Create(options));
     }
 }

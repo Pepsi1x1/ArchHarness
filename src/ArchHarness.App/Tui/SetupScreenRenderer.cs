@@ -26,6 +26,7 @@ public static class SetupScreenRenderer
                 ("Workspace", request.WorkspacePath),
                 ("Mode", request.WorkspaceMode),
                 ("Permissions", request.PermissionHandlerMode),
+                ("Review Agents", request.ReviewLoopAgents?.DescribeEnabledAgents() ?? "configured defaults"),
                 ("Workflow", "auto (orchestrator-driven)")
             ]);
 

@@ -167,6 +167,9 @@ internal static class SetupFormRenderer
         {
             "WorkspacePath"        => "W",
             "WorkspaceMode"        => "M",
+            "ReviewLoopCodingStyleEnabled" => "C",
+            "ReviewLoopSecurityEnabled" => "S",
+            "ReviewLoopArchitectureEnabled" => "R",
             "ArchitectureLoopMode" => "A",
             "ArchitectureLoopPrompt" => "P",
             _                      => ">",

@@ -28,16 +28,19 @@ public sealed class OrchestrationAgent : AgentBase
         }
 
         Constraints:
-        - The harness auto-injects CodingStyle, Security, and Architecture review steps by default after implementation or build work when they are omitted.
+        - Enabled review/enforcement agents for this run: {{EnabledReviewLoopAgents}}.
+        - Disabled review/enforcement agents for this run: {{DisabledReviewLoopAgents}}.
+        - The harness auto-injects only enabled review steps after implementation or build work when they are omitted.
         - Include FrontendDeveloper when UI/UX work is implied.
         - Include BackendDeveloper when backend or middle-tier implementation is implied.
         - Use Build for baseline, intermediate, or final validation build execution and build-result triage.
         - Do not ask FrontendDeveloper or BackendDeveloper to run baseline or validation builds.
-        - CodingStyle, Security, and Architecture are review/enforcement steps when explicitly included.
-        - CodingStyle must execute before Security.
-        - Security must execute before Architecture.
-        - Architecture must be a single final review/enforcement step only.
-        - When a final validation build is needed, represent it as a Build step that depends on Architecture and runs after all review/enforcement steps.
+        - CodingStyle, Security, and Architecture are review/enforcement steps when explicitly included and enabled.
+        - Never include a disabled review/enforcement agent in steps.
+        - When CodingStyle and Security are both enabled, CodingStyle must execute before Security.
+        - When Security and Architecture are both enabled, Security must execute before Architecture.
+        - When Architecture is enabled, it must be a single final review/enforcement step only.
+        - When a final validation build is needed, represent it as a Build step that depends on the last enabled review/enforcement step and runs after all enabled review/enforcement steps.
         - Never use Architecture for solution design/spec generation/planning.
         - Never use CodingStyle for solution design/spec generation/planning.
         - Never use Security for solution design/spec generation/planning.
@@ -48,9 +51,10 @@ public sealed class OrchestrationAgent : AgentBase
         - All filesystem paths in objectives must be under WorkspaceRoot.
         - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
         - Use as many steps as necessary; do not pad or compress the plan to hit a target step count.
-        - completionCriteria must include coding style, security, architecture, and build verification.
+        - completionCriteria should match the enabled review agents for this run plus build verification:
+        {{ReviewLoopCompletionCriteria}}
         - Each objective must be a concrete delegated prompt the target agent can execute directly.
-        - If ArchitectureLoopMode is true, Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
+        - If ArchitectureLoopMode is true, enabled Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
 
         TaskPrompt: {{TaskPrompt}}
         WorkspaceRoot: {{WorkspaceRoot}}
@@ -61,8 +65,8 @@ public sealed class OrchestrationAgent : AgentBase
         """;
     private const string ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK = """
         You are the orchestration planner.
-        Generate a single delegated prompt for the Architecture agent.
-        Focus only on remediation actions from architecture review.
+        Generate a single delegated prompt for the enabled review-loop agents.
+        Focus only on remediation actions from the active review findings.
         Return plain text only (no markdown, no JSON).
 
         Iteration: {{Iteration}}
@@ -74,6 +78,8 @@ public sealed class OrchestrationAgent : AgentBase
         """;
 
     private readonly IExecutionPlanParser _executionPlanParser;
+    private readonly AgentsOptions _agentsOptions;
+    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationAgent"/> class.
@@ -83,9 +89,12 @@ public sealed class OrchestrationAgent : AgentBase
         IModelResolver modelResolver,
         IAgentToolPolicyProvider toolPolicyProvider,
         IOptions<AgentsOptions> agentsOptions,
+        IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor,
         IExecutionPlanParser executionPlanParser)
         : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "orchestration", Guid.NewGuid().ToString("N"))
     {
+        this._agentsOptions = agentsOptions.Value;
+        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
         this._executionPlanParser = executionPlanParser;
     }
 
@@ -116,6 +125,9 @@ public sealed class OrchestrationAgent : AgentBase
         bool architectureLoopMode = request.ArchitectureLoopMode;
         string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? "(none)";
         string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, architectureLoopMode);
+        ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents
+            ?? this._reviewLoopAgentSelectionAccessor.Current
+            ?? this._agentsOptions.GetReviewLoopAgentSelection();
 
         string planningTemplate = PromptLoader.Load("Orchestration", "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
         string planningPrompt = PromptLoader.Render(
@@ -125,7 +137,10 @@ public sealed class OrchestrationAgent : AgentBase
             ("{{WorkspaceMode}}", request.WorkspaceMode),
             ("{{BuildCommand}}", buildCommand),
             ("{{ArchitectureLoopMode}}", architectureLoopMode.ToString()),
-            ("{{ArchitectureLoopPrompt}}", architectureLoopPrompt));
+            ("{{ArchitectureLoopPrompt}}", architectureLoopPrompt),
+            ("{{EnabledReviewLoopAgents}}", reviewLoopAgents.DescribeEnabledAgents()),
+            ("{{DisabledReviewLoopAgents}}", reviewLoopAgents.DescribeDisabledAgents()),
+            ("{{ReviewLoopCompletionCriteria}}", string.Join(Environment.NewLine, reviewLoopAgents.BuildCompletionCriteria().Select(x => $"- {x}"))));
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
         const int MAX_PLANNING_ATTEMPTS = 3;
@@ -149,7 +164,7 @@ public sealed class OrchestrationAgent : AgentBase
             if (this._executionPlanParser.TryBuildExecutionPlan(lastResponse, workspaceRoot, out ExecutionPlan parsedPlan, out lastValidationError))
             {
                 return request.ArchitectureLoopMode
-                    ? ApplyArchitectureLoopMode(parsedPlan, request)
+                    ? ApplyArchitectureLoopMode(parsedPlan, request, reviewLoopAgents)
                     : parsedPlan;
             }
         }
@@ -244,12 +259,16 @@ public sealed class OrchestrationAgent : AgentBase
             agentRole: agentRole ?? base.Role,
             cancellationToken);
 
-        bool hasHighFindings = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-        bool hasHighSecurityFindings = request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        ReviewLoopAgentSelection reviewLoopAgents = this._reviewLoopAgentSelectionAccessor.Current
+            ?? this._agentsOptions.GetReviewLoopAgentSelection();
+        bool hasHighFindings = reviewLoopAgents.ArchitectureEnabled
+            && request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        bool hasHighSecurityFindings = reviewLoopAgents.SecurityEnabled
+            && request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         return !hasHighFindings && !hasHighSecurityFindings;
     }
 
-    private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request)
+    private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, ReviewLoopAgentSelection reviewLoopAgents)
     {
         if (!request.ArchitectureLoopMode)
         {
@@ -258,7 +277,7 @@ public sealed class OrchestrationAgent : AgentBase
 
         IterationStrategy loopIteration = new IterationStrategy(
             MaxIterations: Math.Max(2, plan.IterationStrategy.MaxIterations),
-            ReviewRequired: true);
+            ReviewRequired: reviewLoopAgents.AnyFindingReviewEnabled);
 
         IReadOnlyList<ExecutionPlanStep> updatedSteps = plan.Steps
             .Select(step => step.Agent is "Architecture" or "Security"

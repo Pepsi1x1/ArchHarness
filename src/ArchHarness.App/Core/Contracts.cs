@@ -22,6 +22,7 @@ internal static class WellKnownSources
 /// <param name="ModelOverrides">Optional per-agent model override mappings.</param>
 /// <param name="BuildCommand">Optional build command to execute for validation.</param>
 /// <param name="PermissionHandlerMode">Permission approval mode used for Copilot session tool requests.</param>
+/// <param name="ReviewLoopAgents">Optional per-run review-loop agent selection override.</param>
 /// <param name="ArchitectureLoopMode">When true, enables iterative architecture review over the entire workspace.</param>
 /// <param name="ArchitectureLoopPrompt">Optional supplementary prompt applied during architecture loop iterations.</param>
 public sealed record RunRequest(
@@ -33,6 +34,7 @@ public sealed record RunRequest(
     IDictionary<string, string>? ModelOverrides,
     string? BuildCommand,
     string PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
+    ReviewLoopAgentSelection? ReviewLoopAgents = null,
     bool ArchitectureLoopMode = false,
     string? ArchitectureLoopPrompt = null
 );

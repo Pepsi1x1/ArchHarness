@@ -96,3 +96,33 @@ public sealed class PermissionHandlerModeAccessor : IPermissionHandlerModeAccess
         CURRENT_PERMISSION_HANDLER_MODE.Value = mode;
     }
 }
+
+/// <summary>
+/// Provides access to the current review-loop agent selection for the executing async flow.
+/// </summary>
+public interface IReviewLoopAgentSelectionAccessor
+{
+    /// <summary>Gets the current review-loop agent selection, or null if unset.</summary>
+    ReviewLoopAgentSelection? Current { get; }
+
+    /// <summary>Sets or clears the current review-loop agent selection.</summary>
+    /// <param name="selection">The review-loop agent selection to set, or null to clear.</param>
+    void SetCurrent(ReviewLoopAgentSelection? selection);
+}
+
+/// <summary>
+/// AsyncLocal-backed implementation of <see cref="IReviewLoopAgentSelectionAccessor"/>.
+/// </summary>
+public sealed class ReviewLoopAgentSelectionAccessor : IReviewLoopAgentSelectionAccessor
+{
+    private static readonly AsyncLocal<ReviewLoopAgentSelection?> CURRENT_REVIEW_LOOP_AGENT_SELECTION = new AsyncLocal<ReviewLoopAgentSelection?>();
+
+    /// <inheritdoc />
+    public ReviewLoopAgentSelection? Current => CURRENT_REVIEW_LOOP_AGENT_SELECTION.Value;
+
+    /// <inheritdoc />
+    public void SetCurrent(ReviewLoopAgentSelection? selection)
+    {
+        CURRENT_REVIEW_LOOP_AGENT_SELECTION.Value = selection;
+    }
+}

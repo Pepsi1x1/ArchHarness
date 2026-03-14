@@ -79,6 +79,24 @@ internal static class SetupNavigator
             return true;
         }
 
+        if (field.Id == "ReviewLoopCodingStyleEnabled")
+        {
+            draft.ReviewLoopCodingStyleEnabled = !draft.ReviewLoopCodingStyleEnabled;
+            return true;
+        }
+
+        if (field.Id == "ReviewLoopSecurityEnabled")
+        {
+            draft.ReviewLoopSecurityEnabled = !draft.ReviewLoopSecurityEnabled;
+            return true;
+        }
+
+        if (field.Id == "ReviewLoopArchitectureEnabled")
+        {
+            draft.ReviewLoopArchitectureEnabled = !draft.ReviewLoopArchitectureEnabled;
+            return true;
+        }
+
         if (field.Id == "ArchitectureLoopMode")
         {
             draft.ArchitectureLoopMode = !draft.ArchitectureLoopMode;

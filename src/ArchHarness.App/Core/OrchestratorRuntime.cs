@@ -10,9 +10,11 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class OrchestratorRuntime
 {
+    private readonly AgentsOptions _agentsOptions;
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
     private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
+    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
     private readonly RunInfrastructure _runInfrastructure;
     private readonly RunPhaseDependencies _runPhases;
     private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
@@ -23,14 +25,18 @@ public sealed class OrchestratorRuntime
     public OrchestratorRuntime(
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
+        Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions,
         IPermissionHandlerModeAccessor permissionHandlerModeAccessor,
+        IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor,
         RunInfrastructure runInfrastructure,
         RunPhaseDependencies runPhases,
         IWorkspaceRootAccessor workspaceRootAccessor)
     {
+        this._agentsOptions = agentsOptions.Value;
         this._agentDependencies = agentDependencies;
         this._copilotClient = copilotClient;
         this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
+        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
         this._runInfrastructure = runInfrastructure;
         this._runPhases = runPhases;
         this._workspaceRootAccessor = workspaceRootAccessor;
@@ -62,6 +68,8 @@ public sealed class OrchestratorRuntime
         string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
         this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(request.PermissionHandlerMode));
+        ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents ?? this._agentsOptions.GetReviewLoopAgentSelection();
+        this._reviewLoopAgentSelectionAccessor.SetCurrent(reviewLoopAgents);
         this._workspaceRootAccessor.SetCurrent(adapter.RootPath);
         this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -82,6 +90,7 @@ public sealed class OrchestratorRuntime
                 projectName = request.ProjectName,
                 buildCommand = request.BuildCommand,
                 permissionHandlerMode = request.PermissionHandlerMode,
+                reviewLoopAgents,
                 modelOverrides = request.ModelOverrides
             }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
@@ -209,6 +218,7 @@ public sealed class OrchestratorRuntime
         finally
         {
             this._permissionHandlerModeAccessor.SetCurrent(null);
+            this._reviewLoopAgentSelectionAccessor.SetCurrent(null);
             this._runInfrastructure.RunContextAccessor.SetCurrent(null);
             this._workspaceRootAccessor.SetCurrent(null);
         }

@@ -1,6 +1,6 @@
 You are the orchestration planner.
-Generate a single delegated prompt for the Architecture agent.
-Focus only on remediation actions from architecture review.
+Generate a single delegated prompt for the enabled review-loop agents.
+Focus only on remediation actions from the active review findings.
 Return plain text only (no markdown, no JSON).
 
 Iteration: {{Iteration}}

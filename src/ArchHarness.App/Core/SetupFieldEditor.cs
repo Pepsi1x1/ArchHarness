@@ -29,7 +29,7 @@ internal static class SetupFieldEditor
     /// <param name="draft">The draft to update.</param>
     public static void ApplyEdit(string fieldId, SetupDraft draft)
     {
-        if (fieldId == "WorkspaceMode" || fieldId == "PermissionHandlerMode" || fieldId == "ArchitectureLoopMode")
+        if (fieldId == "WorkspaceMode" || fieldId == "PermissionHandlerMode" || fieldId == "ArchitectureLoopMode" || IsReviewLoopToggleField(fieldId))
         {
             if (fieldId == "WorkspaceMode")
             {
@@ -38,6 +38,18 @@ internal static class SetupFieldEditor
             else if (fieldId == "PermissionHandlerMode")
             {
                 draft.PermissionHandlerMode = PermissionHandlerModes.Next(draft.PermissionHandlerMode, 1);
+            }
+            else if (fieldId == "ReviewLoopCodingStyleEnabled")
+            {
+                draft.ReviewLoopCodingStyleEnabled = !draft.ReviewLoopCodingStyleEnabled;
+            }
+            else if (fieldId == "ReviewLoopSecurityEnabled")
+            {
+                draft.ReviewLoopSecurityEnabled = !draft.ReviewLoopSecurityEnabled;
+            }
+            else if (fieldId == "ReviewLoopArchitectureEnabled")
+            {
+                draft.ReviewLoopArchitectureEnabled = !draft.ReviewLoopArchitectureEnabled;
             }
             else
             {
@@ -108,6 +120,9 @@ internal static class SetupFieldEditor
 
         fields.Add(new SetupField("__section__Advanced", "Advanced", ""));
         fields.Add(new SetupField("PermissionHandlerMode", "Permissions", PermissionHandlerModes.Normalize(draft.PermissionHandlerMode)));
+        fields.Add(new SetupField("ReviewLoopCodingStyleEnabled", "Review Style", draft.ReviewLoopCodingStyleEnabled ? "on" : "off"));
+        fields.Add(new SetupField("ReviewLoopSecurityEnabled", "Review Security", draft.ReviewLoopSecurityEnabled ? "on" : "off"));
+        fields.Add(new SetupField("ReviewLoopArchitectureEnabled", "Review Architecture", draft.ReviewLoopArchitectureEnabled ? "on" : "off"));
         fields.Add(new SetupField("ArchitectureLoopMode", "Arch Loop Mode", draft.ArchitectureLoopMode ? "on" : "off"));
 
         if (draft.ArchitectureLoopMode)
@@ -141,9 +156,16 @@ internal static class SetupFieldEditor
             ModelOverrides: CliArgumentParser.ParseOverrides(draft.ModelOverrides),
             BuildCommand: null,
             PermissionHandlerMode: PermissionHandlerModes.Normalize(draft.PermissionHandlerMode),
+            ReviewLoopAgents: new ReviewLoopAgentSelection(
+                CodingStyleEnabled: draft.ReviewLoopCodingStyleEnabled,
+                SecurityEnabled: draft.ReviewLoopSecurityEnabled,
+                ArchitectureEnabled: draft.ReviewLoopArchitectureEnabled),
             ArchitectureLoopMode: draft.ArchitectureLoopMode,
             ArchitectureLoopPrompt: string.IsNullOrWhiteSpace(draft.ArchitectureLoopPrompt) ? null : draft.ArchitectureLoopPrompt);
     }
+
+    private static bool IsReviewLoopToggleField(string fieldId)
+        => fieldId is "ReviewLoopCodingStyleEnabled" or "ReviewLoopSecurityEnabled" or "ReviewLoopArchitectureEnabled";
 
     private static string ResolveTaskPrompt(SetupDraft draft)
     {

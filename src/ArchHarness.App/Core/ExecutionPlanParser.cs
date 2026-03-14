@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
 
@@ -17,14 +18,18 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     private const string ARCHITECTURE_AGENT_NAME = "Architecture";
 
     private readonly IWorkspaceContextAnalyzer _workspaceContext;
+    private readonly ReviewLoopAgentSelection _defaultReviewLoopAgents;
+    private readonly IReviewLoopAgentSelectionAccessor? _reviewLoopAgentSelectionAccessor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExecutionPlanParser"/> class.
     /// </summary>
     /// <param name="workspaceContext">Analyzer for workspace language detection and objective enforcement.</param>
-    public ExecutionPlanParser(IWorkspaceContextAnalyzer workspaceContext)
+    public ExecutionPlanParser(IWorkspaceContextAnalyzer workspaceContext, IOptions<AgentsOptions>? agentsOptions = null, IReviewLoopAgentSelectionAccessor? reviewLoopAgentSelectionAccessor = null)
     {
         this._workspaceContext = workspaceContext;
+        this._defaultReviewLoopAgents = (agentsOptions?.Value ?? new AgentsOptions()).GetReviewLoopAgentSelection();
+        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
     }
 
     /// <summary>
@@ -39,6 +44,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     {
         plan = default!;
         validationError = null;
+        ReviewLoopAgentSelection reviewLoopAgents = this._reviewLoopAgentSelectionAccessor?.Current ?? this._defaultReviewLoopAgents;
 
         string? json = ExtractJson(raw);
         if (string.IsNullOrWhiteSpace(json))
@@ -58,14 +64,14 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 return false;
             }
 
-            if (!TryParseAndNormalizeSteps(root, workspaceRoot, out List<ExecutionPlanStep> steps, out string? stepError))
+            if (!TryParseAndNormalizeSteps(root, workspaceRoot, reviewLoopAgents, out List<ExecutionPlanStep> steps, out string? stepError))
             {
                 validationError = stepError;
                 return false;
             }
 
-            IterationStrategy iteration = ParseIterationStrategy(root);
-            List<string> criteria = ParseCompletionCriteria(root);
+            IterationStrategy iteration = ParseIterationStrategy(root, reviewLoopAgents);
+            List<string> criteria = ParseCompletionCriteria(root, reviewLoopAgents);
             plan = new ExecutionPlan(steps, iteration, criteria);
             return true;
         }
@@ -199,26 +205,31 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     /// <param name="steps">The unordered list of execution plan steps.</param>
     /// <param name="workspaceLanguages">The detected workspace languages for fallback assignment.</param>
     /// <returns>The reordered steps with corrected IDs and dependencies.</returns>
-    public List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages)
+    public List<ExecutionPlanStep> NormalizeStepOrdering(List<ExecutionPlanStep> steps, IReadOnlyList<string> workspaceLanguages, ReviewLoopAgentSelection? reviewLoopAgents = null)
     {
+        reviewLoopAgents ??= this._reviewLoopAgentSelectionAccessor?.Current ?? this._defaultReviewLoopAgents;
+
         List<ExecutionPlanStep> terminalValidationBuilds = steps
             .Where(IsTerminalValidationBuildStep)
             .ToList();
         List<ExecutionPlanStep> nonTerminalSteps = steps
             .Where(s => !IsTerminalValidationBuildStep(s))
             .ToList();
-        List<ExecutionPlanStep> nonReview = nonTerminalSteps
-            .Where(s => s.Agent != ARCHITECTURE_AGENT_NAME && s.Agent != CODING_STYLE_AGENT_NAME && s.Agent != SECURITY_AGENT_NAME)
+        List<ExecutionPlanStep> enabledReviewSteps = nonTerminalSteps
+            .Where(s => IsReviewAgent(s.Agent) && reviewLoopAgents.IsEnabled(s.Agent))
             .ToList();
-        List<ExecutionPlanStep> codingStyle = nonTerminalSteps
+        List<ExecutionPlanStep> nonReview = nonTerminalSteps
+            .Where(s => !IsReviewAgent(s.Agent))
+            .ToList();
+        List<ExecutionPlanStep> codingStyle = enabledReviewSteps
             .Where(s => s.Agent == CODING_STYLE_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
-        List<ExecutionPlanStep> security = nonTerminalSteps
+        List<ExecutionPlanStep> security = enabledReviewSteps
             .Where(s => s.Agent == SECURITY_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
-        List<ExecutionPlanStep> architecture = nonTerminalSteps
+        List<ExecutionPlanStep> architecture = enabledReviewSteps
             .Where(s => s.Agent == ARCHITECTURE_AGENT_NAME)
             .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
             .ToList();
@@ -228,7 +239,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             return steps;
         }
 
-        if (codingStyle.Count == 0)
+        if (reviewLoopAgents.CodingStyleEnabled && codingStyle.Count == 0)
         {
             codingStyle.Add(new ExecutionPlanStep(
                 Id: -1,
@@ -238,7 +249,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 Languages: workspaceLanguages));
         }
 
-        if (security.Count == 0)
+        if (reviewLoopAgents.SecurityEnabled && security.Count == 0)
         {
             security.Add(new ExecutionPlanStep(
                 Id: -2,
@@ -248,7 +259,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 Languages: workspaceLanguages));
         }
 
-        if (architecture.Count == 0)
+        if (reviewLoopAgents.ArchitectureEnabled && architecture.Count == 0)
         {
             architecture.Add(new ExecutionPlanStep(
                 Id: -3,
@@ -258,34 +269,45 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 Languages: workspaceLanguages));
         }
 
-        ExecutionPlanStep finalCodingStyle = codingStyle[^1] with
+        List<ExecutionPlanStep> reviewSteps = new List<ExecutionPlanStep>();
+        if (codingStyle.Count > 0)
         {
-            Languages = codingStyle[^1].Languages is { Count: > 0 }
-                ? codingStyle[^1].Languages
-                : workspaceLanguages
-        };
+            reviewSteps.Add(codingStyle[^1] with
+            {
+                Languages = codingStyle[^1].Languages is { Count: > 0 }
+                    ? codingStyle[^1].Languages
+                    : workspaceLanguages,
+                Id = -1,
+                DependsOnStepIds = null
+            });
+        }
 
-        ExecutionPlanStep finalArchitecture = architecture[^1] with
+        if (security.Count > 0)
         {
-            Languages = architecture[^1].Languages is { Count: > 0 }
-                ? architecture[^1].Languages
-                : workspaceLanguages
-        };
+            reviewSteps.Add(security[^1] with
+            {
+                Languages = security[^1].Languages is { Count: > 0 }
+                    ? security[^1].Languages
+                    : workspaceLanguages,
+                Id = -2,
+                DependsOnStepIds = null
+            });
+        }
 
-        ExecutionPlanStep finalSecurity = security[^1] with
+        if (architecture.Count > 0)
         {
-            Languages = security[^1].Languages is { Count: > 0 }
-                ? security[^1].Languages
-                : workspaceLanguages
-        };
+            reviewSteps.Add(architecture[^1] with
+            {
+                Languages = architecture[^1].Languages is { Count: > 0 }
+                    ? architecture[^1].Languages
+                    : workspaceLanguages,
+                Id = -3,
+                DependsOnStepIds = null
+            });
+        }
 
         List<ExecutionPlanStep> reordered = nonReview
-            .Concat(new[]
-            {
-                finalCodingStyle with { Id = -1, DependsOnStepIds = null },
-                finalSecurity with { Id = -2, DependsOnStepIds = null },
-                finalArchitecture with { Id = -3, DependsOnStepIds = null }
-            })
+            .Concat(reviewSteps)
             .Concat(terminalValidationBuilds.Select((step, index) => step with { Id = -100 - index, DependsOnStepIds = null }))
             .ToList();
 
@@ -402,6 +424,9 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         return reordered;
     }
 
+    private static bool IsReviewAgent(string agent)
+        => agent == CODING_STYLE_AGENT_NAME || agent == SECURITY_AGENT_NAME || agent == ARCHITECTURE_AGENT_NAME;
+
     private static bool IsTerminalValidationBuildStep(ExecutionPlanStep step)
     {
         if (step.Agent != BUILD_AGENT_NAME)
@@ -435,7 +460,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         return null;
     }
 
-    private bool TryParseAndNormalizeSteps(JsonElement root, string workspaceRoot, out List<ExecutionPlanStep> steps, out string? error)
+    private bool TryParseAndNormalizeSteps(JsonElement root, string workspaceRoot, ReviewLoopAgentSelection reviewLoopAgents, out List<ExecutionPlanStep> steps, out string? error)
     {
         steps = new List<ExecutionPlanStep>();
         error = null;
@@ -464,7 +489,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             return false;
         }
 
-        steps = this.NormalizeStepOrdering(steps, workspaceLanguages);
+        steps = this.NormalizeStepOrdering(steps, workspaceLanguages, reviewLoopAgents);
         return true;
     }
 
@@ -496,12 +521,12 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             || s.Agent == BACKEND_DEVELOPER_AGENT_NAME
             || s.Agent == BUILD_AGENT_NAME);
 
-    private static IterationStrategy ParseIterationStrategy(JsonElement root)
+    private IterationStrategy ParseIterationStrategy(JsonElement root, ReviewLoopAgentSelection reviewLoopAgents)
     {
         IterationStrategy iteration = new IterationStrategy(MaxIterations: 2, ReviewRequired: true);
         if (!root.TryGetProperty("iterationStrategy", out JsonElement itEl))
         {
-            return iteration;
+            return iteration with { ReviewRequired = iteration.ReviewRequired && reviewLoopAgents.AnyFindingReviewEnabled };
         }
 
         int maxIterations = itEl.TryGetProperty("maxIterations", out JsonElement maxEl) && maxEl.TryGetInt32(out int val)
@@ -509,17 +534,12 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             : 2;
         bool reviewRequired = !itEl.TryGetProperty("reviewRequired", out JsonElement reviewEl) || reviewEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
             || reviewEl.GetBoolean();
-        return new IterationStrategy(maxIterations, reviewRequired);
+        return new IterationStrategy(maxIterations, reviewRequired && reviewLoopAgents.AnyFindingReviewEnabled);
     }
 
-    private static List<string> ParseCompletionCriteria(JsonElement root)
+    private List<string> ParseCompletionCriteria(JsonElement root, ReviewLoopAgentSelection reviewLoopAgents)
     {
-        List<string> criteria = new List<string>
-        {
-            "No high severity coding style findings",
-            "No high severity security findings",
-            "No high severity architecture findings"
-        };
+        List<string> criteria = reviewLoopAgents.BuildCompletionCriteria().ToList();
 
         if (!root.TryGetProperty("completionCriteria", out JsonElement criteriaEl) || criteriaEl.ValueKind != JsonValueKind.Array)
         {
@@ -539,9 +559,22 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         }
 
         criteria = parsedCriteria;
-        EnsureCriteriaContains(criteria, "coding style", "No high severity coding style findings");
-        EnsureCriteriaContains(criteria, "security", "No high severity security findings");
-        EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
+        if (reviewLoopAgents.CodingStyleEnabled)
+        {
+            EnsureCriteriaContains(criteria, "coding style", "Coding style enforcement completed");
+        }
+
+        if (reviewLoopAgents.SecurityEnabled)
+        {
+            EnsureCriteriaContains(criteria, "security", "No high severity security findings");
+        }
+
+        if (reviewLoopAgents.ArchitectureEnabled)
+        {
+            EnsureCriteriaContains(criteria, "architecture", "No high severity architecture findings");
+        }
+
+        EnsureCriteriaContains(criteria, "build", "Build passes");
         return criteria;
     }
 

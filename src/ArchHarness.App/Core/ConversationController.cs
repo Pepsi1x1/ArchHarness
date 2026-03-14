@@ -14,17 +14,19 @@ public sealed class ConversationController
     private readonly AgentsOptions _agentsOptions;
     private readonly IModelResolver _modelResolver;
     private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
+    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
     private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversationController"/> class.
     /// </summary>
-    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, IPermissionHandlerModeAccessor permissionHandlerModeAccessor, IWorkspaceRootAccessor workspaceRootAccessor)
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, IPermissionHandlerModeAccessor permissionHandlerModeAccessor, IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor, IWorkspaceRootAccessor workspaceRootAccessor)
     {
         this._summaryGenerator = summaryGenerator;
         this._agentsOptions = agentsOptions.Value;
         this._modelResolver = modelResolver;
         this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
+        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
         this._workspaceRootAccessor = workspaceRootAccessor;
     }
 
@@ -37,6 +39,7 @@ public sealed class ConversationController
         if (cliRequest is not null)
         {
             this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode));
+            this._reviewLoopAgentSelectionAccessor.SetCurrent(ResolveReviewLoopAgents(cliRequest, this._agentsOptions));
             this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
             this._modelResolver.ValidateConfiguredModelsOrThrow(cliRequest.ModelOverrides);
             string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
@@ -44,12 +47,14 @@ public sealed class ConversationController
         }
 
         RunRequest requestInteractive = BuildInteractiveRequest(
+            this._agentsOptions.GetReviewLoopAgentSelection(),
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             CliArgumentParser.NormalizeArchitectureLoopPrompt(this._agentsOptions.Architecture.ArchitectureLoopPrompt));
 
         Console.Clear();
         Console.WriteLine("Preparing run configuration...");
         this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode));
+        this._reviewLoopAgentSelectionAccessor.SetCurrent(ResolveReviewLoopAgents(requestInteractive, this._agentsOptions));
         this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
         this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
         Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");
@@ -79,7 +84,7 @@ public sealed class ConversationController
         return (requestInteractive, summary);
     }
 
-    private static RunRequest BuildInteractiveRequest(bool architectureLoopMode, string? architectureLoopPrompt)
+    private static RunRequest BuildInteractiveRequest(ReviewLoopAgentSelection reviewLoopAgents, bool architectureLoopMode, string? architectureLoopPrompt)
     {
         if (Console.IsInputRedirected)
         {
@@ -93,6 +98,9 @@ public sealed class ConversationController
             WorkspacePath = Directory.GetCurrentDirectory(),
             WorkspaceMode = EXISTING_FOLDER_MODE,
             PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
+            ReviewLoopCodingStyleEnabled = reviewLoopAgents.CodingStyleEnabled,
+            ReviewLoopSecurityEnabled = reviewLoopAgents.SecurityEnabled,
+            ReviewLoopArchitectureEnabled = reviewLoopAgents.ArchitectureEnabled,
             ArchitectureLoopMode = architectureLoopMode,
             ArchitectureLoopPrompt = architectureLoopPrompt
         };
@@ -167,4 +175,7 @@ public sealed class ConversationController
 
     private static string ResolveWorkspaceRoot(string workspacePath)
         => Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath));
+
+    private static ReviewLoopAgentSelection ResolveReviewLoopAgents(RunRequest request, AgentsOptions agentsOptions)
+        => request.ReviewLoopAgents ?? agentsOptions.GetReviewLoopAgentSelection();
 }
