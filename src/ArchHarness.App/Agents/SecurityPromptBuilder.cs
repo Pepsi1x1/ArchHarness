@@ -29,36 +29,6 @@ internal static class SecurityPromptBuilder
             """;
 
     /// <summary>
-    /// Builds the enforcement prompt sent as the user message for security review.
-    /// </summary>
-    /// <param name="delegatedPrompt">The delegated prompt from the orchestrator.</param>
-    /// <param name="workspaceRoot">The workspace root path.</param>
-    /// <param name="filesTouched">Files modified during the run.</param>
-    /// <param name="diff">The current diff snapshot.</param>
-    /// <returns>The enforcement prompt text.</returns>
-    public static string BuildEnforcementPrompt(
-        string delegatedPrompt,
-        string workspaceRoot,
-        IReadOnlyList<string> filesTouched,
-        string diff)
-    {
-        string touched = filesTouched.Count == 0 ? "(none)" : string.Join(", ", filesTouched);
-        string diffPreview = diff.Length <= 4000 ? diff : diff[..4000];
-
-        return $"""
-            WorkspaceRoot: {workspaceRoot}
-            Write boundaries: You may modify any file or directory under WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
-
-            DelegatedPrompt:
-            {delegatedPrompt}
-
-            FilesTouched: {touched}
-            CurrentDiffSnapshot:
-            {diffPreview}
-            """;
-    }
-
-    /// <summary>
     /// Resolves the language label and matching guideline text for the given workspace context.
     /// </summary>
     /// <param name="workspaceRoot">The workspace root path.</param>

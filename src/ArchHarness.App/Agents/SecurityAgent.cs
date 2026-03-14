@@ -37,7 +37,7 @@ public sealed class SecurityAgent : AgentBase
             request.Diff,
             request.LanguageScope);
         string systemPrompt = SecurityPromptBuilder.BuildSystemPrompt(guidelines, languageLabel);
-        string enforcementPrompt = SecurityPromptBuilder.BuildEnforcementPrompt(
+        string enforcementPrompt = AgentPromptHelper.BuildEnforcementPrompt(
             request.DelegatedPrompt,
             request.WorkspaceRoot,
             request.FilesTouched,

@@ -37,7 +37,7 @@ public sealed class ArchitectureAgent : AgentBase
         (string languageLabel, string guidelines) = ArchitecturePromptBuilder.BuildGuidanceContext(
             request.WorkspaceRoot, request.FilesTouched, request.Diff, request.LanguageScope);
         string systemPrompt = ArchitecturePromptBuilder.BuildSystemPrompt(guidelines, languageLabel);
-        string enforcementPrompt = ArchitecturePromptBuilder.BuildEnforcementPrompt(
+        string enforcementPrompt = AgentPromptHelper.BuildEnforcementPrompt(
             request.DelegatedPrompt, request.WorkspaceRoot, request.FilesTouched, request.Diff);
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
