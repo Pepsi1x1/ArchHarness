@@ -48,29 +48,23 @@ internal static class SecurityAnalysisRunner
     private static IReadOnlyList<string> ResolveCandidateFiles(string diff, string workspaceRoot, IReadOnlyList<string> filesTouched)
     {
         HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        string normalizedRoot = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
+        string normalizedRoot = CandidateFileResolver.NormalizeRoot(workspaceRoot);
 
         foreach (string touched in filesTouched)
         {
-            string fullPath = Path.IsPathRooted(touched)
-                ? Path.GetFullPath(touched)
-                : Path.GetFullPath(Path.Combine(workspaceRoot, touched));
-
-            if (fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
-                && File.Exists(fullPath) && IsCandidateFile(fullPath))
+            string? resolved = CandidateFileResolver.TryResolve(touched, workspaceRoot, normalizedRoot);
+            if (resolved is not null && IsCandidateFile(resolved))
             {
-                files.Add(fullPath);
+                files.Add(resolved);
             }
         }
 
-        foreach (string line in diff.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (string line in CandidateFileResolver.SplitDiffLines(diff))
         {
-            string fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, line));
-            if (fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
-                && File.Exists(fullPath) && IsCandidateFile(fullPath))
+            string? resolved = CandidateFileResolver.TryResolve(line, workspaceRoot, normalizedRoot);
+            if (resolved is not null && IsCandidateFile(resolved))
             {
-                files.Add(fullPath);
+                files.Add(resolved);
             }
         }
 
@@ -86,11 +80,7 @@ internal static class SecurityAnalysisRunner
 
     private static bool IsCandidateFile(string path)
     {
-        string normalized = path.Replace('\\', '/');
-        if (normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/node_modules/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/.git/", StringComparison.OrdinalIgnoreCase))
+        if (CandidateFileResolver.IsExcludedDirectory(path))
         {
             return false;
         }

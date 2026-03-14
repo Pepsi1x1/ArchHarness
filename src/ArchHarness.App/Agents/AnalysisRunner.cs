@@ -80,28 +80,23 @@ internal static class AnalysisRunner
     internal static List<string> ResolveCandidateFiles(string diff, string workspaceRoot)
     {
         List<string> output = new List<string>();
-        string normalizedRoot = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        string[] lines = diff.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (string line in lines)
+        string normalizedRoot = CandidateFileResolver.NormalizeRoot(workspaceRoot);
+        foreach (string line in CandidateFileResolver.SplitDiffLines(diff))
         {
             if (!line.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            if (line.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("/bin/", StringComparison.OrdinalIgnoreCase) ||
-                line.Contains("/obj/", StringComparison.OrdinalIgnoreCase))
+            if (CandidateFileResolver.IsExcludedDirectory(line))
             {
                 continue;
             }
 
-            string fullPath = Path.GetFullPath(Path.Combine(workspaceRoot, line));
-            if (fullPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath))
+            string? resolved = CandidateFileResolver.TryResolve(line, workspaceRoot, normalizedRoot);
+            if (resolved is not null)
             {
-                output.Add(fullPath);
+                output.Add(resolved);
             }
         }
 
@@ -111,8 +106,7 @@ internal static class AnalysisRunner
         }
 
         return Directory.GetFiles(workspaceRoot, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains("\\bin\\", StringComparison.OrdinalIgnoreCase)
-                     && !f.Contains("\\obj\\", StringComparison.OrdinalIgnoreCase))
+            .Where(f => !CandidateFileResolver.IsExcludedDirectory(f))
             .ToList();
     }
 

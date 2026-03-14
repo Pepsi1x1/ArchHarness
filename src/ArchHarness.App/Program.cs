@@ -24,6 +24,7 @@ builder.Services.AddSingleton<IModelResolver, ModelResolver>();
 builder.Services.AddSingleton<IStartupPreflightValidator, CopilotStartupPreflightValidator>();
 builder.Services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
 builder.Services.AddSingleton<CopilotClientProvider>();
+builder.Services.AddSingleton<ICopilotClientProvider>(sp => sp.GetRequiredService<CopilotClientProvider>());
 builder.Services.AddSingleton<CopilotSessionFactory.CopilotSessionContext>();
 builder.Services.AddSingleton<ICopilotClient, CopilotClient>();
 builder.Services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStream>();

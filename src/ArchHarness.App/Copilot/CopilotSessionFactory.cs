@@ -33,7 +33,7 @@ public interface ICopilotSessionFactory
 public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDisposable
 {
     private readonly CopilotOptions _options;
-    private readonly CopilotClientProvider _clientProvider;
+    private readonly ICopilotClientProvider _clientProvider;
     private readonly ICopilotGovernancePolicy _governance;
     private readonly ICopilotUserInputBridge _userInputBridge;
     private readonly CopilotSessionContext _sessionContext;
@@ -53,7 +53,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     /// <param name="logger">Logger instance.</param>
     public CopilotSessionFactory(
         IOptions<CopilotOptions> options,
-        CopilotClientProvider clientProvider,
+        ICopilotClientProvider clientProvider,
         ICopilotGovernancePolicy governance,
         ICopilotUserInputBridge userInputBridge,
         CopilotSessionContext sessionContext,

@@ -10,8 +10,6 @@ public sealed class ConversationController
 {
     private const string EXISTING_FOLDER_MODE = "existing-folder";
 
-    private static string? _validationError;
-
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly AgentsOptions _agentsOptions;
 
@@ -97,6 +95,7 @@ public sealed class ConversationController
         };
 
         int selectedIndex = 0;
+        string? validationError = null;
         while (true)
         {
             List<SetupField> fields = SetupFieldEditor.BuildFields(draft);
@@ -105,9 +104,9 @@ public sealed class ConversationController
                 selectedIndex = fields.Count - 1;
             }
 
-            SetupFormRenderer.RenderSetupForm(fields, selectedIndex, _validationError);
+            SetupFormRenderer.RenderSetupForm(fields, selectedIndex, validationError);
             ConsoleKeyInfo key = Console.ReadKey(intercept: true);
-            _validationError = null;
+            validationError = null;
 
             if (SetupNavigator.TryHandleNavigation(key.Key, fields, ref selectedIndex))
             {
@@ -119,7 +118,7 @@ public sealed class ConversationController
                 continue;
             }
 
-            if (TryHandleActionKey(key.Key, fields[selectedIndex].Id, draft, out RunRequest? completedRequest))
+            if (TryHandleActionKey(key.Key, fields[selectedIndex].Id, draft, ref validationError, out RunRequest? completedRequest))
             {
                 if (completedRequest is not null)
                 {
@@ -131,7 +130,7 @@ public sealed class ConversationController
         }
     }
 
-    private static bool TryHandleActionKey(ConsoleKey key, string fieldId, SetupDraft draft, out RunRequest? completedRequest)
+    private static bool TryHandleActionKey(ConsoleKey key, string fieldId, SetupDraft draft, ref string? validationError, out RunRequest? completedRequest)
     {
         completedRequest = null;
 
@@ -147,7 +146,7 @@ public sealed class ConversationController
             string? errorFieldId = SetupFieldEditor.ValidateRequiredFields(draft);
             if (errorFieldId != null)
             {
-                _validationError = errorFieldId;
+                validationError = errorFieldId;
                 return true;
             }
 

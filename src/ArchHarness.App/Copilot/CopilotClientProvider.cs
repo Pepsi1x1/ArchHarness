@@ -4,9 +4,20 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.App.Copilot;
 
 /// <summary>
+/// Defines the contract for providing the initialized Copilot SDK client.
+/// </summary>
+public interface ICopilotClientProvider
+{
+    /// <summary>
+    /// Returns the initialized SDK client, awaiting startup if still in progress.
+    /// </summary>
+    Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync();
+}
+
+/// <summary>
 /// Manages the lifecycle of the underlying GitHub Copilot SDK client.
 /// </summary>
-public sealed class CopilotClientProvider : IAsyncDisposable
+public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDisposable
 {
     private readonly Task<GitHub.Copilot.SDK.CopilotClient> _clientTask;
 
