@@ -25,6 +25,8 @@ internal static class Program
         builder.Services.AddSingleton<IDesktopWindowLocator, DesktopWindowLocator>();
         builder.Services.AddSingleton<ICopilotUserInputBridge, DesktopCopilotUserInputBridge>();
         builder.Services.AddSingleton<IRunHistoryService, RunHistoryService>();
+        builder.Services.AddSingleton<AgentTranscriptAggregator>();
+        builder.Services.AddSingleton<RunStreamingCoordinator>();
         builder.Services.AddSingleton<MainWindowViewModel>();
         builder.Services.AddSingleton<MainWindow>();
 

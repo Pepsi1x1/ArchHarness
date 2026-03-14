@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Text;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
@@ -7,7 +6,7 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.Desktop.ViewModels;
 
 /// <summary>
-/// Primary view model for the desktop main window, managing run lifecycle, agent streaming,
+/// Primary view model for the desktop main window, managing run lifecycle,
 /// artifact inspection, and setup configuration.
 /// </summary>
 public sealed class MainWindowViewModel : ViewModelBase
@@ -17,12 +16,9 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     private readonly IRunHistoryService _runHistoryService;
     private readonly OrchestratorRuntime _runtime;
-    private readonly IAgentStreamEventStream _agentStreamEventStream;
-    private readonly ICopilotSessionEventStream _sessionEventStream;
+    private readonly RunStreamingCoordinator _streamingCoordinator;
     private readonly IStartupPreflightValidator _preflightValidator;
     private readonly SetupSummaryGenerator _summaryGenerator;
-    private readonly Dictionary<string, StringBuilder> _agentTranscripts = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
-    private readonly object _agentSync = new object();
     private string _workspacePath = Environment.CurrentDirectory;
     private string _taskPrompt = DEFAULT_TASK_PROMPT;
     private string _workflow = "auto";
@@ -53,8 +49,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         this._runHistoryService = null!;
         this._runtime = null!;
-        this._agentStreamEventStream = null!;
-        this._sessionEventStream = null!;
+        this._streamingCoordinator = null!;
         this._preflightValidator = null!;
         this._summaryGenerator = null!;
         this.RecentRuns = new ObservableCollection<RunSummaryViewModel>();
@@ -74,16 +69,14 @@ public sealed class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(
         IRunHistoryService runHistoryService,
         OrchestratorRuntime runtime,
-        IAgentStreamEventStream agentStreamEventStream,
-        ICopilotSessionEventStream sessionEventStream,
+        RunStreamingCoordinator streamingCoordinator,
         IStartupPreflightValidator preflightValidator,
         SetupSummaryGenerator summaryGenerator,
         IOptions<AgentsOptions> agentsOptions)
     {
         this._runHistoryService = runHistoryService;
         this._runtime = runtime;
-        this._agentStreamEventStream = agentStreamEventStream;
-        this._sessionEventStream = sessionEventStream;
+        this._streamingCoordinator = streamingCoordinator;
         this._preflightValidator = preflightValidator;
         this._summaryGenerator = summaryGenerator;
         this.RecentRuns = new ObservableCollection<RunSummaryViewModel>();
@@ -511,10 +504,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.SelectedArtifactPreview = "Artefacts will appear here once the run begins writing output.";
         this.AvailableAgents.Clear();
         this.SessionEvents.Clear();
-        lock (this._agentSync)
-        {
-            this._agentTranscripts.Clear();
-        }
+        this._streamingCoordinator.Transcripts.Clear();
 
         this.SelectedAgent = null;
         this.SelectedAgentTranscript = "Waiting for agent output...";
@@ -531,8 +521,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
 
         this._runCts = new CancellationTokenSource();
-        Task agentStreamTask = this.ConsumeAgentStreamAsync(this._runCts.Token);
-        Task sessionEventTask = this.ConsumeSessionEventsAsync(this._runCts.Token);
+        Task agentStreamTask = this._streamingCoordinator.ConsumeAgentStreamAsync(this.OnAgentDelta, this._runCts.Token);
+        Task sessionEventTask = this._streamingCoordinator.ConsumeSessionEventsAsync(this.OnSessionEvent, this._runCts.Token);
         Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
         {
             string timestamp = evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
@@ -695,78 +685,47 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private async Task ConsumeAgentStreamAsync(CancellationToken cancellationToken)
+    private void OnAgentDelta(AgentStreamDeltaEvent evt)
     {
-        try
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            await foreach (AgentStreamDeltaEvent evt in this._agentStreamEventStream.ReadAllAsync(cancellationToken))
+            AgentItemViewModel? agent = this.AvailableAgents.FirstOrDefault(item => item.AgentId == evt.AgentId);
+            if (agent is null)
             {
-                lock (this._agentSync)
-                {
-                    if (!this._agentTranscripts.TryGetValue(evt.AgentId, out StringBuilder? transcript))
-                    {
-                        transcript = new StringBuilder();
-                        this._agentTranscripts[evt.AgentId] = transcript;
-                    }
-
-                    transcript.Append(evt.DeltaContent);
-                }
-
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    AgentItemViewModel? agent = this.AvailableAgents.FirstOrDefault(item => item.AgentId == evt.AgentId);
-                    if (agent is null)
-                    {
-                        agent = new AgentItemViewModel(evt.AgentId, evt.AgentRole);
-                        this.AvailableAgents.Add(agent);
-                    }
-
-                    if (this.SelectedAgent is null)
-                    {
-                        this.SelectedAgent = agent;
-                    }
-                    else if (this.SelectedAgent.AgentId == evt.AgentId)
-                    {
-                        this.RefreshSelectedAgentTranscript();
-                    }
-                });
+                agent = new AgentItemViewModel(evt.AgentId, evt.AgentRole);
+                this.AvailableAgents.Add(agent);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected on run shutdown.
-        }
+
+            if (this.SelectedAgent is null)
+            {
+                this.SelectedAgent = agent;
+            }
+            else if (this.SelectedAgent.AgentId == evt.AgentId)
+            {
+                this.RefreshSelectedAgentTranscript();
+            }
+        });
     }
 
-    private async Task ConsumeSessionEventsAsync(CancellationToken cancellationToken)
+    private void OnSessionEvent(CopilotSessionLifecycleEvent evt)
     {
-        try
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
-            await foreach (CopilotSessionLifecycleEvent evt in this._sessionEventStream.ReadAllAsync(cancellationToken))
-            {
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    string formattedTime = evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
-                    string detail = evt.Details ?? "No additional details.";
-                    SessionEventItemViewModel sessionEvent = new SessionEventItemViewModel(
-                        evt.EventType,
-                        formattedTime,
-                        evt.Model,
-                        evt.SessionId,
-                        detail);
-                    this.SessionEvents.Add(sessionEvent);
+            string formattedTime = evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
+            string detail = evt.Details ?? "No additional details.";
+            SessionEventItemViewModel sessionEvent = new SessionEventItemViewModel(
+                evt.EventType,
+                formattedTime,
+                evt.Model,
+                evt.SessionId,
+                detail);
+            this.SessionEvents.Add(sessionEvent);
 
-                    if (this.SessionEvents.Count > 100)
-                    {
-                        this.SessionEvents.RemoveAt(0);
-                    }
-                });
+            if (this.SessionEvents.Count > 100)
+            {
+                this.SessionEvents.RemoveAt(0);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected on run shutdown.
-        }
+        });
     }
 
     private void RefreshSelectedAgentTranscript()
@@ -777,16 +736,13 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        lock (this._agentSync)
+        if (this._streamingCoordinator is null)
         {
-            if (!this._agentTranscripts.TryGetValue(this.SelectedAgent.AgentId, out StringBuilder? transcript))
-            {
-                this.SelectedAgentTranscript = "Waiting for output from the selected agent.";
-                return;
-            }
-
-            this.SelectedAgentTranscript = transcript.ToString();
+            return;
         }
+
+        string? transcript = this._streamingCoordinator.Transcripts.GetTranscript(this.SelectedAgent.AgentId);
+        this.SelectedAgentTranscript = transcript ?? "Waiting for output from the selected agent.";
     }
 
 }
