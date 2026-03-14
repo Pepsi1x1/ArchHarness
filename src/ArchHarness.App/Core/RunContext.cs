@@ -25,14 +25,14 @@ public interface IRunContextAccessor
 /// </summary>
 public sealed class RunContextAccessor : IRunContextAccessor
 {
-    private static readonly AsyncLocal<RunContext?> CurrentContext = new AsyncLocal<RunContext?>();
+    private static readonly AsyncLocal<RunContext?> CURRENT_CONTEXT = new AsyncLocal<RunContext?>();
 
     /// <inheritdoc />
-    public RunContext? Current => CurrentContext.Value;
+    public RunContext? Current => CURRENT_CONTEXT.Value;
 
     /// <inheritdoc />
     public void SetCurrent(RunContext? context)
     {
-        CurrentContext.Value = context;
+        CURRENT_CONTEXT.Value = context;
     }
 }

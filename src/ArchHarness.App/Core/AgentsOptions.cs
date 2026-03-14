@@ -54,13 +54,13 @@ public sealed class AgentsOptions
     /// <returns>The matching agent model options.</returns>
     public AgentModelOptions ForRole(string role) => role.ToLowerInvariant() switch
     {
-        "frontend-developer" => FrontendDeveloper,
-        "backend-developer" => BackendDeveloper,
-        "build" => Build,
-        "coding-style" => CodingStyle,
-        "security" => Security,
-        "architecture" => Architecture,
-        "orchestration" => Orchestration,
+        "frontend-developer" => this.FrontendDeveloper,
+        "backend-developer" => this.BackendDeveloper,
+        "build" => this.Build,
+        "coding-style" => this.CodingStyle,
+        "security" => this.Security,
+        "architecture" => this.Architecture,
+        "orchestration" => this.Orchestration,
         _ => new AgentModelOptions()
     };
 }

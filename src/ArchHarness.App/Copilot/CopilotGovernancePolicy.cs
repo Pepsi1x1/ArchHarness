@@ -39,7 +39,7 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
         this._toolUsageLogger = toolUsageLogger;
     }
 
-    private static readonly string[] DeniedToolNameFragments =
+    private static readonly string[] DENIED_TOOL_NAME_FRAGMENTS =
     {
         "delete",
         "remove",
@@ -52,7 +52,7 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
     public async Task<PreToolUseHookOutput> OnPreToolUseAsync(PreToolUseHookInput input)
     {
         string toolName = input.ToolName ?? string.Empty;
-        bool denyByName = DeniedToolNameFragments.Any(fragment => toolName.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+        bool denyByName = DENIED_TOOL_NAME_FRAGMENTS.Any(fragment => toolName.Contains(fragment, StringComparison.OrdinalIgnoreCase));
         bool denyByArgs = LooksDestructive(input.ToolArgs);
         string decision = denyByName || denyByArgs ? "deny" : "allow";
 

@@ -230,13 +230,13 @@ public sealed class OrchestratorRuntime
             SecurityAgent securityAgent,
             ArchitectureAgent architectureAgent)
         {
-            OrchestrationAgent = orchestrationAgent;
-            FrontendDeveloperAgent = frontendDeveloperAgent;
-            BackendDeveloperAgent = backendDeveloperAgent;
-            BuildAgent = buildAgent;
-            CodingStyleAgent = codingStyleAgent;
-            SecurityAgent = securityAgent;
-            ArchitectureAgent = architectureAgent;
+            this.OrchestrationAgent = orchestrationAgent;
+            this.FrontendDeveloperAgent = frontendDeveloperAgent;
+            this.BackendDeveloperAgent = backendDeveloperAgent;
+            this.BuildAgent = buildAgent;
+            this.CodingStyleAgent = codingStyleAgent;
+            this.SecurityAgent = securityAgent;
+            this.ArchitectureAgent = architectureAgent;
         }
 
         /// <summary>

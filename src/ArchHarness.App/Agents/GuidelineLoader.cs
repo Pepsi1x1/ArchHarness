@@ -5,7 +5,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class GuidelineLoader
 {
-    private static readonly string[] SearchRoots = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
+    private static readonly string[] SEARCH_ROOTS = new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() };
 
     /// <summary>
     /// Loads a guideline file from the specified subfolder under the Guidelines directory.
@@ -16,7 +16,7 @@ internal static class GuidelineLoader
     /// <returns>The guideline file content, or the fallback message if not found.</returns>
     public static string Load(string subfolder, string fileName, string fallbackMessage)
     {
-        foreach (string root in SearchRoots)
+        foreach (string root in SEARCH_ROOTS)
         {
             string path = Path.Combine(root, "Guidelines", subfolder, fileName);
             if (File.Exists(path))

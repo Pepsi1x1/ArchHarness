@@ -11,7 +11,7 @@ internal static class SetupFieldEditor
     private const string WORKSPACE_PATH_FIELD = "WorkspacePath";
     private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
 
-    private static readonly Dictionary<string, Action<SetupDraft, string>> FieldSetters = new Dictionary<string, Action<SetupDraft, string>>(StringComparer.Ordinal)
+    private static readonly Dictionary<string, Action<SetupDraft, string>> FIELD_SETTERS = new Dictionary<string, Action<SetupDraft, string>>(StringComparer.Ordinal)
     {
         ["TaskPrompt"] = (draft, value) => draft.TaskPrompt = value,
         ["WorkspacePath"] = (draft, value) => draft.WorkspacePath = value,
@@ -57,7 +57,7 @@ internal static class SetupFieldEditor
                 return;
             }
 
-            if (FieldSetters.TryGetValue(fieldId, out Action<SetupDraft, string>? setter))
+            if (FIELD_SETTERS.TryGetValue(fieldId, out Action<SetupDraft, string>? setter))
             {
                 setter(draft, value);
             }

@@ -5,7 +5,7 @@ namespace ArchHarness.App.Tui;
 /// </summary>
 public static class ScreenRouter
 {
-    private static readonly Dictionary<ConsoleKey, TuiScreen> KeyToScreenMap = new Dictionary<ConsoleKey, TuiScreen>
+    private static readonly Dictionary<ConsoleKey, TuiScreen> KEY_TO_SCREEN_MAP = new Dictionary<ConsoleKey, TuiScreen>
     {
         [ConsoleKey.D1] = TuiScreen.ChatSetup,
         [ConsoleKey.D2] = TuiScreen.RunMonitor,
@@ -23,7 +23,7 @@ public static class ScreenRouter
     /// <returns>The screen to navigate to.</returns>
     public static TuiScreen Navigate(ConsoleKey key, TuiScreen currentScreen)
     {
-        return KeyToScreenMap.TryGetValue(key, out TuiScreen target) ? target : currentScreen;
+        return KEY_TO_SCREEN_MAP.TryGetValue(key, out TuiScreen target) ? target : currentScreen;
     }
 
     /// <summary>

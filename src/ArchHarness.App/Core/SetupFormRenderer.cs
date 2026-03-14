@@ -9,7 +9,7 @@ internal static class SetupFormRenderer
 {
     private const string NONE_TEXT = "(none)";
     private static int _spinnerFrame;
-    private static readonly char[] SpinnerFrames = ['|', '/', '-', '\\'];
+    private static readonly char[] SPINNER_FRAMES = ['|', '/', '-', '\\'];
 
     /// <summary>
     /// Renders the full interactive setup form panel with field rows and keyboard hints.
@@ -20,7 +20,7 @@ internal static class SetupFormRenderer
     public static void RenderSetupForm(IReadOnlyList<SetupField> fields, int selectedIndex, string? validationError)
     {
         Console.Clear();
-        char spinnerChar = SpinnerFrames[_spinnerFrame % SpinnerFrames.Length];
+        char spinnerChar = SPINNER_FRAMES[_spinnerFrame % SPINNER_FRAMES.Length];
         _spinnerFrame++;
 
         int width = Math.Max(60, Console.WindowWidth - 1);

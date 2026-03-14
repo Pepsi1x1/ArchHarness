@@ -15,11 +15,11 @@ public sealed record BuildCommandSelection(string? Command, bool Inferred, strin
 /// </summary>
 public static class BuildCommandInference
 {
-    private static readonly Regex TargetRegex = new("\\.(sln|csproj)(?=(\"|'|\\s|$))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex TARGET_REGEX = new Regex("\\.(sln|csproj)(?=(\"|'|\\s|$))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private sealed record InferenceRule(Func<string?, string, string?, bool> Predicate, Func<string?, string, string?, BuildCommandSelection> Result);
 
-    private static readonly InferenceRule[] NoCommandRules = new InferenceRule[]
+    private static readonly InferenceRule[] NO_COMMAND_RULES = new InferenceRule[]
     {
         new InferenceRule(
             (target, mode, project) => !string.IsNullOrWhiteSpace(target),
@@ -29,7 +29,7 @@ public static class BuildCommandInference
             (target, mode, project) => new BuildCommandSelection("dotnet build --nologo", Inferred: true, Reason: "New-project mode fallback before a concrete target exists."))
     };
 
-    private static readonly BuildCommandSelection NoTargetFallback = new BuildCommandSelection(null, Inferred: false, Reason: "No suitable .sln or .csproj discovered in workspace.");
+    private static readonly BuildCommandSelection NO_TARGET_FALLBACK = new BuildCommandSelection(null, Inferred: false, Reason: "No suitable .sln or .csproj discovered in workspace.");
 
     /// <summary>
     /// Selects the best build command by inspecting the workspace and optionally enriching a user-specified command.
@@ -72,17 +72,17 @@ public static class BuildCommandInference
             return new BuildCommandSelection(trimmed, Inferred: false, Reason: "No solution/project target discovered to inject.");
         }
 
-        InferenceRule? matchedRule = NoCommandRules.FirstOrDefault(rule => rule.Predicate(target, workspaceMode, projectName));
+        InferenceRule? matchedRule = NO_COMMAND_RULES.FirstOrDefault(rule => rule.Predicate(target, workspaceMode, projectName));
         if (matchedRule != null)
         {
             return matchedRule.Result(target, workspaceMode, projectName);
         }
 
-        return NoTargetFallback;
+        return NO_TARGET_FALLBACK;
     }
 
     private static bool ContainsBuildTarget(string command)
-        => TargetRegex.IsMatch(command);
+        => TARGET_REGEX.IsMatch(command);
 
     private static string InjectTargetIntoDotnetBuild(string command, string targetPath)
     {

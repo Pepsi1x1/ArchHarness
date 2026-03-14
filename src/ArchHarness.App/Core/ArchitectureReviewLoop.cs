@@ -208,9 +208,13 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     /// </summary>
     public sealed class LoopAgentDependencies
     {
+        /// <summary>Gets the orchestration agent.</summary>
         public OrchestrationAgent Orchestration { get; }
+        /// <summary>Gets the coding style agent.</summary>
         public CodingStyleAgent CodingStyle { get; }
+        /// <summary>Gets the security agent.</summary>
         public SecurityAgent Security { get; }
+        /// <summary>Gets the architecture agent.</summary>
         public ArchitectureAgent Architecture { get; }
 
         public LoopAgentDependencies(

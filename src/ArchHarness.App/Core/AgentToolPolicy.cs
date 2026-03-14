@@ -41,12 +41,12 @@ public interface IAgentToolPolicyProvider
 /// </summary>
 public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
 {
-    private static readonly string[] DefaultOrchestrationExcluded =
+    private static readonly string[] DEFAULT_ORCHESTRATION_EXCLUDED =
     {
         "edit_file"
     };
 
-    private static readonly string[] DefaultBuildExcluded =
+    private static readonly string[] DEFAULT_BUILD_EXCLUDED =
     {
         "edit_file"
     };
@@ -79,10 +79,10 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
 
         return role.ToLowerInvariant() switch
         {
-            "orchestration" => BuildPolicy(tools, Array.Empty<string>(), DefaultOrchestrationExcluded),
+            "orchestration" => BuildPolicy(tools, Array.Empty<string>(), DEFAULT_ORCHESTRATION_EXCLUDED),
             "frontend-developer" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "backend-developer" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
-            "build" => BuildPolicy(tools, Array.Empty<string>(), DefaultBuildExcluded),
+            "build" => BuildPolicy(tools, Array.Empty<string>(), DEFAULT_BUILD_EXCLUDED),
             "coding-style" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "security" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "architecture" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),

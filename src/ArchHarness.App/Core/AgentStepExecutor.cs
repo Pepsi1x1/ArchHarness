@@ -270,11 +270,17 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     /// </summary>
     public sealed class StepAgentDependencies
     {
+        /// <summary>Gets the frontend developer agent.</summary>
         public FrontendDeveloperAgent FrontendDeveloper { get; }
+        /// <summary>Gets the backend developer agent.</summary>
         public BackendDeveloperAgent BackendDeveloper { get; }
+        /// <summary>Gets the build agent.</summary>
         public BuildAgent Build { get; }
+        /// <summary>Gets the coding style agent.</summary>
         public CodingStyleAgent CodingStyle { get; }
+        /// <summary>Gets the security agent.</summary>
         public SecurityAgent Security { get; }
+        /// <summary>Gets the architecture agent.</summary>
         public ArchitectureAgent Architecture { get; }
 
         public StepAgentDependencies(

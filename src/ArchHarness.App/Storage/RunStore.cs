@@ -53,7 +53,7 @@ public sealed class RunStore : IRunStore
     /// <returns>A task representing the asynchronous write operation.</returns>
     public Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken)
     {
-        string serialized = JsonSerializer.Serialize(payload, JsonDefaults.Indented);
+        string serialized = JsonSerializer.Serialize(payload, JsonDefaults.INDENTED);
         string redacted = Redaction.RedactSecrets(serialized);
         return File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), redacted, cancellationToken);
     }

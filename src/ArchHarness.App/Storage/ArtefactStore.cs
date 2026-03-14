@@ -64,15 +64,15 @@ public sealed class ArtefactStore : IArtefactStore
 {
     /// <inheritdoc />
     public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
-        => File.WriteAllTextAsync(Path.Combine(runDirectory, "ExecutionPlan.json"), JsonSerializer.Serialize(plan, JsonDefaults.Indented), cancellationToken);
+        => File.WriteAllTextAsync(Path.Combine(runDirectory, "ExecutionPlan.json"), JsonSerializer.Serialize(plan, JsonDefaults.INDENTED), cancellationToken);
 
     /// <inheritdoc />
     public Task WriteArchitectureReviewAsync(string runDirectory, ArchitectureReview review, CancellationToken cancellationToken)
-        => File.WriteAllTextAsync(Path.Combine(runDirectory, "ArchitectureReview.json"), JsonSerializer.Serialize(review, JsonDefaults.Indented), cancellationToken);
+        => File.WriteAllTextAsync(Path.Combine(runDirectory, "ArchitectureReview.json"), JsonSerializer.Serialize(review, JsonDefaults.INDENTED), cancellationToken);
 
     /// <inheritdoc />
     public Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken)
-        => File.WriteAllTextAsync(Path.Combine(runDirectory, "SecurityReview.json"), JsonSerializer.Serialize(review, JsonDefaults.Indented), cancellationToken);
+        => File.WriteAllTextAsync(Path.Combine(runDirectory, "SecurityReview.json"), JsonSerializer.Serialize(review, JsonDefaults.INDENTED), cancellationToken);
 
     /// <inheritdoc />
     public Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken)
@@ -82,7 +82,7 @@ public sealed class ArtefactStore : IArtefactStore
     public Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken)
         => File.WriteAllTextAsync(
             Path.Combine(runDirectory, "BuildResult.json"),
-            Redaction.RedactSecrets(JsonSerializer.Serialize(payload, JsonDefaults.Indented)),
+            Redaction.RedactSecrets(JsonSerializer.Serialize(payload, JsonDefaults.INDENTED)),
             cancellationToken);
 
     /// <inheritdoc />

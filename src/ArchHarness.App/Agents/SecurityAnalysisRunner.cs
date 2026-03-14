@@ -11,7 +11,7 @@ internal static class SecurityAnalysisRunner
     private const string SEVERITY_HIGH = "high";
     private const string SEVERITY_MEDIUM = "medium";
 
-    private static readonly string[] CandidateExtensions = [".cs", ".json", ".config", ".ts", ".tsx", ".js", ".jsx", ".vue", ".csproj", ".props", ".targets", ".md"];
+    private static readonly string[] CANDIDATE_EXTENSIONS = [".cs", ".json", ".config", ".ts", ".tsx", ".js", ".jsx", ".vue", ".csproj", ".props", ".targets", ".md"];
 
     /// <summary>
     /// Performs heuristic security analysis on the workspace and returns findings.
@@ -95,7 +95,7 @@ internal static class SecurityAnalysisRunner
             return false;
         }
 
-        return CandidateExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+        return CANDIDATE_EXTENSIONS.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
     }
 
     private static void DetectHardcodedSecrets(string content, string file, ICollection<SecurityFinding> findings, ISet<string> requiredActions)

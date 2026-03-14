@@ -12,7 +12,7 @@ internal static class AnalysisRunner
     private const string SEVERITY_HIGH = "high";
     private const string SEVERITY_MEDIUM = "medium";
 
-    private static readonly IReadOnlyList<IArchitectureAnalyzer> Analyzers = new IArchitectureAnalyzer[]
+    private static readonly IReadOnlyList<IArchitectureAnalyzer> ANALYZERS = new IArchitectureAnalyzer[]
     {
         new SrpAnalyzer(),
         new DipAnalyzer(),
@@ -49,7 +49,7 @@ internal static class AnalysisRunner
         }
 
         List<ParsedFile> parsedFiles = ParseFiles(candidateFiles);
-        foreach (IArchitectureAnalyzer analyzer in Analyzers)
+        foreach (IArchitectureAnalyzer analyzer in ANALYZERS)
         {
             analyzer.Analyze(parsedFiles, findings, requiredActions);
         }

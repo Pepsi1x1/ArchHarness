@@ -16,7 +16,7 @@ public sealed record BuildResult(bool Executed, bool Passed, int? ExitCode, stri
     /// </summary>
     /// <param name="reason">The reason the build was not executed.</param>
     /// <returns>A non-executed build result.</returns>
-    public static BuildResult NotExecuted(string reason) => new(Executed: false, Passed: false, ExitCode: null, Output: reason);
+    public static BuildResult NotExecuted(string reason) => new BuildResult(Executed: false, Passed: false, ExitCode: null, Output: reason);
 }
 
 /// <summary>

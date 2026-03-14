@@ -15,7 +15,7 @@ public sealed class ChatTerminal
     private readonly IUserInputState _userInputState;
     private readonly IAgentStreamEventStream _agentStreamEventStream;
 
-    private static readonly Dictionary<TuiScreen, Action<RunRequest, string, RunArtefacts, List<RuntimeProgressEvent>>> _screenRenderers =
+    private static readonly Dictionary<TuiScreen, Action<RunRequest, string, RunArtefacts, List<RuntimeProgressEvent>>> SCREEN_RENDERERS =
         new Dictionary<TuiScreen, Action<RunRequest, string, RunArtefacts, List<RuntimeProgressEvent>>>
         {
             [TuiScreen.ChatSetup] = (request, setupSummary, artefacts, runEvents) =>
@@ -232,7 +232,7 @@ public sealed class ChatTerminal
         RunArtefacts artefacts,
         List<RuntimeProgressEvent> runEvents)
     {
-        if (_screenRenderers.TryGetValue(screen, out Action<RunRequest, string, RunArtefacts, List<RuntimeProgressEvent>>? renderer))
+        if (SCREEN_RENDERERS.TryGetValue(screen, out Action<RunRequest, string, RunArtefacts, List<RuntimeProgressEvent>>? renderer))
         {
             renderer(request, setupSummary, artefacts, runEvents);
         }
