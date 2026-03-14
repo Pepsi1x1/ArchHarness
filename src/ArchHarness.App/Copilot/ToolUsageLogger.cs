@@ -113,7 +113,8 @@ public sealed class ToolUsageLogger : IToolUsageLogger
     {
         try
         {
-            return JsonSerializer.Serialize(input);
+            string json = JsonSerializer.Serialize(input);
+            return Redaction.RedactSecrets(json);
         }
         catch
         {

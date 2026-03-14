@@ -87,7 +87,7 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
 
     private static readonly Regex DESTRUCTIVE_PATTERN_REGEX = new Regex(
         "(?i)(rm\\s+-rf|drop\\s+table|truncate\\s+table|del\\s+/f|format\\s+[a-z]:)",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled | RegexOptions.NonBacktracking);
 
     private static bool LooksDestructive(object? toolArgs)
     {

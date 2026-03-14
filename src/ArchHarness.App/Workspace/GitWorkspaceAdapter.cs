@@ -60,13 +60,20 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
 
     private async Task<string> RunGitCommandAsync(string arguments, CancellationToken cancellationToken)
     {
-        ProcessStartInfo info = new ProcessStartInfo("git", $"-C {QuoteArgument(this.RootPath)} {arguments}")
+        ProcessStartInfo info = new ProcessStartInfo("git")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        info.ArgumentList.Add("-C");
+        info.ArgumentList.Add(this.RootPath);
+        foreach (string arg in arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            info.ArgumentList.Add(arg);
+        }
 
         using Process process = new Process { StartInfo = info };
         process.Start();
@@ -90,9 +97,4 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
             output.Add(line);
         }
     }
-
-    private static string QuoteArgument(string value)
-        => value.Contains(' ', StringComparison.Ordinal)
-            ? $"\"{value.Replace("\"", "\\\"", StringComparison.Ordinal)}\""
-            : value;
 }
