@@ -13,21 +13,17 @@ public sealed class ConversationController
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly AgentsOptions _agentsOptions;
     private readonly IModelResolver _modelResolver;
-    private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
-    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
-    private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
+    private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversationController"/> class.
     /// </summary>
-    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, IPermissionHandlerModeAccessor permissionHandlerModeAccessor, IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor, IWorkspaceRootAccessor workspaceRootAccessor)
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, RuntimeStateAccessors stateAccessors)
     {
         this._summaryGenerator = summaryGenerator;
         this._agentsOptions = agentsOptions.Value;
         this._modelResolver = modelResolver;
-        this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
-        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
-        this._workspaceRootAccessor = workspaceRootAccessor;
+        this._stateAccessors = stateAccessors;
     }
 
     /// <summary>
@@ -38,9 +34,9 @@ public sealed class ConversationController
         RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
-            this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode));
-            this._reviewLoopAgentSelectionAccessor.SetCurrent(ResolveReviewLoopAgents(cliRequest, this._agentsOptions));
-            this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
+            this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode));
+            this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(ResolveReviewLoopAgents(cliRequest, this._agentsOptions));
+            this._stateAccessors.WorkspaceRoot.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
             this._modelResolver.ValidateConfiguredModelsOrThrow(cliRequest.ModelOverrides);
             string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
             return (cliRequest, setupSummary);
@@ -53,9 +49,9 @@ public sealed class ConversationController
 
         Console.Clear();
         Console.WriteLine("Preparing run configuration...");
-        this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode));
-        this._reviewLoopAgentSelectionAccessor.SetCurrent(ResolveReviewLoopAgents(requestInteractive, this._agentsOptions));
-        this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
+        this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode));
+        this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(ResolveReviewLoopAgents(requestInteractive, this._agentsOptions));
+        this._stateAccessors.WorkspaceRoot.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
         this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
         Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");
 

@@ -206,30 +206,22 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     }
 
     private static string BuildFindingsFingerprint(IReadOnlyList<ArchitectureFinding> findings)
-    {
-        if (findings.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return string.Join(
-            "|",
-            findings
-                .Select(f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.Rationale}")
-                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-    }
+        => BuildFingerprint(findings, f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.Rationale}");
 
     private static string BuildSecurityFindingsFingerprint(IReadOnlyList<SecurityFinding> findings)
+        => BuildFingerprint(findings, f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.OwaspCategory}::{f.Rationale}");
+
+    private static string BuildFingerprint<T>(IReadOnlyList<T> items, Func<T, string> keySelector)
     {
-        if (findings.Count == 0)
+        if (items.Count == 0)
         {
             return string.Empty;
         }
 
         return string.Join(
             "|",
-            findings
-                .Select(f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.OwaspCategory}::{f.Rationale}")
+            items
+                .Select(keySelector)
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
     }
 

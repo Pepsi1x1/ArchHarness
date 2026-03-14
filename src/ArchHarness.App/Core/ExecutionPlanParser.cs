@@ -537,7 +537,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         return new IterationStrategy(maxIterations, reviewRequired && reviewLoopAgents.AnyFindingReviewEnabled);
     }
 
-    private List<string> ParseCompletionCriteria(JsonElement root, ReviewLoopAgentSelection reviewLoopAgents)
+    private static List<string> ParseCompletionCriteria(JsonElement root, ReviewLoopAgentSelection reviewLoopAgents)
     {
         List<string> criteria = reviewLoopAgents.BuildCompletionCriteria().ToList();
 

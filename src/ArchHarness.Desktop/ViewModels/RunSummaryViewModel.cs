@@ -30,9 +30,9 @@ public sealed class RunSummaryViewModel : ViewModelBase
 
     private string TryFormatTimestamp()
     {
-        if (DateTimeOffset.TryParseExact(this.RunId, "yyyyMMddTHHmmssfff", null, System.Globalization.DateTimeStyles.AssumeUniversal, out DateTimeOffset parsed))
+        if (DateTimeOffset.TryParseExact(this.RunId, "yyyyMMddTHHmmssfff", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out DateTimeOffset parsed))
         {
-            return parsed.ToLocalTime().ToString("MMM d, HH:mm");
+            return parsed.ToLocalTime().ToString("MMM d, HH:mm", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         return "Unknown start";

@@ -19,7 +19,19 @@ public sealed class TimelineItemViewModel : ViewModelBase
         this.Title = title;
         this.Subtitle = subtitle;
         this.Detail = detail;
-        this.AccentBrush = Brush.Parse(accent);
+        this.AccentBrush = ParseBrushSafe(accent);
+    }
+
+    private static IBrush ParseBrushSafe(string accent)
+    {
+        try
+        {
+            return Brush.Parse(accent);
+        }
+        catch (FormatException)
+        {
+            return Brushes.Gray;
+        }
     }
 
     /// <summary>Gets the primary title of the timeline entry.</summary>

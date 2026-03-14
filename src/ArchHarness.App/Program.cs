@@ -37,6 +37,7 @@ public static class ArchHarnessServiceCollectionExtensions
 		services.AddSingleton<IWorkspaceRootAccessor, WorkspaceRootAccessor>();
 		services.AddSingleton<IPermissionHandlerModeAccessor, PermissionHandlerModeAccessor>();
 		services.AddSingleton<IReviewLoopAgentSelectionAccessor, ReviewLoopAgentSelectionAccessor>();
+		services.AddSingleton<RuntimeStateAccessors>();
 		services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
 		services.AddSingleton<OrchestrationAgent>();
 		services.AddSingleton<FrontendDeveloperAgent>();

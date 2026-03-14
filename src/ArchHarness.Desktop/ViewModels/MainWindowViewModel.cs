@@ -14,8 +14,6 @@ public sealed class MainWindowViewModel : ViewModelBase
 {
     private const string DEFAULT_TASK_PROMPT = "Implement requested change";
     private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
-    private const string APPROVE_ALL = "approve-all";
-    private const string PROMPT = "prompt";
 
     private readonly IRunHistoryService _runHistoryService;
     private readonly OrchestratorRuntime _runtime;
@@ -29,7 +27,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private string _taskPrompt = DEFAULT_TASK_PROMPT;
     private string _workflow = "auto";
     private string _workspaceMode = "existing-folder";
-    private string _permissionHandlerMode = APPROVE_ALL;
+    private string _permissionHandlerMode = "approve-all";
     private string _projectName = string.Empty;
     private string _modelOverridesText = string.Empty;
     private string _buildCommand = string.Empty;
@@ -65,11 +63,11 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.AvailableAgents = new ObservableCollection<AgentItemViewModel>();
         this.SessionEvents = new ObservableCollection<SessionEventItemViewModel>();
         this.WorkspaceModes = new[] { "existing-folder", "new-project", "existing-git" };
-        this.PermissionModes = new[] { APPROVE_ALL, PROMPT };
+        this.PermissionModes = new[] { "approve-all", "prompt" };
         this._taskPrompt = DEFAULT_TASK_PROMPT;
         this._workflow = "auto";
         this._setupSummary = "Design-time preview";
-        this.SeedEmptyTimeline();
+        TimelineBuilder.SeedEmpty(this.TimelineItems);
     }
     private CancellationTokenSource? _runCts;
 
@@ -103,8 +101,8 @@ public sealed class MainWindowViewModel : ViewModelBase
         this._taskPrompt = this._architectureLoopMode ? DEFAULT_ARCH_LOOP_TASK_PROMPT : DEFAULT_TASK_PROMPT;
         this._workflow = this._architectureLoopMode ? "architecture-loop" : "auto";
         this.WorkspaceModes = new[] { "existing-folder", "new-project", "existing-git" };
-        this.PermissionModes = new[] { APPROVE_ALL, PROMPT };
-        this.SeedEmptyTimeline();
+        this.PermissionModes = new[] { "approve-all", "prompt" };
+        TimelineBuilder.SeedEmpty(this.TimelineItems);
     }
 
     /// <summary>
@@ -187,7 +185,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string PermissionHandlerMode
     {
         get => this._permissionHandlerMode;
-        set => this.SetProperty(ref this._permissionHandlerMode, NormalizePermissionMode(value));
+        set => this.SetProperty(ref this._permissionHandlerMode, RunRequestFactory.NormalizePermissionMode(value));
     }
 
     /// <summary>Gets or sets the optional project name used when creating a new workspace.</summary>
@@ -362,11 +360,23 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string Headline => this.SelectedRun is null ? "Desktop run inspector" : this.SelectedRun.Title;
 
     /// <summary>Gets the contextual subheadline describing the current state.</summary>
-    public string Subheadline => this.IsRunInProgress
-        ? "Live runtime progress, agent streaming output, and artefact generation are active in the desktop host."
-        : this.SelectedRun is null
-            ? "The desktop host can now launch runs, stream progress, and inspect persisted sessions from the same shell."
-            : "Inspect persisted run artefacts or start a new orchestrated session from the setup panel.";
+    public string Subheadline
+    {
+        get
+        {
+            if (this.IsRunInProgress)
+            {
+                return "Live runtime progress, agent streaming output, and artefact generation are active in the desktop host.";
+            }
+
+            if (this.SelectedRun is null)
+            {
+                return "The desktop host can now launch runs, stream progress, and inspect persisted sessions from the same shell.";
+            }
+
+            return "Inspect persisted run artefacts or start a new orchestrated session from the setup panel.";
+        }
+    }
 
     /// <summary>Gets the preflight validation title label.</summary>
     public string PreflightStatusTitle
@@ -452,7 +462,6 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         if (!selectLatestRun)
         {
-            this.RaisePropertyChanged(nameof(this.RunCountBadge));
             return;
         }
 
@@ -460,7 +469,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.Artifacts.Clear();
         this.SelectedArtifact = null;
         this.SelectedArtifactPreview = "No runs were found for this workspace yet.";
-        this.ResetTimelineForNoRuns(normalizedWorkspace);
+        TimelineBuilder.ResetForNoRuns(this.TimelineItems, normalizedWorkspace);
         this.RaisePropertyChanged(nameof(this.Headline));
         this.RaisePropertyChanged(nameof(this.Subheadline));
     }
@@ -482,7 +491,13 @@ public sealed class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        RunRequest? request = this.TryBuildRunRequest(out string? validationMessage);
+        RunRequest? request = RunRequestFactory.TryBuild(
+            this.TaskPrompt, this.WorkspacePath, this.WorkspaceMode, this.Workflow,
+            this.ProjectName, this.ModelOverridesText, this.BuildCommand,
+            this.PermissionHandlerMode, this.ReviewLoopCodingStyleEnabled,
+            this.ReviewLoopSecurityEnabled, this.ReviewLoopArchitectureEnabled,
+            this.ArchitectureLoopMode, this.ArchitectureLoopPrompt,
+            out string? validationMessage);
         this.SetupValidationMessage = validationMessage ?? string.Empty;
         if (request is null)
         {
@@ -504,7 +519,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.SelectedAgent = null;
         this.SelectedAgentTranscript = "Waiting for agent output...";
         this.TimelineItems.Clear();
-        this.AppendTimelineItem("Run queued", "Desktop host", request.TaskPrompt, "#F16436");
+        TimelineBuilder.Append(this.TimelineItems, "Run queued", "Desktop host", request.TaskPrompt, TimelineBuilder.AccentForSource("orchestrator"));
 
         try
         {
@@ -521,15 +536,15 @@ public sealed class MainWindowViewModel : ViewModelBase
         Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
         {
             string timestamp = evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss");
-            string accent = AccentForSource(evt.Source);
-            this.AppendTimelineItem(evt.Source, timestamp, evt.Message, accent);
+            string accent = TimelineBuilder.AccentForSource(evt.Source);
+            TimelineBuilder.Append(this.TimelineItems, evt.Source, timestamp, evt.Message, accent);
         });
 
         try
         {
             RunArtefacts artefacts = await this._runtime.RunAsync(request, progress, this._runCts.Token);
             this.RunStatus = "Run completed";
-            this.AppendTimelineItem("orchestrator", "Completion", $"Run {artefacts.RunId} completed.", "#5FD08C");
+            TimelineBuilder.Append(this.TimelineItems, "orchestrator", "Completion", $"Run {artefacts.RunId} completed.", TimelineBuilder.ACCENT_SUCCESS);
 
             RunSummaryViewModel run = new RunSummaryViewModel(artefacts.RunId, artefacts.RunDirectory);
             await this.RefreshWorkspaceAsync(selectLatestRun: false);
@@ -538,12 +553,12 @@ public sealed class MainWindowViewModel : ViewModelBase
         catch (OperationCanceledException)
         {
             this.RunStatus = "Run canceled";
-            this.AppendTimelineItem("orchestrator", "Canceled", "The current session was canceled from the desktop host.", "#FFB347");
+            TimelineBuilder.Append(this.TimelineItems, "orchestrator", "Canceled", "The current session was canceled from the desktop host.", TimelineBuilder.ACCENT_WARNING);
         }
         catch (Exception ex)
         {
             this.RunStatus = "Run failed";
-            this.AppendTimelineItem("orchestrator", "Failure", ex.Message, "#FF6B6B");
+            TimelineBuilder.Append(this.TimelineItems, "orchestrator", "Failure", ex.Message, TimelineBuilder.ACCENT_DANGER);
         }
         finally
         {
@@ -597,7 +612,13 @@ public sealed class MainWindowViewModel : ViewModelBase
     /// </summary>
     public async Task GenerateSetupSummaryAsync()
     {
-        RunRequest? request = this.TryBuildRunRequest(out string? validationMessage);
+        RunRequest? request = RunRequestFactory.TryBuild(
+            this.TaskPrompt, this.WorkspacePath, this.WorkspaceMode, this.Workflow,
+            this.ProjectName, this.ModelOverridesText, this.BuildCommand,
+            this.PermissionHandlerMode, this.ReviewLoopCodingStyleEnabled,
+            this.ReviewLoopSecurityEnabled, this.ReviewLoopArchitectureEnabled,
+            this.ArchitectureLoopMode, this.ArchitectureLoopPrompt,
+            out string? validationMessage);
         this.SetupValidationMessage = validationMessage ?? string.Empty;
         if (request is null)
         {
@@ -630,7 +651,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         if (rebuildTimeline)
         {
-            this.RebuildTimeline(run, artifacts);
+            TimelineBuilder.Rebuild(this.TimelineItems, run, artifacts);
         }
 
         this.RaisePropertyChanged(nameof(this.Headline));
@@ -662,51 +683,6 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.PreflightStatusDetail = result.FixSteps.Count == 0
             ? result.Summary
             : string.Join(Environment.NewLine, result.FixSteps);
-    }
-
-    private void SeedEmptyTimeline()
-    {
-        this.TimelineItems.Clear();
-        this.TimelineItems.Add(new TimelineItemViewModel(
-            "Desktop runtime ready",
-            "Foundation milestone",
-            "Console and desktop hosts now share the same runtime registration path, and the desktop host can start orchestrated runs directly.",
-            "#F16436"));
-    }
-
-    private void ResetTimelineForNoRuns(string workspacePath)
-    {
-        this.TimelineItems.Clear();
-        this.TimelineItems.Add(new TimelineItemViewModel(
-            "No persisted runs",
-            "Workspace scan",
-            $"Nothing was found under {Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs")}",
-            "#5AA7FF"));
-        this.TimelineItems.Add(new TimelineItemViewModel(
-            "Next desktop milestone",
-            "Live session hosting",
-            "The shell is ready to ingest preflight status and stored run data while live run execution moves out of the console host.",
-            "#F16436"));
-    }
-
-    private void RebuildTimeline(RunSummaryViewModel run, IReadOnlyList<ArtifactItemViewModel> artifacts)
-    {
-        this.TimelineItems.Clear();
-        this.TimelineItems.Add(new TimelineItemViewModel(
-            run.Title,
-            "Selected session",
-            run.RunDirectory,
-            "#F16436"));
-        this.TimelineItems.Add(new TimelineItemViewModel(
-            "Artefacts indexed",
-            $"{artifacts.Count} files discovered",
-            artifacts.Count == 0 ? "No top-level files were found for this run." : string.Join(", ", artifacts.Take(6).Select(a => a.Name)),
-            "#5AA7FF"));
-        this.TimelineItems.Add(new TimelineItemViewModel(
-            "Desktop adaptation",
-            "Reference-inspired layout",
-            "The left rail, timeline surface, and detail pane now map to ArchHarness runs, live status, and artefacts instead of terminal screens.",
-            "#5FD08C"));
     }
 
     private async Task RefreshSetupSummaryAsync(RunRequest request)
@@ -793,47 +769,6 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private RunRequest? TryBuildRunRequest(out string? validationMessage)
-    {
-        validationMessage = null;
-        string taskPrompt = this.ArchitectureLoopMode
-            ? string.IsNullOrWhiteSpace(this.TaskPrompt) ? DEFAULT_ARCH_LOOP_TASK_PROMPT : this.TaskPrompt.Trim()
-            : string.IsNullOrWhiteSpace(this.TaskPrompt) ? string.Empty : this.TaskPrompt.Trim();
-
-        if (string.IsNullOrWhiteSpace(taskPrompt))
-        {
-            validationMessage = "Task prompt is required unless architecture loop mode is using its default task.";
-            return null;
-        }
-
-        string workspacePath = string.IsNullOrWhiteSpace(this.WorkspacePath) ? Environment.CurrentDirectory : this.WorkspacePath.Trim();
-        string workspaceMode = string.IsNullOrWhiteSpace(this.WorkspaceMode) ? "existing-folder" : this.WorkspaceMode;
-        string workflow = this.ArchitectureLoopMode
-            ? "architecture-loop"
-            : string.IsNullOrWhiteSpace(this.Workflow) ? "auto" : this.Workflow.Trim();
-
-        return new RunRequest(
-            TaskPrompt: taskPrompt,
-            WorkspacePath: workspacePath,
-            WorkspaceMode: workspaceMode,
-            Workflow: workflow,
-            ProjectName: string.IsNullOrWhiteSpace(this.ProjectName) ? null : this.ProjectName.Trim(),
-            ModelOverrides: ParseOverrides(this.ModelOverridesText),
-            BuildCommand: string.IsNullOrWhiteSpace(this.BuildCommand) ? null : this.BuildCommand.Trim(),
-            PermissionHandlerMode: NormalizePermissionMode(this.PermissionHandlerMode),
-            ReviewLoopAgents: new ReviewLoopAgentSelection(
-                this.ReviewLoopCodingStyleEnabled,
-                this.ReviewLoopSecurityEnabled,
-                this.ReviewLoopArchitectureEnabled),
-            ArchitectureLoopMode: this.ArchitectureLoopMode,
-            ArchitectureLoopPrompt: string.IsNullOrWhiteSpace(this.ArchitectureLoopPrompt) ? null : this.ArchitectureLoopPrompt.Trim());
-    }
-
-    private void AppendTimelineItem(string title, string subtitle, string detail, string accent)
-    {
-        this.TimelineItems.Add(new TimelineItemViewModel(title, subtitle, detail, accent));
-    }
-
     private void RefreshSelectedAgentTranscript()
     {
         if (this.SelectedAgent is null)
@@ -854,45 +789,4 @@ public sealed class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private static string AccentForSource(string source)
-        => source.ToLowerInvariant() switch
-        {
-            "orchestrator" => "#F16436",
-            "build" => "#5AA7FF",
-            "security" => "#FF6B6B",
-            "architecture" => "#5FD08C",
-            "codingstyle" => "#F5C451",
-            _ => "#AAB6C4"
-        };
-
-    private static IDictionary<string, string>? ParseOverrides(string? overrideText)
-    {
-        if (string.IsNullOrWhiteSpace(overrideText))
-        {
-            return null;
-        }
-
-        Dictionary<string, string> output = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        string[] segments = overrideText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (string segment in segments)
-        {
-            int idx = segment.IndexOf('=');
-            if (idx <= 0 || idx == segment.Length - 1)
-            {
-                continue;
-            }
-
-            string role = segment[..idx].Trim();
-            string model = segment[(idx + 1)..].Trim();
-            if (!string.IsNullOrWhiteSpace(role) && !string.IsNullOrWhiteSpace(model))
-            {
-                output[role] = model;
-            }
-        }
-
-        return output.Count == 0 ? null : output;
-    }
-
-    private static string NormalizePermissionMode(string? mode)
-        => string.Equals(mode, PROMPT, StringComparison.OrdinalIgnoreCase) ? PROMPT : APPROVE_ALL;
 }
