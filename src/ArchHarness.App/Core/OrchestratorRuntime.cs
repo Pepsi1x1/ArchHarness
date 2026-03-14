@@ -192,6 +192,7 @@ public sealed class OrchestratorRuntime
                     new { role = "orchestration", model = this._agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "frontend-developer", model = this._agentDependencies.FrontendDeveloperAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "backend-developer", model = this._agentDependencies.BackendDeveloperAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "build", model = this._agentDependencies.BuildAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "coding-style", model = this._agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "security", model = this._agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "architecture", model = this._agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
@@ -224,6 +225,7 @@ public sealed class OrchestratorRuntime
             OrchestrationAgent orchestrationAgent,
             FrontendDeveloperAgent frontendDeveloperAgent,
             BackendDeveloperAgent backendDeveloperAgent,
+            BuildAgent buildAgent,
             CodingStyleAgent codingStyleAgent,
             SecurityAgent securityAgent,
             ArchitectureAgent architectureAgent)
@@ -231,6 +233,7 @@ public sealed class OrchestratorRuntime
             OrchestrationAgent = orchestrationAgent;
             FrontendDeveloperAgent = frontendDeveloperAgent;
             BackendDeveloperAgent = backendDeveloperAgent;
+            BuildAgent = buildAgent;
             CodingStyleAgent = codingStyleAgent;
             SecurityAgent = securityAgent;
             ArchitectureAgent = architectureAgent;
@@ -250,6 +253,11 @@ public sealed class OrchestratorRuntime
         /// Gets the backend developer agent used for code implementation.
         /// </summary>
         public BackendDeveloperAgent BackendDeveloperAgent { get; }
+
+        /// <summary>
+        /// Gets the build agent used for delegated build execution.
+        /// </summary>
+        public BuildAgent BuildAgent { get; }
 
         /// <summary>
         /// Gets the coding style agent used for style enforcement.

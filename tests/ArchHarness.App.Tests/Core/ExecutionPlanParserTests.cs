@@ -240,7 +240,7 @@ public sealed class ExecutionPlanParserTests
     }
 
     [Fact]
-    public void TryBuildExecutionPlan_MissingSecurityStep_ReturnsFailure()
+    public void TryBuildExecutionPlan_MissingSecurityStep_InsertsDefaultReviewStep()
     {
         string workspaceRoot = CreateTempWorkspace();
         try
@@ -257,11 +257,44 @@ public sealed class ExecutionPlanParserTests
                 }
                 """;
 
-            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
 
-            Assert.False(result);
-            Assert.NotNull(error);
-            Assert.Contains("Security", error, StringComparison.OrdinalIgnoreCase);
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.Null(error);
+            Assert.Contains(plan.Steps, step => step.Agent == "Security");
+            Assert.Equal("Security", plan.Steps[^2].Agent);
+            Assert.Equal("Architecture", plan.Steps[^1].Agent);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    [Fact]
+    public void TryBuildExecutionPlan_BuildStep_ReturnsCorrectPlan()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"Build","objective":"Run the solution build and summarize failures"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 1, "reviewRequired": true},
+                    "completionCriteria": ["Build status summarized"]
+                }
+                """;
+
+            bool result = _parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.Null(error);
+            Assert.Equal("Build", plan.Steps[0].Agent);
+            Assert.Contains(plan.Steps, step => step.Agent == "CodingStyle");
+            Assert.Contains(plan.Steps, step => step.Agent == "Security");
+            Assert.Contains(plan.Steps, step => step.Agent == "Architecture");
         }
         finally
         {

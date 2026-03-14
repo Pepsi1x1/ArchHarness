@@ -12,6 +12,7 @@ It provides a terminal UI for setup and monitoring, delegates work to specialize
 	- `Orchestration`: planning and completion validation
 	- `FrontendDeveloper`: frontend implementation changes
 	- `BackendDeveloper`: backend implementation changes
+	- `Build`: baseline/intermediate build execution and build-result triage
 	- `Architecture`: architecture enforcement and findings
 - Optionally loops architecture remediation until high-severity findings are cleared (or max iterations reached).
 - Runs build validation and records final status.
@@ -108,7 +109,8 @@ Example (abbreviated):
 	"agents": {
 		"orchestration": { "model": "claude-sonnet-4.6" },
 		"frontendDeveloper": { "model": "claude-sonnet-4.6" },
-		"backendDeveloper": { "model": "gpt-5.3-codex" }
+		"backendDeveloper": { "model": "gpt-5.3-codex" },
+		"build": { "model": "gpt-4.1" }
 	},
 	"copilot": {
 		"streamingResponses": true,

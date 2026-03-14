@@ -69,6 +69,7 @@ public sealed class ModelResolver : IModelResolver
             "orchestration" => this._agents.Orchestration.Model,
             "frontend-developer" => this._agents.FrontendDeveloper.Model,
             "backend-developer" => this._agents.BackendDeveloper.Model,
+            "build" => this._agents.Build.Model,
             "coding-style" => this._agents.CodingStyle.Model,
             "security" => this._agents.Security.Model,
             "architecture" => this._agents.Architecture.Model,

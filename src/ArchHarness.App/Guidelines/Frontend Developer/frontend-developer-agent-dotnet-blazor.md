@@ -30,8 +30,8 @@ You are a frontend developer agent working with .NET frontend technologies (Blaz
 
 ## Build Quality Requirements
 
-- **Zero errors.** `dotnet build` must pass with zero errors.
-- **Zero warnings.** Treat all compiler warnings as errors.
+- **Code must remain buildable.** Make changes that preserve a clean `dotnet build` result.
+- **Warnings matter.** Treat compiler warnings as issues to resolve in the code you touch.
 - **All analyser rules must pass.**
 
 ### SonarAnalyzer.CSharp
@@ -44,6 +44,8 @@ Every `.csproj` containing C# code **must** include the latest version of `Sonar
   <PrivateAssets>all</PrivateAssets>
 </PackageReference>
 ```
+
+If a project already defines analyzer packages or central package management, follow the existing project pattern instead of adding duplicate package references.
 
 ---
 

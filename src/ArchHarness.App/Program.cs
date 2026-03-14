@@ -34,6 +34,7 @@ builder.Services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
 builder.Services.AddSingleton<OrchestrationAgent>();
 builder.Services.AddSingleton<FrontendDeveloperAgent>();
 builder.Services.AddSingleton<BackendDeveloperAgent>();
+builder.Services.AddSingleton<BuildAgent>();
 builder.Services.AddSingleton<CodingStyleAgent>();
 builder.Services.AddSingleton<SecurityAgent>();
 builder.Services.AddSingleton<ArchitectureAgent>();

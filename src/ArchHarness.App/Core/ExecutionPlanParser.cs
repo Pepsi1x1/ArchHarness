@@ -11,6 +11,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
 {
     private const string FRONTEND_DEVELOPER_AGENT_NAME = "FrontendDeveloper";
     private const string BACKEND_DEVELOPER_AGENT_NAME = "BackendDeveloper";
+    private const string BUILD_AGENT_NAME = "Build";
     private const string CODING_STYLE_AGENT_NAME = "CodingStyle";
     private const string SECURITY_AGENT_NAME = "Security";
     private const string ARCHITECTURE_AGENT_NAME = "Architecture";
@@ -105,13 +106,13 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         List<JsonElement> stepsArray = stepsEl.EnumerateArray().ToList();
         if (stepsArray.Count == 0)
         {
-            error = "Field 'steps' array is empty. Must include at least 4 steps (BackendDeveloper, CodingStyle, Security, Architecture).";
+            error = "Field 'steps' array is empty. Must include at least one step.";
             return false;
         }
 
         if (stepsArray.Count > 10)
         {
-            error = $"Too many steps ({stepsArray.Count}). Maximum 6-8 steps recommended.";
+            error = $"Too many steps ({stepsArray.Count}). Maximum 10 steps supported.";
             return false;
         }
 
@@ -131,10 +132,10 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
             }
 
             string? agentValue = agentEl.GetString()?.Trim().ToLowerInvariant();
-            if (!new[] { "frontenddeveloper", "frontend-developer", "backenddeveloper", "backend-developer", "codingstyle", "coding-style", "security", "secure", "architecture", "review" }
+            if (!new[] { "frontenddeveloper", "frontend-developer", "backenddeveloper", "backend-developer", "build", "codingstyle", "coding-style", "security", "secure", "architecture", "review" }
                 .Contains(agentValue))
             {
-                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: FrontendDeveloper, BackendDeveloper, CodingStyle, Security, Architecture.";
+                error = $"Step {i}: agent '{agentValue}' is not recognized. Use one of: FrontendDeveloper, BackendDeveloper, Build, CodingStyle, Security, Architecture.";
                 return false;
             }
 
@@ -193,7 +194,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
 
     /// <summary>
     /// Reorders execution plan steps so that CodingStyle, Security, and Architecture review steps follow
-    /// all implementation steps, with correct dependency wiring.
+    /// all implementation and build steps, injecting those default review steps when omitted.
     /// </summary>
     /// <param name="steps">The unordered list of execution plan steps.</param>
     /// <param name="workspaceLanguages">The detected workspace languages for fallback assignment.</param>
@@ -375,6 +376,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     {
         if (raw.Equals("frontenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("frontend-developer", StringComparison.OrdinalIgnoreCase)) return FRONTEND_DEVELOPER_AGENT_NAME;
         if (raw.Equals("backenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("backend-developer", StringComparison.OrdinalIgnoreCase)) return BACKEND_DEVELOPER_AGENT_NAME;
+        if (raw.Equals("build", StringComparison.OrdinalIgnoreCase)) return BUILD_AGENT_NAME;
         if (raw.Equals("codingstyle", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase)) return CODING_STYLE_AGENT_NAME;
         if (raw.Equals("security", StringComparison.OrdinalIgnoreCase) || raw.Equals("secure", StringComparison.OrdinalIgnoreCase)) return SECURITY_AGENT_NAME;
         if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ARCHITECTURE_AGENT_NAME;
@@ -406,7 +408,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
 
         if (!ContainsRequiredAgents(steps))
         {
-            error = "Execution plan must include at least one BackendDeveloper, one CodingStyle, one Security, and one Architecture step.";
+            error = "Execution plan must include at least one FrontendDeveloper, BackendDeveloper, or Build step. CodingStyle, Security, and Architecture review steps are injected by the harness when omitted.";
             return false;
         }
 
@@ -438,10 +440,9 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     }
 
     private static bool ContainsRequiredAgents(IEnumerable<ExecutionPlanStep> steps)
-        => steps.Any(s => s.Agent == BACKEND_DEVELOPER_AGENT_NAME)
-        && steps.Any(s => s.Agent == CODING_STYLE_AGENT_NAME)
-        && steps.Any(s => s.Agent == SECURITY_AGENT_NAME)
-        && steps.Any(s => s.Agent == ARCHITECTURE_AGENT_NAME);
+        => steps.Any(s => s.Agent == FRONTEND_DEVELOPER_AGENT_NAME
+            || s.Agent == BACKEND_DEVELOPER_AGENT_NAME
+            || s.Agent == BUILD_AGENT_NAME);
 
     private static IterationStrategy ParseIterationStrategy(JsonElement root)
     {

@@ -35,6 +35,9 @@ public sealed class AgentsOptions
     /// <summary>Gets or sets the backend developer agent options.</summary>
     public AgentModelOptions BackendDeveloper { get; set; } = new AgentModelOptions() { Model = "gpt-5.3-codex" };
 
+    /// <summary>Gets or sets the build agent options.</summary>
+    public AgentModelOptions Build { get; set; } = new AgentModelOptions() { Model = "gpt-4.1" };
+
     /// <summary>Gets or sets the coding style agent options.</summary>
     public AgentModelOptions CodingStyle { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
 
@@ -53,6 +56,7 @@ public sealed class AgentsOptions
     {
         "frontend-developer" => FrontendDeveloper,
         "backend-developer" => BackendDeveloper,
+        "build" => Build,
         "coding-style" => CodingStyle,
         "security" => Security,
         "architecture" => Architecture,

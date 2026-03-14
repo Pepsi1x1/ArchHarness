@@ -89,6 +89,17 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
             },
+            ["Build"] = async (ExecutionPlanStep s) =>
+            {
+                await this._agents.Build.RunBuildAsync(
+                    adapter,
+                    s.Objective,
+                    request.BuildCommand,
+                    request.ModelOverrides,
+                    this._agents.Build.Id,
+                    this._agents.Build.Role,
+                    cancellationToken);
+            },
             ["CodingStyle"] = async (ExecutionPlanStep s) =>
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken);
@@ -261,6 +272,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     {
         public FrontendDeveloperAgent FrontendDeveloper { get; }
         public BackendDeveloperAgent BackendDeveloper { get; }
+        public BuildAgent Build { get; }
         public CodingStyleAgent CodingStyle { get; }
         public SecurityAgent Security { get; }
         public ArchitectureAgent Architecture { get; }
@@ -268,12 +280,14 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         public StepAgentDependencies(
             FrontendDeveloperAgent frontendDeveloper,
             BackendDeveloperAgent backendDeveloper,
+            BuildAgent build,
             CodingStyleAgent codingStyle,
             SecurityAgent security,
             ArchitectureAgent architecture)
         {
             this.FrontendDeveloper = frontendDeveloper;
             this.BackendDeveloper = backendDeveloper;
+            this.Build = build;
             this.CodingStyle = codingStyle;
             this.Security = security;
             this.Architecture = architecture;

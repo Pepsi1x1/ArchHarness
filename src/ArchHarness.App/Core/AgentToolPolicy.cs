@@ -46,6 +46,11 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
         "edit_file"
     };
 
+    private static readonly string[] DefaultBuildExcluded =
+    {
+        "edit_file"
+    };
+
     private readonly AgentsOptions _options;
 
     /// <summary>
@@ -64,6 +69,7 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
         {
             "frontend-developer" => this._options.FrontendDeveloper.Tools,
             "backend-developer" => this._options.BackendDeveloper.Tools,
+            "build" => this._options.Build.Tools,
             "coding-style" => this._options.CodingStyle.Tools,
             "security" => this._options.Security.Tools,
             "architecture" => this._options.Architecture.Tools,
@@ -76,6 +82,7 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
             "orchestration" => BuildPolicy(tools, Array.Empty<string>(), DefaultOrchestrationExcluded),
             "frontend-developer" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "backend-developer" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
+            "build" => BuildPolicy(tools, Array.Empty<string>(), DefaultBuildExcluded),
             "coding-style" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "security" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "architecture" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
