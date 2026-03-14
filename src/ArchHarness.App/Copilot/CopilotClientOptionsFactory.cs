@@ -20,7 +20,6 @@ internal static class CopilotClientOptionsFactory
         CopilotClientOptions clientOptions = new CopilotClientOptions
         {
             AutoStart = true,
-            AutoRestart = autoRestart,
             Cwd = workingDirectory,
             UseStdio = options.UseStdio,
             LogLevel = options.LogLevel

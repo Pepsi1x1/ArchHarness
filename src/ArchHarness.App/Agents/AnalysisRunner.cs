@@ -12,14 +12,11 @@ internal static class AnalysisRunner
     private const string SEVERITY_HIGH = "high";
     private const string SEVERITY_MEDIUM = "medium";
 
-    private static readonly IReadOnlyList<IArchitectureAnalyzer> ANALYZERS = new IArchitectureAnalyzer[]
-    {
-        new SrpAnalyzer(),
-        new DipAnalyzer(),
-        new IspAnalyzer(),
-        new OcpLspAnalyzer(),
-        new DryAnalyzer()
-    };
+    private static readonly IArchitectureAnalyzer SRP_ANALYZER = new SrpAnalyzer();
+    private static readonly IArchitectureAnalyzer DIP_ANALYZER = new DipAnalyzer();
+    private static readonly IArchitectureAnalyzer ISP_ANALYZER = new IspAnalyzer();
+    private static readonly IArchitectureAnalyzer OCP_LSP_ANALYZER = new OcpLspAnalyzer();
+    private static readonly IArchitectureAnalyzer DRY_ANALYZER = new DryAnalyzer();
 
     /// <summary>
     /// Runs all static analyzers against the diff and workspace files, returning an architecture review.
@@ -31,12 +28,14 @@ internal static class AnalysisRunner
     public static ArchitectureReview Analyze(
         string diff,
         string workspaceRoot,
-        IReadOnlyList<string> filesTouched)
+        IReadOnlyList<string> filesTouched,
+        ArchitectureAnalyzerOptions? analyzerOptions = null)
     {
+        ArchitectureAnalyzerOptions options = analyzerOptions ?? new ArchitectureAnalyzerOptions();
         List<ArchitectureFinding> findings = new List<ArchitectureFinding>();
         HashSet<string> requiredActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (diff.Contains("TODO", StringComparison.OrdinalIgnoreCase))
+        if (options.CompletenessTodo && diff.Contains("TODO", StringComparison.OrdinalIgnoreCase))
         {
             findings.Add(new ArchitectureFinding(SEVERITY_HIGH, "Completeness", filesTouched.FirstOrDefault(), "TODO", "TODO marker found in implementation."));
             requiredActions.Add("Remove TODO markers and complete implementation details.");
@@ -49,14 +48,14 @@ internal static class AnalysisRunner
         }
 
         List<ParsedFile> parsedFiles = ParseFiles(candidateFiles);
-        foreach (IArchitectureAnalyzer analyzer in ANALYZERS)
+        foreach (IArchitectureAnalyzer analyzer in GetEnabledAnalyzers(options))
         {
             analyzer.Analyze(parsedFiles, findings, requiredActions);
         }
 
         bool hasTests = filesTouched.Any(f => f.Contains("test", StringComparison.OrdinalIgnoreCase))
             || candidateFiles.Any(f => f.Contains("test", StringComparison.OrdinalIgnoreCase));
-        if (!hasTests && candidateFiles.Any(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
+        if (options.MissingTests && !hasTests && candidateFiles.Any(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)))
         {
             findings.Add(new ArchitectureFinding(
                 SEVERITY_MEDIUM,
@@ -69,6 +68,34 @@ internal static class AnalysisRunner
         }
 
         return new ArchitectureReview(findings, requiredActions.ToArray());
+    }
+
+    private static IEnumerable<IArchitectureAnalyzer> GetEnabledAnalyzers(ArchitectureAnalyzerOptions options)
+    {
+        if (options.Srp)
+        {
+            yield return SRP_ANALYZER;
+        }
+
+        if (options.Dip)
+        {
+            yield return DIP_ANALYZER;
+        }
+
+        if (options.Isp)
+        {
+            yield return ISP_ANALYZER;
+        }
+
+        if (options.OcpLsp)
+        {
+            yield return OCP_LSP_ANALYZER;
+        }
+
+        if (options.Dry)
+        {
+            yield return DRY_ANALYZER;
+        }
     }
 
     /// <summary>

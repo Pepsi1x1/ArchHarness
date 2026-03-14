@@ -57,6 +57,11 @@ public sealed class SecurityAgent : AgentBase
             agentRole: agentRole ?? base.Role,
             cancellationToken);
 
-        return SecurityAnalysisRunner.Analyze(request.Diff, request.WorkspaceRoot, request.FilesTouched, request.LanguageScope);
+        return SecurityAnalysisRunner.Analyze(
+            request.Diff,
+            request.WorkspaceRoot,
+            request.FilesTouched,
+            request.LanguageScope,
+            base.AgentOptions.SecurityAnalyzers);
     }
 }

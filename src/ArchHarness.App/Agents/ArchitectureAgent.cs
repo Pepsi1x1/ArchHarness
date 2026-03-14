@@ -54,6 +54,10 @@ public sealed class ArchitectureAgent : AgentBase
             agentRole: agentRole ?? base.Role,
             cancellationToken);
 
-        return AnalysisRunner.Analyze(request.Diff, request.WorkspaceRoot, request.FilesTouched);
+        return AnalysisRunner.Analyze(
+            request.Diff,
+            request.WorkspaceRoot,
+            request.FilesTouched,
+            base.AgentOptions.ArchitectureAnalyzers);
     }
 }

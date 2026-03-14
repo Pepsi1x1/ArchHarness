@@ -49,6 +49,9 @@ public abstract class AgentBase
     /// <summary>Gets whether guideline loading is disabled for this agent role.</summary>
     protected bool IsGuidelinesDisabled => this._agentsOptions.Value.ForRole(this.Role).DisableGuidelines;
 
+    /// <summary>Gets the configured options for this agent role.</summary>
+    protected AgentModelOptions AgentOptions => this._agentsOptions.Value.ForRole(this.Role);
+
     /// <summary>Gets the default model for this agent's role.</summary>
     public string DefaultModel => this._modelResolver.Resolve(this.Role, overrides: null);
 

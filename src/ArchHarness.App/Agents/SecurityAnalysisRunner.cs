@@ -25,8 +25,10 @@ internal static class SecurityAnalysisRunner
         string diff,
         string workspaceRoot,
         IReadOnlyList<string> filesTouched,
-        IReadOnlyList<string>? languageScope)
+        IReadOnlyList<string>? languageScope,
+        SecurityAnalyzerOptions? analyzerOptions = null)
     {
+        SecurityAnalyzerOptions options = analyzerOptions ?? new SecurityAnalyzerOptions();
         List<SecurityFinding> findings = new List<SecurityFinding>();
         HashSet<string> requiredActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -35,11 +37,30 @@ internal static class SecurityAnalysisRunner
             string content = File.ReadAllText(file);
             string relativePath = Path.GetRelativePath(workspaceRoot, file);
 
-            DetectHardcodedSecrets(content, relativePath, findings, requiredActions);
-            DetectInsecureTransport(content, relativePath, findings, requiredActions);
-            DetectSqlInjection(content, relativePath, findings, requiredActions);
-            DetectXss(content, relativePath, findings, requiredActions);
-            DetectInsecureTlsBypass(content, relativePath, findings, requiredActions);
+            if (options.HardcodedSecrets)
+            {
+                DetectHardcodedSecrets(content, relativePath, findings, requiredActions);
+            }
+
+            if (options.InsecureTransport)
+            {
+                DetectInsecureTransport(content, relativePath, findings, requiredActions);
+            }
+
+            if (options.SqlInjection)
+            {
+                DetectSqlInjection(content, relativePath, findings, requiredActions);
+            }
+
+            if (options.Xss)
+            {
+                DetectXss(content, relativePath, findings, requiredActions);
+            }
+
+            if (options.InsecureTlsBypass)
+            {
+                DetectInsecureTlsBypass(content, relativePath, findings, requiredActions);
+            }
         }
 
         return new SecurityReview(findings, requiredActions.ToArray());

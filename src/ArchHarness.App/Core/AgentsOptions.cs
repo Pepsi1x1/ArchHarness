@@ -19,6 +19,60 @@ public sealed class AgentModelOptions
 
     /// <summary>Gets or sets the optional architecture loop prompt.</summary>
     public string? ArchitectureLoopPrompt { get; set; }
+
+    /// <summary>Gets or sets the architecture analyzer toggles for this agent role.</summary>
+    public ArchitectureAnalyzerOptions ArchitectureAnalyzers { get; set; } = new ArchitectureAnalyzerOptions();
+
+    /// <summary>Gets or sets the security analyzer toggles for this agent role.</summary>
+    public SecurityAnalyzerOptions SecurityAnalyzers { get; set; } = new SecurityAnalyzerOptions();
+}
+
+/// <summary>
+/// Toggle set for the architecture review heuristics and analyzers.
+/// </summary>
+public sealed class ArchitectureAnalyzerOptions
+{
+    /// <summary>Gets or sets whether unfinished implementation markers should be reported.</summary>
+    public bool CompletenessTodo { get; set; } = true;
+
+    /// <summary>Gets or sets whether SRP analysis is enabled.</summary>
+    public bool Srp { get; set; } = true;
+
+    /// <summary>Gets or sets whether DIP analysis is enabled.</summary>
+    public bool Dip { get; set; } = true;
+
+    /// <summary>Gets or sets whether ISP analysis is enabled.</summary>
+    public bool Isp { get; set; } = true;
+
+    /// <summary>Gets or sets whether OCP/LSP analysis is enabled.</summary>
+    public bool OcpLsp { get; set; } = true;
+
+    /// <summary>Gets or sets whether DRY analysis is enabled.</summary>
+    public bool Dry { get; set; } = true;
+
+    /// <summary>Gets or sets whether missing-test findings are enabled.</summary>
+    public bool MissingTests { get; set; } = true;
+}
+
+/// <summary>
+/// Toggle set for the security review heuristics.
+/// </summary>
+public sealed class SecurityAnalyzerOptions
+{
+    /// <summary>Gets or sets whether hardcoded secret detection is enabled.</summary>
+    public bool HardcodedSecrets { get; set; } = true;
+
+    /// <summary>Gets or sets whether insecure transport detection is enabled.</summary>
+    public bool InsecureTransport { get; set; } = true;
+
+    /// <summary>Gets or sets whether SQL injection detection is enabled.</summary>
+    public bool SqlInjection { get; set; } = true;
+
+    /// <summary>Gets or sets whether XSS detection is enabled.</summary>
+    public bool Xss { get; set; } = true;
+
+    /// <summary>Gets or sets whether insecure TLS bypass detection is enabled.</summary>
+    public bool InsecureTlsBypass { get; set; } = true;
 }
 
 /// <summary>
