@@ -16,6 +16,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     private readonly IRunHistoryService _runHistoryService;
     private readonly OrchestratorRuntime _runtime;
     private readonly IAgentStreamEventStream _agentStreamEventStream;
+    private readonly ICopilotSessionEventStream _sessionEventStream;
     private readonly IStartupPreflightValidator _preflightValidator;
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly Dictionary<string, StringBuilder> _agentTranscripts = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
@@ -51,12 +52,14 @@ public sealed class MainWindowViewModel : ViewModelBase
         this._runHistoryService = null!;
         this._runtime = null!;
         this._agentStreamEventStream = null!;
+        this._sessionEventStream = null!;
         this._preflightValidator = null!;
         this._summaryGenerator = null!;
         this.RecentRuns = new ObservableCollection<RunSummaryViewModel>();
         this.Artifacts = new ObservableCollection<ArtifactItemViewModel>();
         this.TimelineItems = new ObservableCollection<TimelineItemViewModel>();
         this.AvailableAgents = new ObservableCollection<AgentItemViewModel>();
+        this.SessionEvents = new ObservableCollection<SessionEventItemViewModel>();
         this.WorkspaceModes = new[] { "existing-folder", "new-project", "existing-git" };
         this.PermissionModes = new[] { APPROVE_ALL, PROMPT };
         this._taskPrompt = DEFAULT_TASK_PROMPT;
@@ -70,6 +73,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         IRunHistoryService runHistoryService,
         OrchestratorRuntime runtime,
         IAgentStreamEventStream agentStreamEventStream,
+        ICopilotSessionEventStream sessionEventStream,
         IStartupPreflightValidator preflightValidator,
         SetupSummaryGenerator summaryGenerator,
         IOptions<AgentsOptions> agentsOptions)
@@ -77,12 +81,14 @@ public sealed class MainWindowViewModel : ViewModelBase
         this._runHistoryService = runHistoryService;
         this._runtime = runtime;
         this._agentStreamEventStream = agentStreamEventStream;
+        this._sessionEventStream = sessionEventStream;
         this._preflightValidator = preflightValidator;
         this._summaryGenerator = summaryGenerator;
         this.RecentRuns = new ObservableCollection<RunSummaryViewModel>();
         this.Artifacts = new ObservableCollection<ArtifactItemViewModel>();
         this.TimelineItems = new ObservableCollection<TimelineItemViewModel>();
         this.AvailableAgents = new ObservableCollection<AgentItemViewModel>();
+        this.SessionEvents = new ObservableCollection<SessionEventItemViewModel>();
         AgentsOptions config = agentsOptions.Value;
         ReviewLoopAgentSelection reviewLoopSelection = config.GetReviewLoopAgentSelection();
         this._reviewLoopCodingStyleEnabled = reviewLoopSelection.CodingStyleEnabled;
@@ -116,6 +122,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         viewModel.AvailableAgents.Add(new AgentItemViewModel("architecture-01", "architecture"));
         viewModel.SelectedAgent = viewModel.AvailableAgents[0];
         viewModel.SelectedAgentTranscript = "Reviewing architecture findings and validating completion criteria...";
+        viewModel.SessionEvents.Add(new SessionEventItemViewModel("Session created", "conversation", "gpt-5.4", "archharness-session", "Desktop design preview of Copilot session lifecycle output."));
         return viewModel;
     }
 
@@ -126,6 +133,8 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ObservableCollection<TimelineItemViewModel> TimelineItems { get; }
 
     public ObservableCollection<AgentItemViewModel> AvailableAgents { get; }
+
+    public ObservableCollection<SessionEventItemViewModel> SessionEvents { get; }
 
     public IReadOnlyList<string> WorkspaceModes { get; }
 
@@ -420,6 +429,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         this.SelectedArtifact = null;
         this.SelectedArtifactPreview = "Artefacts will appear here once the run begins writing output.";
         this.AvailableAgents.Clear();
+        this.SessionEvents.Clear();
         lock (this._agentSync)
         {
             this._agentTranscripts.Clear();
@@ -441,6 +451,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         this._runCts = new CancellationTokenSource();
         Task agentStreamTask = this.ConsumeAgentStreamAsync(this._runCts.Token);
+        Task sessionEventTask = this.ConsumeSessionEventsAsync(this._runCts.Token);
         Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
             this.AppendTimelineItem(evt.Source, evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss"), evt.Message, AccentForSource(evt.Source)));
 
@@ -476,6 +487,15 @@ public sealed class MainWindowViewModel : ViewModelBase
             try
             {
                 await agentStreamTask;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected on run shutdown.
+            }
+
+            try
+            {
+                await sessionEventTask;
             }
             catch (OperationCanceledException)
             {
@@ -652,6 +672,34 @@ public sealed class MainWindowViewModel : ViewModelBase
                     else if (this.SelectedAgent.AgentId == evt.AgentId)
                     {
                         this.RefreshSelectedAgentTranscript();
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on run shutdown.
+        }
+    }
+
+    private async Task ConsumeSessionEventsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (CopilotSessionLifecycleEvent evt in this._sessionEventStream.ReadAllAsync(cancellationToken))
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    this.SessionEvents.Add(new SessionEventItemViewModel(
+                        evt.EventType,
+                        evt.TimestampUtc.ToLocalTime().ToString("HH:mm:ss"),
+                        evt.Model,
+                        evt.SessionId,
+                        evt.Details ?? "No additional details."));
+
+                    if (this.SessionEvents.Count > 100)
+                    {
+                        this.SessionEvents.RemoveAt(0);
                     }
                 });
             }

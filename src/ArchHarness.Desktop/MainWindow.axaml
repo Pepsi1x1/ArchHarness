@@ -11,40 +11,35 @@
         MinWidth="1180"
         MinHeight="760"
         Title="ArchHarness Desktop">
-  <Grid ColumnDefinitions="300,*,360" Margin="20">
+  <Grid Classes="appRoot" ColumnDefinitions="228,*,360" Margin="18">
     <Border Classes="sidebar" Grid.Column="0">
-      <Grid RowDefinitions="Auto,Auto,Auto,*">
-        <StackPanel Spacing="8">
-          <TextBlock Text="ArchHarness" Classes="hero" />
-          <TextBlock Text="Desktop orchestration shell" Foreground="#AAB6C4" />
+      <Grid RowDefinitions="Auto,Auto,*">
+        <StackPanel Spacing="4">
+          <TextBlock Text="ArchHarness" FontSize="24" FontWeight="SemiBold" />
+          <TextBlock Text="Desktop orchestration shell" Classes="caption" />
         </StackPanel>
 
-        <Border Classes="panel" Grid.Row="1" Margin="0,20,0,0">
-          <StackPanel Spacing="12">
-            <TextBlock Text="Workspace" FontWeight="SemiBold" />
-            <TextBox Name="WorkspacePathTextBox"
-                     Text="{Binding WorkspacePath, Mode=TwoWay}"
-                     Watermark="Path to workspace root" />
-            <Button Name="RefreshWorkspaceButton" Classes="accent" HorizontalAlignment="Stretch">Refresh Runs</Button>
+        <Border Classes="subtlePanel" Grid.Row="1" Margin="0,18,0,0">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Focus" Classes="sectionTitle" />
+            <TextBlock Text="Start a new session and follow it live. Previous runs are useful reference, not the primary workflow." Classes="caption" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+              <Border Classes="badgeSubtle" ToolTip.Tip="{Binding PreflightStatusDetail}">
+                <TextBlock Text="{Binding PreflightBadge}" Classes="caption" />
+              </Border>
+              <Border Classes="badgeSubtle">
+                <TextBlock Text="{Binding RunCountBadge}" Classes="caption" />
+              </Border>
+            </StackPanel>
+            <TextBlock Text="{Binding RunStatus}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" Margin="0,4,0,0" />
           </StackPanel>
         </Border>
 
         <Border Classes="panel" Grid.Row="2" Margin="0,18,0,0">
-          <StackPanel Spacing="10">
-            <TextBlock Text="Views" FontWeight="SemiBold" />
-            <TextBlock Text="Sessions" Foreground="#F16436" />
-            <TextBlock Text="Live Monitor" Foreground="#D6DEE7" />
-            <TextBlock Text="Artefacts" Foreground="#D6DEE7" />
-            <TextBlock Text="Review" Foreground="#D6DEE7" />
-            <TextBlock Text="Prompts" Foreground="#D6DEE7" />
-          </StackPanel>
-        </Border>
-
-        <Border Classes="panel" Grid.Row="3" Margin="0,18,0,0">
           <Grid RowDefinitions="Auto,*">
-            <StackPanel>
-              <TextBlock Text="Recent Runs" FontWeight="SemiBold" />
-              <TextBlock Text="Pulled from .agent-harness/runs" Foreground="#8FA0B3" FontSize="12" />
+            <StackPanel Spacing="2">
+              <TextBlock Text="Recent Runs" Classes="sectionTitle" />
+              <TextBlock Text="Browse previous output when you need context or want to compare a session." Classes="caption" TextWrapping="Wrap" />
             </StackPanel>
 
             <ListBox Grid.Row="1"
@@ -55,10 +50,10 @@
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:RunSummaryViewModel">
                   <Border Classes="card">
-                    <StackPanel Spacing="6">
-                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                      <TextBlock Text="{Binding Subtitle}" Foreground="#AAB6C4" FontSize="12" />
-                      <TextBlock Text="{Binding RunDirectory}" Foreground="#728397" FontSize="11" TextWrapping="Wrap" />
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" />
+                      <TextBlock Text="{Binding Subtitle}" Classes="caption" />
+                      <TextBlock Text="{Binding RunDirectory}" Classes="caption" Opacity="0.72" TextWrapping="Wrap" MaxHeight="34" />
                     </StackPanel>
                   </Border>
                 </DataTemplate>
@@ -69,51 +64,114 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Margin="18,0">
+    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" Margin="16,0">
       <Border Classes="panel">
         <Grid ColumnDefinitions="*,Auto">
-          <StackPanel>
-            <TextBlock Text="{Binding Headline}" Classes="hero" FontSize="24" />
-            <TextBlock Text="{Binding Subheadline}" Foreground="#AAB6C4" TextWrapping="Wrap" />
+          <StackPanel Spacing="4">
+            <TextBlock Text="New Session" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="Describe the work, choose the workspace, start the run, then follow the timeline as the agents execute." Classes="caption" TextWrapping="Wrap" MaxWidth="620" />
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Top" Margin="14,0,0,0" Grid.Column="1">
-            <Border Background="#1E262F" CornerRadius="999" Padding="12,6">
+            <Border Classes="badge" ToolTip.Tip="{Binding PreflightStatusDetail}">
               <TextBlock Text="{Binding PreflightBadge}" />
             </Border>
-            <Border Background="#1E262F" CornerRadius="999" Padding="12,6">
-              <TextBlock Text="{Binding RunStateBadge}" />
+            <Border Classes="badgeSubtle">
+              <TextBlock Text="{Binding RunStateBadge}" Classes="caption" />
             </Border>
-            <Border Background="#1E262F" CornerRadius="999" Padding="12,6">
-              <TextBlock Text="{Binding RunCountBadge}" />
+            <Border Classes="badgeSubtle">
+              <TextBlock Text="{Binding SelectedRunTitle}" Classes="caption" />
             </Border>
           </StackPanel>
         </Grid>
       </Border>
 
-      <Grid Grid.Row="1" ColumnDefinitions="*,*" Margin="0,18,0,0">
-        <Border Classes="panel" Margin="0,0,9,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Runtime status" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding PreflightStatusTitle}" FontSize="20" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding PreflightStatusDetail}" Foreground="#AAB6C4" TextWrapping="Wrap" />
-            <TextBlock Text="{Binding RunStatus}" Foreground="#F16436" FontWeight="SemiBold" Margin="0,6,0,0" />
+      <Border Classes="composerPanel" Grid.Row="1" Margin="0,18,0,0">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="*,*">
+          <StackPanel Grid.ColumnSpan="2" Spacing="6">
+            <TextBlock Text="Task" Classes="sectionTitle" />
+            <TextBox Text="{Binding TaskPrompt, Mode=TwoWay}"
+                     AcceptsReturn="True"
+                     MinHeight="112"
+                     TextWrapping="Wrap"
+                     Watermark="Describe the change or review loop you want ArchHarness to run." />
           </StackPanel>
-        </Border>
-        <Border Classes="panel" Grid.Column="1" Margin="9,0,0,0">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Selected run" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding SelectedRunTitle}" FontSize="20" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding SelectedRunDetail}" Foreground="#AAB6C4" TextWrapping="Wrap" />
+
+          <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="6" Margin="0,14,0,0">
+            <TextBlock Text="Workspace" Classes="sectionTitle" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Name="WorkspacePathTextBox"
+                       Text="{Binding WorkspacePath, Mode=TwoWay}"
+                       Watermark="Path to workspace root" />
+              <Button Name="RefreshWorkspaceButton" Classes="ghost" Grid.Column="1" Margin="10,0,0,0">Refresh Runs</Button>
+            </Grid>
           </StackPanel>
-        </Border>
-      </Grid>
+
+          <StackPanel Grid.Row="2" Margin="0,14,0,0" Spacing="6">
+            <TextBlock Text="Workspace Mode" Classes="sectionTitle" />
+            <ComboBox ItemsSource="{Binding WorkspaceModes}" SelectedItem="{Binding WorkspaceMode, Mode=TwoWay}" />
+          </StackPanel>
+          <StackPanel Grid.Row="2" Grid.Column="1" Margin="12,14,0,0" Spacing="6">
+            <TextBlock Text="Permissions" Classes="sectionTitle" />
+            <ComboBox ItemsSource="{Binding PermissionModes}" SelectedItem="{Binding PermissionHandlerMode, Mode=TwoWay}" />
+          </StackPanel>
+
+          <StackPanel Grid.Row="3" Margin="0,12,0,0" Spacing="6">
+            <TextBlock Text="Workflow" Classes="sectionTitle" />
+            <TextBox Text="{Binding Workflow, Mode=TwoWay}" />
+          </StackPanel>
+          <StackPanel Grid.Row="3" Grid.Column="1" Margin="12,12,0,0" Spacing="6">
+            <TextBlock Text="Project Name" Classes="sectionTitle" />
+            <TextBox Text="{Binding ProjectName, Mode=TwoWay}" Watermark="Used for new-project workspace mode" />
+          </StackPanel>
+
+          <StackPanel Grid.Row="4" Margin="0,12,0,0" Spacing="6">
+            <TextBlock Text="Model Overrides" Classes="sectionTitle" />
+            <TextBox Text="{Binding ModelOverridesText, Mode=TwoWay}" Watermark="role=model,role=model" />
+          </StackPanel>
+          <StackPanel Grid.Row="4" Grid.Column="1" Margin="12,12,0,0" Spacing="6">
+            <TextBlock Text="Build Command" Classes="sectionTitle" />
+            <TextBox Text="{Binding BuildCommand, Mode=TwoWay}" Watermark="Optional explicit build command" />
+          </StackPanel>
+
+          <Grid Grid.Row="5" Grid.ColumnSpan="2" ColumnDefinitions="Auto,*,Auto" Margin="0,16,0,0">
+            <StackPanel Spacing="8">
+              <CheckBox Content="Architecture loop mode" IsChecked="{Binding ArchitectureLoopMode, Mode=TwoWay}" />
+              <StackPanel Orientation="Horizontal" Spacing="14">
+                <CheckBox Content="Coding style" IsChecked="{Binding ReviewLoopCodingStyleEnabled, Mode=TwoWay}" />
+                <CheckBox Content="Security" IsChecked="{Binding ReviewLoopSecurityEnabled, Mode=TwoWay}" />
+                <CheckBox Content="Architecture" IsChecked="{Binding ReviewLoopArchitectureEnabled, Mode=TwoWay}" />
+              </StackPanel>
+            </StackPanel>
+
+            <TextBox Grid.Column="1"
+                     Margin="16,0,16,0"
+                     Text="{Binding ArchitectureLoopPrompt, Mode=TwoWay}"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MinHeight="72"
+                     Watermark="Optional architecture review prompt"
+                     IsVisible="{Binding ArchitectureLoopMode}" />
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Bottom">
+              <Button Name="GenerateSummaryButton" Classes="ghost" IsEnabled="{Binding CanStartRun}">Generate Summary</Button>
+              <Button Name="StartRunButton" Classes="accent" IsEnabled="{Binding CanStartRun}">Start Run</Button>
+              <Button Name="CancelRunButton" Classes="ghost" IsEnabled="{Binding CanCancelRun}">Cancel</Button>
+            </StackPanel>
+          </Grid>
+        </Grid>
+      </Border>
 
       <Border Classes="panel" Grid.Row="2" Margin="0,18,0,0">
         <Grid RowDefinitions="Auto,*">
-          <StackPanel>
-            <TextBlock Text="Run timeline" FontWeight="SemiBold" />
-            <TextBlock Text="A desktop-native view over run artefacts and execution context." Foreground="#8FA0B3" FontSize="12" />
-          </StackPanel>
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel Spacing="2">
+              <TextBlock Text="Live Timeline" Classes="sectionTitle" />
+              <TextBlock Text="Follow the active session as it plans, executes, reviews, and writes artefacts." Classes="caption" />
+            </StackPanel>
+            <Border Grid.Column="1" Classes="badgeSubtle" VerticalAlignment="Top">
+              <TextBlock Text="{Binding RunStateBadge}" Classes="caption" />
+            </Border>
+          </Grid>
 
           <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
             <ItemsControl ItemsSource="{Binding TimelineItems}">
@@ -121,11 +179,11 @@
                 <DataTemplate x:DataType="vm:TimelineItemViewModel">
                   <Border Classes="card">
                     <Grid ColumnDefinitions="Auto,*">
-                      <Border Width="12" Height="12" CornerRadius="6" Background="{Binding AccentBrush}" VerticalAlignment="Top" Margin="0,6,0,0" />
+                      <Border Classes="timelineDot" Background="{Binding AccentBrush}" VerticalAlignment="Top" Margin="0,6,0,0" />
                       <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Subtitle}" Foreground="#AAB6C4" FontSize="12" Margin="0,4,0,0" />
-                        <TextBlock Text="{Binding Detail}" Foreground="#D6DEE7" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="{Binding Subtitle}" Classes="caption" Margin="0,3,0,0" />
+                        <TextBlock Text="{Binding Detail}" Foreground="{StaticResource TextPrimaryBrush}" Opacity="0.92" TextWrapping="Wrap" Margin="0,8,0,0" />
                       </StackPanel>
                     </Grid>
                   </Border>
@@ -139,78 +197,16 @@
 
     <Border Classes="panel" Grid.Column="2">
       <Grid RowDefinitions="Auto,Auto,*">
-        <StackPanel>
-          <TextBlock Text="Run Details" FontWeight="SemiBold" />
-          <TextBlock Text="Configure a run, inspect live agent output, or review artefacts for the selected session." Foreground="#8FA0B3" FontSize="12" />
+        <StackPanel Spacing="2">
+          <TextBlock Text="Follow Along" Classes="sectionTitle" />
+          <TextBlock Text="Stream agent output, inspect Copilot session events, and review the current run's artefacts." Classes="caption" />
         </StackPanel>
 
         <TabControl Grid.Row="1" Grid.RowSpan="2" Margin="0,12,0,0">
-          <TabItem Header="Run Setup">
-            <ScrollViewer>
-              <StackPanel Spacing="12" Margin="0,12,0,0">
-                <TextBlock Text="Task" FontWeight="SemiBold" />
-                <TextBox Text="{Binding TaskPrompt, Mode=TwoWay}" AcceptsReturn="True" MinHeight="96" TextWrapping="Wrap" />
-
-                <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
-                  <StackPanel Margin="0,0,8,0">
-                    <TextBlock Text="Workspace Mode" FontWeight="SemiBold" />
-                    <ComboBox ItemsSource="{Binding WorkspaceModes}" SelectedItem="{Binding WorkspaceMode, Mode=TwoWay}" />
-                  </StackPanel>
-                  <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                    <TextBlock Text="Permissions" FontWeight="SemiBold" />
-                    <ComboBox ItemsSource="{Binding PermissionModes}" SelectedItem="{Binding PermissionHandlerMode, Mode=TwoWay}" />
-                  </StackPanel>
-                </Grid>
-
-                <TextBlock Text="Workflow" FontWeight="SemiBold" />
-                <TextBox Text="{Binding Workflow, Mode=TwoWay}" />
-
-                <TextBlock Text="Project Name" FontWeight="SemiBold" />
-                <TextBox Text="{Binding ProjectName, Mode=TwoWay}" Watermark="Used for new-project workspace mode" />
-
-                <TextBlock Text="Model Overrides" FontWeight="SemiBold" />
-                <TextBox Text="{Binding ModelOverridesText, Mode=TwoWay}" Watermark="role=model,role=model" />
-
-                <TextBlock Text="Build Command" FontWeight="SemiBold" />
-                <TextBox Text="{Binding BuildCommand, Mode=TwoWay}" Watermark="Optional explicit build command" AcceptsReturn="True" TextWrapping="Wrap" />
-
-                <CheckBox Content="Architecture loop mode" IsChecked="{Binding ArchitectureLoopMode, Mode=TwoWay}" />
-                <TextBox Text="{Binding ArchitectureLoopPrompt, Mode=TwoWay}"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         MinHeight="72"
-                         Watermark="Optional architecture review prompt"
-                         IsVisible="{Binding ArchitectureLoopMode}" />
-
-                <StackPanel Spacing="6">
-                  <TextBlock Text="Review Loop" FontWeight="SemiBold" />
-                  <CheckBox Content="Coding style" IsChecked="{Binding ReviewLoopCodingStyleEnabled, Mode=TwoWay}" />
-                  <CheckBox Content="Security" IsChecked="{Binding ReviewLoopSecurityEnabled, Mode=TwoWay}" />
-                  <CheckBox Content="Architecture" IsChecked="{Binding ReviewLoopArchitectureEnabled, Mode=TwoWay}" />
-                </StackPanel>
-
-                <TextBlock Text="{Binding SetupValidationMessage}" Foreground="#FF8A8A" TextWrapping="Wrap" IsVisible="{Binding HasSetupValidationMessage}" />
-
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <Button Name="GenerateSummaryButton" HorizontalAlignment="Left" IsEnabled="{Binding CanStartRun}">Generate Summary</Button>
-                  <Button Name="StartRunButton" Classes="accent" HorizontalAlignment="Left" IsEnabled="{Binding CanStartRun}">Start Run</Button>
-                  <Button Name="CancelRunButton" HorizontalAlignment="Left" IsEnabled="{Binding CanCancelRun}">Cancel</Button>
-                </StackPanel>
-
-                <Border Classes="card">
-                  <StackPanel Spacing="6">
-                    <TextBlock Text="Summary Preview" FontWeight="SemiBold" />
-                    <TextBlock Text="{Binding SetupSummary}" TextWrapping="Wrap" />
-                  </StackPanel>
-                </Border>
-              </StackPanel>
-            </ScrollViewer>
-          </TabItem>
-
           <TabItem Header="Agent Stream">
             <Grid RowDefinitions="Auto,*" Margin="0,12,0,0">
               <StackPanel Spacing="8">
-                <TextBlock Text="Selected Agent" FontWeight="SemiBold" />
+                <TextBlock Text="Selected Agent" Classes="sectionTitle" />
                 <ComboBox ItemsSource="{Binding AvailableAgents}"
                           SelectedItem="{Binding SelectedAgent, Mode=TwoWay}">
                   <ComboBox.ItemTemplate>
@@ -221,12 +217,45 @@
                 </ComboBox>
               </StackPanel>
 
-              <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
-                <TextBlock Text="{Binding SelectedAgentTranscript}"
-                           FontFamily="Courier New"
-                           TextWrapping="Wrap" />
-              </ScrollViewer>
+              <Border Classes="subtlePanel" Grid.Row="1" Margin="0,12,0,0">
+                <ScrollViewer>
+                  <TextBlock Text="{Binding SelectedAgentTranscript}"
+                             FontFamily="Courier New"
+                             TextWrapping="Wrap" />
+                </ScrollViewer>
+              </Border>
             </Grid>
+          </TabItem>
+
+          <TabItem Header="Summary">
+            <Border Classes="subtlePanel" Margin="0,12,0,0">
+              <ScrollViewer>
+                <StackPanel Spacing="8">
+                  <TextBlock Text="Request summary" Classes="sectionTitle" />
+                  <TextBlock Text="{Binding SetupSummary}" Classes="caption" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding SetupValidationMessage}" Foreground="#FF8A8A" TextWrapping="Wrap" IsVisible="{Binding HasSetupValidationMessage}" />
+                </StackPanel>
+              </ScrollViewer>
+            </Border>
+          </TabItem>
+
+          <TabItem Header="Session Events">
+            <ScrollViewer Margin="0,12,0,0">
+              <ItemsControl ItemsSource="{Binding SessionEvents}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SessionEventItemViewModel">
+                    <Border Classes="card">
+                      <StackPanel Spacing="5">
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="{Binding Subtitle}" Foreground="{StaticResource AccentBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding SessionLabel}" Classes="caption" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
           </TabItem>
 
           <TabItem Header="Artefacts">
@@ -240,20 +269,22 @@
                   <DataTemplate x:DataType="vm:ArtifactItemViewModel">
                     <Border Classes="card">
                       <StackPanel Spacing="4">
-                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Kind}" Foreground="#F16436" FontSize="12" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Description}" Foreground="#AAB6C4" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" />
+                        <TextBlock Text="{Binding Kind}" Foreground="{StaticResource AccentBrush}" FontSize="12" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding Description}" Classes="caption" TextWrapping="Wrap" />
                       </StackPanel>
                     </Border>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
 
-              <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
-                <TextBlock Text="{Binding SelectedArtifactPreview}"
-                           FontFamily="Courier New"
-                           TextWrapping="Wrap" />
-              </ScrollViewer>
+              <Border Classes="subtlePanel" Grid.Row="1" Margin="0,12,0,0">
+                <ScrollViewer>
+                  <TextBlock Text="{Binding SelectedArtifactPreview}"
+                             FontFamily="Courier New"
+                             TextWrapping="Wrap" />
+                </ScrollViewer>
+              </Border>
             </Grid>
           </TabItem>
         </TabControl>
