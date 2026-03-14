@@ -36,9 +36,11 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     private readonly ICopilotClientProvider _clientProvider;
     private readonly SessionHooksDependencies _hooks;
     private readonly CopilotSessionContext _sessionContext;
+    private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
     private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
     private readonly ILogger<CopilotSessionFactory> _logger;
     private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>>();
+    private readonly SemaphoreSlim _permissionPromptGate = new SemaphoreSlim(1, 1);
     private readonly int _sessionInactivityTimeoutSeconds;
     private readonly int _sessionAbsoluteTimeoutSeconds;
 
@@ -55,6 +57,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         ICopilotClientProvider clientProvider,
         SessionHooksDependencies hooks,
         CopilotSessionContext sessionContext,
+        IPermissionHandlerModeAccessor permissionHandlerModeAccessor,
         IWorkspaceRootAccessor workspaceRootAccessor,
         ILogger<CopilotSessionFactory> logger)
     {
@@ -62,6 +65,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         this._clientProvider = clientProvider;
         this._hooks = hooks;
         this._sessionContext = sessionContext;
+        this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
         this._workspaceRootAccessor = workspaceRootAccessor;
         this._logger = logger;
         this._sessionInactivityTimeoutSeconds = Math.Max(0, options.Value.SessionResponseTimeoutSeconds);
@@ -134,10 +138,11 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     internal Task<SessionHandle> GetOrCreateSessionHandleAsync(string model, CopilotCompletionOptions? options)
     {
         string workspaceRoot = ResolveWorkspaceRoot(this._workspaceRootAccessor.Current);
-        SessionCacheKey key = BuildSessionCacheKey(model, options, workspaceRoot);
+        string permissionHandlerMode = PermissionHandlerModes.Normalize(this._permissionHandlerModeAccessor.Current);
+        SessionCacheKey key = BuildSessionCacheKey(model, options, workspaceRoot, permissionHandlerMode);
         Lazy<Task<SessionHandle>> lazy = this._sessionHandles.GetOrAdd(
             key,
-            cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options), LazyThreadSafetyMode.ExecutionAndPublication));
+            cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options, permissionHandlerMode), LazyThreadSafetyMode.ExecutionAndPublication));
         return this.AwaitSessionHandleAsync(key, lazy);
     }
 
@@ -154,7 +159,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         }
     }
 
-    private async Task<SessionHandle> CreateSessionHandleAsync(string model, CopilotCompletionOptions? requestOptions)
+    private async Task<SessionHandle> CreateSessionHandleAsync(string model, CopilotCompletionOptions? requestOptions, string permissionHandlerMode)
     {
         try
         {
@@ -163,7 +168,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             {
                 Model = model,
                 Streaming = this._options.StreamingResponses,
-                OnPermissionRequest = PermissionHandler.ApproveAll,
+                OnPermissionRequest = ResolvePermissionHandler(permissionHandlerMode),
                 OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
                 Hooks = new SessionHooks
                 {
@@ -224,13 +229,236 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         }
     }
 
-    private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options, string workspaceRoot)
+    private PermissionRequestHandler ResolvePermissionHandler(string permissionHandlerMode)
+        => string.Equals(permissionHandlerMode, PermissionHandlerModes.Prompt, StringComparison.OrdinalIgnoreCase)
+            ? this.RequestPermissionInteractivelyAsync
+            : PermissionHandler.ApproveAll;
+
+    private async Task<PermissionRequestResult> RequestPermissionInteractivelyAsync(PermissionRequest request, PermissionInvocation invocation)
+    {
+        if (Console.IsInputRedirected)
+        {
+            return CreatePermissionResult(PermissionRequestResultKind.DeniedCouldNotRequestFromUser);
+        }
+
+        await this._permissionPromptGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            string question = BuildPermissionQuestion(request, invocation);
+            this._sessionContext.UserInputState.SetAwaiting(question);
+
+            int width = Math.Max(60, Console.WindowWidth - 1);
+            int row = Math.Min(Console.CursorTop + 1, Math.Max(0, Console.WindowHeight - 1));
+
+            WritePromptLine(row++, "=== Permission Approval Required ===", width, ConsoleColor.Yellow);
+            foreach (string line in WrapPromptText(question, width))
+            {
+                WritePromptLine(row++, line, width, ConsoleColor.White);
+            }
+
+            const string promptLabel = "Approve? [y/N] ";
+            WritePromptLine(row, promptLabel, width, ConsoleColor.Cyan);
+
+            bool restoreCursor = TryGetCursorVisible();
+            TrySetCursorVisible(true);
+            Console.SetCursorPosition(Math.Min(promptLabel.Length, Math.Max(0, width - 1)), row);
+
+            string? answer;
+            try
+            {
+                answer = TryReadLine();
+            }
+            finally
+            {
+                TrySetCursorVisible(restoreCursor);
+            }
+
+            return IsApprovalAnswer(answer)
+                ? CreatePermissionResult(PermissionRequestResultKind.Approved)
+                : CreatePermissionResult(PermissionRequestResultKind.DeniedInteractivelyByUser);
+        }
+        finally
+        {
+            this._sessionContext.UserInputState.Clear();
+            this._permissionPromptGate.Release();
+        }
+    }
+
+    private static PermissionRequestResult CreatePermissionResult(PermissionRequestResultKind kind)
+        => new PermissionRequestResult { Kind = kind };
+
+    private static string BuildPermissionQuestion(PermissionRequest request, PermissionInvocation invocation)
+    {
+        List<string> lines = new List<string>
+        {
+            $"Copilot requested permission for {request.Kind}.",
+            $"Session: {invocation.SessionId}"
+        };
+
+        switch (request)
+        {
+            case PermissionRequestShell shell:
+                if (!string.IsNullOrWhiteSpace(shell.Intention))
+                {
+                    lines.Add($"Intent: {shell.Intention}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(shell.FullCommandText))
+                {
+                    lines.Add($"Command: {shell.FullCommandText}");
+                }
+
+                break;
+            case PermissionRequestWrite write:
+                if (!string.IsNullOrWhiteSpace(write.Intention))
+                {
+                    lines.Add($"Intent: {write.Intention}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(write.FileName))
+                {
+                    lines.Add($"File: {write.FileName}");
+                }
+
+                break;
+            case PermissionRequestRead read:
+                if (!string.IsNullOrWhiteSpace(read.Intention))
+                {
+                    lines.Add($"Intent: {read.Intention}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(read.Path))
+                {
+                    lines.Add($"Path: {read.Path}");
+                }
+
+                break;
+            case PermissionRequestUrl url:
+                if (!string.IsNullOrWhiteSpace(url.Intention))
+                {
+                    lines.Add($"Intent: {url.Intention}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(url.Url))
+                {
+                    lines.Add($"URL: {url.Url}");
+                }
+
+                break;
+            case PermissionRequestMcp mcp:
+                lines.Add($"Tool: {mcp.ServerName}/{mcp.ToolName}");
+                break;
+            case PermissionRequestCustomTool customTool:
+                lines.Add($"Tool: {customTool.ToolName}");
+                break;
+            case PermissionRequestHook hook:
+                lines.Add($"Hook: {hook.ToolName}");
+                break;
+            case PermissionRequestMemory memory:
+                if (!string.IsNullOrWhiteSpace(memory.Subject))
+                {
+                    lines.Add($"Subject: {memory.Subject}");
+                }
+
+                break;
+        }
+
+        lines.Add("Approve this request?");
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static IEnumerable<string> WrapPromptText(string text, int width)
+    {
+        foreach (string rawLine in text.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n'))
+        {
+            string remaining = rawLine;
+            if (remaining.Length == 0)
+            {
+                yield return string.Empty;
+                continue;
+            }
+
+            while (remaining.Length > width)
+            {
+                yield return remaining[..width];
+                remaining = remaining[width..];
+            }
+
+            yield return remaining;
+        }
+    }
+
+    private static void WritePromptLine(int row, string text, int width, ConsoleColor color)
+    {
+        Console.SetCursorPosition(0, Math.Min(row, Math.Max(0, Console.WindowHeight - 1)));
+        Console.ForegroundColor = color;
+        string output = text.Length > width ? text[..width] : text;
+        Console.Write(output.PadRight(width));
+        Console.ResetColor();
+    }
+
+    private static bool IsApprovalAnswer(string? answer)
+        => !string.IsNullOrWhiteSpace(answer)
+            && (answer.Equals("y", StringComparison.OrdinalIgnoreCase)
+                || answer.Equals("yes", StringComparison.OrdinalIgnoreCase));
+
+    private static bool TryGetCursorVisible()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        try
+        {
+            return Console.CursorVisible;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void TrySetCursorVisible(bool visible)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            Console.CursorVisible = visible;
+        }
+        catch
+        {
+            // Ignore terminal capability failures and continue with input flow.
+        }
+    }
+
+    private static string? TryReadLine()
+    {
+        try
+        {
+            return Console.ReadLine();
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options, string workspaceRoot, string permissionHandlerMode)
     {
         string systemMessage = options?.SystemMessage ?? string.Empty;
         CopilotSystemMessageMode mode = options?.SystemMessageMode ?? CopilotSystemMessageMode.Append;
         string available = NormalizeToolList(options?.AvailableTools);
         string excluded = NormalizeToolList(options?.ExcludedTools);
-        return new SessionCacheKey(model, systemMessage, mode, available, excluded, workspaceRoot);
+        return new SessionCacheKey(model, systemMessage, mode, available, excluded, workspaceRoot, permissionHandlerMode);
     }
 
     private static string ResolveWorkspaceRoot(string? workspaceRoot)
@@ -270,7 +498,8 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         CopilotSystemMessageMode SystemMessageMode,
         string AvailableTools,
         string ExcludedTools,
-        string WorkspaceRoot);
+        string WorkspaceRoot,
+        string PermissionHandlerMode);
 
     internal sealed record SessionHandle(CopilotSession Session, SemaphoreSlim Gate);
 

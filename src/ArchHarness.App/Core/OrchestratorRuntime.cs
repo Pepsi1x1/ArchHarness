@@ -12,6 +12,7 @@ public sealed class OrchestratorRuntime
 {
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
+    private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
     private readonly RunInfrastructure _runInfrastructure;
     private readonly RunPhaseDependencies _runPhases;
     private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
@@ -22,12 +23,14 @@ public sealed class OrchestratorRuntime
     public OrchestratorRuntime(
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
+        IPermissionHandlerModeAccessor permissionHandlerModeAccessor,
         RunInfrastructure runInfrastructure,
         RunPhaseDependencies runPhases,
         IWorkspaceRootAccessor workspaceRootAccessor)
     {
         this._agentDependencies = agentDependencies;
         this._copilotClient = copilotClient;
+        this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
         this._runInfrastructure = runInfrastructure;
         this._runPhases = runPhases;
         this._workspaceRootAccessor = workspaceRootAccessor;
@@ -58,6 +61,7 @@ public sealed class OrchestratorRuntime
 
         string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
+        this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(request.PermissionHandlerMode));
         this._workspaceRootAccessor.SetCurrent(adapter.RootPath);
         this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -77,6 +81,7 @@ public sealed class OrchestratorRuntime
                 workflow = request.Workflow,
                 projectName = request.ProjectName,
                 buildCommand = request.BuildCommand,
+                permissionHandlerMode = request.PermissionHandlerMode,
                 modelOverrides = request.ModelOverrides
             }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
@@ -179,6 +184,7 @@ public sealed class OrchestratorRuntime
                 status = completed ? "completed" : "incomplete",
                 request.WorkspaceMode,
                 request.Workflow,
+                request.PermissionHandlerMode,
                 modelOverrides,
                 agents = new[]
                 {
@@ -202,6 +208,7 @@ public sealed class OrchestratorRuntime
         }
         finally
         {
+            this._permissionHandlerModeAccessor.SetCurrent(null);
             this._runInfrastructure.RunContextAccessor.SetCurrent(null);
             this._workspaceRootAccessor.SetCurrent(null);
         }

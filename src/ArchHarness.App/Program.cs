@@ -28,6 +28,7 @@ builder.Services.AddSingleton<IAgentStreamEventStream, AgentStreamEventStream>()
 builder.Services.AddSingleton<IAgentToolPolicyProvider, AgentToolPolicyProvider>();
 builder.Services.AddSingleton<IRunContextAccessor, RunContextAccessor>();
 builder.Services.AddSingleton<IWorkspaceRootAccessor, WorkspaceRootAccessor>();
+builder.Services.AddSingleton<IPermissionHandlerModeAccessor, PermissionHandlerModeAccessor>();
 builder.Services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
 builder.Services.AddSingleton<OrchestrationAgent>();
 builder.Services.AddSingleton<FrontendDeveloperAgent>();

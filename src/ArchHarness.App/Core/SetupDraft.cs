@@ -26,6 +26,9 @@ internal sealed class SetupDraft
     /// <summary>Gets or sets the optional build command.</summary>
     public string? BuildCommand { get; set; }
 
+    /// <summary>Gets or sets the permission handler mode for Copilot tool approvals.</summary>
+    public string PermissionHandlerMode { get; set; } = PermissionHandlerModes.ApproveAll;
+
     /// <summary>Gets or sets whether architecture loop mode is enabled.</summary>
     public bool ArchitectureLoopMode { get; set; } = false;
 

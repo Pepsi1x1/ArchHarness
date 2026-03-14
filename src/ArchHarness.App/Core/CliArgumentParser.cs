@@ -74,6 +74,7 @@ internal static class CliArgumentParser
             ProjectName: args.Length >= 5 ? args[4] : null,
             ModelOverrides: args.Length >= 6 ? ParseOverrides(args[5]) : null,
             BuildCommand: args.Length >= 7 ? args[6] : null,
+            PermissionHandlerMode: PermissionHandlerModes.ApproveAll,
             ArchitectureLoopMode: true,
             ArchitectureLoopPrompt: architectureLoopPrompt);
 
@@ -110,6 +111,7 @@ internal static class CliArgumentParser
             ProjectName: args.Length >= 6 ? args[5] : null,
             ModelOverrides: args.Length >= 7 ? ParseOverrides(args[6]) : null,
             BuildCommand: args.Length >= 8 ? args[7] : null,
+            PermissionHandlerMode: PermissionHandlerModes.ApproveAll,
             ArchitectureLoopMode: forceLoopWorkflow,
             ArchitectureLoopPrompt: architectureLoopPrompt);
 

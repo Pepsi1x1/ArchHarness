@@ -73,6 +73,12 @@ internal static class SetupNavigator
             return true;
         }
 
+        if (field.Id == "PermissionHandlerMode")
+        {
+            draft.PermissionHandlerMode = PermissionHandlerModes.Next(draft.PermissionHandlerMode, key == ConsoleKey.RightArrow ? 1 : -1);
+            return true;
+        }
+
         if (field.Id == "ArchitectureLoopMode")
         {
             draft.ArchitectureLoopMode = !draft.ArchitectureLoopMode;

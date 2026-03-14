@@ -29,11 +29,15 @@ internal static class SetupFieldEditor
     /// <param name="draft">The draft to update.</param>
     public static void ApplyEdit(string fieldId, SetupDraft draft)
     {
-        if (fieldId == "WorkspaceMode" || fieldId == "ArchitectureLoopMode")
+        if (fieldId == "WorkspaceMode" || fieldId == "PermissionHandlerMode" || fieldId == "ArchitectureLoopMode")
         {
             if (fieldId == "WorkspaceMode")
             {
                 draft.WorkspaceMode = SetupNavigator.NextMode(draft.WorkspaceMode, 1);
+            }
+            else if (fieldId == "PermissionHandlerMode")
+            {
+                draft.PermissionHandlerMode = PermissionHandlerModes.Next(draft.PermissionHandlerMode, 1);
             }
             else
             {
@@ -103,6 +107,7 @@ internal static class SetupFieldEditor
         }
 
         fields.Add(new SetupField("__section__Advanced", "Advanced", ""));
+        fields.Add(new SetupField("PermissionHandlerMode", "Permissions", PermissionHandlerModes.Normalize(draft.PermissionHandlerMode)));
         fields.Add(new SetupField("ArchitectureLoopMode", "Arch Loop Mode", draft.ArchitectureLoopMode ? "on" : "off"));
 
         if (draft.ArchitectureLoopMode)
@@ -134,7 +139,8 @@ internal static class SetupFieldEditor
             Workflow: draft.ArchitectureLoopMode ? "architecture-loop" : "auto",
             ProjectName: string.IsNullOrWhiteSpace(draft.ProjectName) ? null : draft.ProjectName,
             ModelOverrides: CliArgumentParser.ParseOverrides(draft.ModelOverrides),
-                BuildCommand: null,
+            BuildCommand: null,
+            PermissionHandlerMode: PermissionHandlerModes.Normalize(draft.PermissionHandlerMode),
             ArchitectureLoopMode: draft.ArchitectureLoopMode,
             ArchitectureLoopPrompt: string.IsNullOrWhiteSpace(draft.ArchitectureLoopPrompt) ? null : draft.ArchitectureLoopPrompt);
     }

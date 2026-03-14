@@ -25,6 +25,7 @@ public static class SetupScreenRenderer
                 ("Task", request.TaskPrompt),
                 ("Workspace", request.WorkspacePath),
                 ("Mode", request.WorkspaceMode),
+                ("Permissions", request.PermissionHandlerMode),
                 ("Workflow", "auto (orchestrator-driven)")
             ]);
 
@@ -219,6 +220,7 @@ public static class SetupScreenRenderer
         {
             "WORKSPACE" => "⊞",
             "MODE"      => "◎",
+            "PERMISSIONS" => "!",
             "WORKFLOW"  => "◎",
             "BUILD"     => "⚡",
             _           => "▸",

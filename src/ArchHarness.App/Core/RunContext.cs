@@ -66,3 +66,33 @@ public sealed class WorkspaceRootAccessor : IWorkspaceRootAccessor
         CURRENT_WORKSPACE_ROOT.Value = workspaceRoot;
     }
 }
+
+/// <summary>
+/// Provides access to the current permission handler mode for the executing async flow.
+/// </summary>
+public interface IPermissionHandlerModeAccessor
+{
+    /// <summary>Gets the current permission handler mode, or null if unset.</summary>
+    string? Current { get; }
+
+    /// <summary>Sets or clears the current permission handler mode.</summary>
+    /// <param name="mode">The permission handler mode to set, or null to clear.</param>
+    void SetCurrent(string? mode);
+}
+
+/// <summary>
+/// AsyncLocal-backed implementation of <see cref="IPermissionHandlerModeAccessor"/>.
+/// </summary>
+public sealed class PermissionHandlerModeAccessor : IPermissionHandlerModeAccessor
+{
+    private static readonly AsyncLocal<string?> CURRENT_PERMISSION_HANDLER_MODE = new AsyncLocal<string?>();
+
+    /// <inheritdoc />
+    public string? Current => CURRENT_PERMISSION_HANDLER_MODE.Value;
+
+    /// <inheritdoc />
+    public void SetCurrent(string? mode)
+    {
+        CURRENT_PERMISSION_HANDLER_MODE.Value = mode;
+    }
+}
