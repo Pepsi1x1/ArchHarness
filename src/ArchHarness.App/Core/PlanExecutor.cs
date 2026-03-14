@@ -15,14 +15,14 @@ public sealed record PlanExecutionResult(
 /// <summary>
 /// Builds the execution plan via the orchestration agent and dispatches step execution.
 /// </summary>
-public sealed class PlanExecutor
+public sealed class PlanExecutor : IPlanExecutor
 {
     private const string ORCHESTRATOR_SOURCE = "orchestrator";
 
     private readonly OrchestrationAgent _orchestrationAgent;
-    private readonly AgentStepExecutor _agentStepExecutor;
-    private readonly RunEventLogger _eventLogger;
-    private readonly RunArtifactWriter _artifactWriter;
+    private readonly IAgentStepExecutor _agentStepExecutor;
+    private readonly IRunEventLogger _eventLogger;
+    private readonly IRunArtifactWriter _artifactWriter;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PlanExecutor"/> class.
@@ -33,9 +33,9 @@ public sealed class PlanExecutor
     /// <param name="artifactWriter">Writer for run artifacts.</param>
     public PlanExecutor(
         OrchestrationAgent orchestrationAgent,
-        AgentStepExecutor agentStepExecutor,
-        RunEventLogger eventLogger,
-        RunArtifactWriter artifactWriter)
+        IAgentStepExecutor agentStepExecutor,
+        IRunEventLogger eventLogger,
+        IRunArtifactWriter artifactWriter)
     {
         _orchestrationAgent = orchestrationAgent;
         _agentStepExecutor = agentStepExecutor;

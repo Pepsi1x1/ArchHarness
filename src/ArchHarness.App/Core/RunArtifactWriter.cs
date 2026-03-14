@@ -5,7 +5,7 @@ namespace ArchHarness.App.Core;
 /// <summary>
 /// Encapsulates all run artifact persistence operations.
 /// </summary>
-public sealed class RunArtifactWriter
+public sealed class RunArtifactWriter : IRunArtifactWriter
 {
     private readonly IArtefactStore _artefactStore;
     private readonly IRunStore _runStore;

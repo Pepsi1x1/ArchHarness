@@ -3,19 +3,40 @@ using GitHub.Copilot.SDK;
 
 namespace ArchHarness.App.Copilot;
 
+/// <summary>
+/// Defines the contract for governance policies applied to Copilot tool usage.
+/// </summary>
 public interface ICopilotGovernancePolicy
 {
+    /// <summary>
+    /// Evaluates a tool invocation before execution and returns an allow/deny decision.
+    /// </summary>
+    /// <param name="input">The pre-tool-use hook input.</param>
+    /// <returns>The governance decision output.</returns>
     Task<PreToolUseHookOutput> OnPreToolUseAsync(PreToolUseHookInput input);
+
+    /// <summary>
+    /// Processes a tool invocation after execution for auditing purposes.
+    /// </summary>
+    /// <param name="input">The post-tool-use hook input.</param>
+    /// <returns>The post-tool-use output.</returns>
     Task<PostToolUseHookOutput> OnPostToolUseAsync(PostToolUseHookInput input);
 }
 
+/// <summary>
+/// Default governance policy that denies potentially destructive tool operations.
+/// </summary>
 public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
 {
     private readonly IToolUsageLogger _toolUsageLogger;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CopilotGovernancePolicy"/>.
+    /// </summary>
+    /// <param name="toolUsageLogger">The tool usage logger for audit trails.</param>
     public CopilotGovernancePolicy(IToolUsageLogger toolUsageLogger)
     {
-        _toolUsageLogger = toolUsageLogger;
+        this._toolUsageLogger = toolUsageLogger;
     }
 
     private static readonly string[] DeniedToolNameFragments =
@@ -27,39 +48,41 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
         "format"
     };
 
-    public Task<PreToolUseHookOutput> OnPreToolUseAsync(PreToolUseHookInput input)
+    /// <inheritdoc />
+    public async Task<PreToolUseHookOutput> OnPreToolUseAsync(PreToolUseHookInput input)
     {
-        var toolName = input.ToolName ?? string.Empty;
-        var denyByName = DeniedToolNameFragments.Any(fragment => toolName.Contains(fragment, StringComparison.OrdinalIgnoreCase));
-        var denyByArgs = LooksDestructive(input.ToolArgs);
-        var decision = denyByName || denyByArgs ? "deny" : "allow";
+        string toolName = input.ToolName ?? string.Empty;
+        bool denyByName = DeniedToolNameFragments.Any(fragment => toolName.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+        bool denyByArgs = LooksDestructive(input.ToolArgs);
+        string decision = denyByName || denyByArgs ? "deny" : "allow";
 
-        _ = _toolUsageLogger.LogPreToolUseAsync(input, decision, denyByName, denyByArgs);
+        await this._toolUsageLogger.LogPreToolUseAsync(input, decision, denyByName, denyByArgs);
 
         if (decision == "deny")
         {
-            return Task.FromResult(new PreToolUseHookOutput
+            return new PreToolUseHookOutput
             {
                 PermissionDecision = "deny",
                 AdditionalContext = "Tool denied by governance policy: potentially destructive operation."
-            });
+            };
         }
 
-        return Task.FromResult(new PreToolUseHookOutput
+        return new PreToolUseHookOutput
         {
             PermissionDecision = "allow",
             ModifiedArgs = input.ToolArgs,
             AdditionalContext = "Tool allowed by governance policy."
-        });
+        };
     }
 
-    public Task<PostToolUseHookOutput> OnPostToolUseAsync(PostToolUseHookInput input)
+    /// <inheritdoc />
+    public async Task<PostToolUseHookOutput> OnPostToolUseAsync(PostToolUseHookInput input)
     {
-        _ = _toolUsageLogger.LogPostToolUseAsync(input);
-        return Task.FromResult(new PostToolUseHookOutput
+        await this._toolUsageLogger.LogPostToolUseAsync(input);
+        return new PostToolUseHookOutput
         {
             AdditionalContext = $"Tool '{input.ToolName}' completed under governance audit."
-        });
+        };
     }
 
     private static bool LooksDestructive(object? toolArgs)
@@ -69,7 +92,7 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
             return false;
         }
 
-        var serialized = System.Text.Json.JsonSerializer.Serialize(toolArgs);
+        string serialized = System.Text.Json.JsonSerializer.Serialize(toolArgs);
         return Regex.IsMatch(serialized, "(?i)(rm\\s+-rf|drop\\s+table|truncate\\s+table|del\\s+/f|format\\s+[a-z]:)");
     }
 }

@@ -8,11 +8,19 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class SecurityAnalysisRunner
 {
-    private const string SeverityHigh = "high";
-    private const string SeverityMedium = "medium";
+    private const string SEVERITY_HIGH = "high";
+    private const string SEVERITY_MEDIUM = "medium";
 
     private static readonly string[] CandidateExtensions = [".cs", ".json", ".config", ".ts", ".tsx", ".js", ".jsx", ".vue", ".csproj", ".props", ".targets", ".md"];
 
+    /// <summary>
+    /// Performs heuristic security analysis on the workspace and returns findings.
+    /// </summary>
+    /// <param name="diff">The current diff snapshot.</param>
+    /// <param name="workspaceRoot">The workspace root directory path.</param>
+    /// <param name="filesTouched">Files modified during the run.</param>
+    /// <param name="languageScope">Optional explicit language scope.</param>
+    /// <returns>A security review containing findings and required remediation actions.</returns>
     public static SecurityReview Analyze(
         string diff,
         string workspaceRoot,
@@ -95,7 +103,7 @@ internal static class SecurityAnalysisRunner
         }
 
         findings.Add(new SecurityFinding(
-            SeverityHigh,
+            SEVERITY_HIGH,
             "HardcodedSecrets",
             file,
             null,
@@ -113,7 +121,7 @@ internal static class SecurityAnalysisRunner
         }
 
         findings.Add(new SecurityFinding(
-            SeverityMedium,
+            SEVERITY_MEDIUM,
             "InsecureTransport",
             file,
             null,
@@ -132,7 +140,7 @@ internal static class SecurityAnalysisRunner
         }
 
         findings.Add(new SecurityFinding(
-            SeverityHigh,
+            SEVERITY_HIGH,
             "Injection",
             file,
             null,
@@ -150,7 +158,7 @@ internal static class SecurityAnalysisRunner
         }
 
         findings.Add(new SecurityFinding(
-            SeverityHigh,
+            SEVERITY_HIGH,
             "CrossSiteScripting",
             file,
             null,
@@ -168,7 +176,7 @@ internal static class SecurityAnalysisRunner
         }
 
         findings.Add(new SecurityFinding(
-            SeverityHigh,
+            SEVERITY_HIGH,
             "SecurityMisconfiguration",
             file,
             null,

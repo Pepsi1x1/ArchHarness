@@ -2,32 +2,41 @@ using System.Diagnostics;
 
 namespace ArchHarness.App.Workspace;
 
+/// <summary>
+/// Git-backed workspace adapter that combines git status with file-system snapshot diffing.
+/// </summary>
 public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
 {
-    private HashSet<string> _initialChangedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _initialChangedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="GitWorkspaceAdapter"/> for the specified root path.
+    /// </summary>
+    /// <param name="rootPath">The workspace root directory path.</param>
     public GitWorkspaceAdapter(string rootPath) : base(rootPath)
     {
     }
 
+    /// <inheritdoc />
     public override async Task InitializeAsync(string? projectName, bool initGit, CancellationToken cancellationToken)
     {
-        if (!Directory.Exists(Path.Combine(RootPath, ".git")) && !initGit)
+        if (!Directory.Exists(Path.Combine(this.RootPath, ".git")) && !initGit)
         {
             throw new InvalidOperationException("existing-git mode requires a .git directory.");
         }
 
         await base.InitializeAsync(projectName, initGit: true, cancellationToken);
-        _initialChangedPaths = new HashSet<string>(await GetGitChangedPathsAsync(cancellationToken), StringComparer.OrdinalIgnoreCase);
+        this._initialChangedPaths = new HashSet<string>(await this.GetGitChangedPathsAsync(cancellationToken), StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <inheritdoc />
     public override async Task<string> DiffAsync(CancellationToken cancellationToken)
     {
-        var gitChangedPaths = new HashSet<string>(await GetGitChangedPathsAsync(cancellationToken), StringComparer.OrdinalIgnoreCase);
-        var snapshotChangedPaths = new HashSet<string>(ComputeChangedPathsSinceBaseline(), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> gitChangedPaths = new HashSet<string>(await this.GetGitChangedPathsAsync(cancellationToken), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> snapshotChangedPaths = new HashSet<string>(this.ComputeChangedPathsSinceBaseline(), StringComparer.OrdinalIgnoreCase);
 
         // Exclude files that were already dirty at startup unless they changed since baseline.
-        gitChangedPaths.ExceptWith(_initialChangedPaths);
+        gitChangedPaths.ExceptWith(this._initialChangedPaths);
         gitChangedPaths.UnionWith(snapshotChangedPaths);
 
         return string.Join(
@@ -38,12 +47,12 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
 
     private async Task<IReadOnlyCollection<string>> GetGitChangedPathsAsync(CancellationToken cancellationToken)
     {
-        var changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var tracked = await RunGitCommandAsync("diff --name-only --relative HEAD", cancellationToken);
+        string tracked = await this.RunGitCommandAsync("diff --name-only --relative HEAD", cancellationToken);
         AddPaths(changed, tracked);
 
-        var untracked = await RunGitCommandAsync("ls-files --others --exclude-standard", cancellationToken);
+        string untracked = await this.RunGitCommandAsync("ls-files --others --exclude-standard", cancellationToken);
         AddPaths(changed, untracked);
 
         return changed;
@@ -51,7 +60,7 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
 
     private async Task<string> RunGitCommandAsync(string arguments, CancellationToken cancellationToken)
     {
-        var info = new ProcessStartInfo("git", $"-C {QuoteArgument(RootPath)} {arguments}")
+        ProcessStartInfo info = new ProcessStartInfo("git", $"-C {QuoteArgument(this.RootPath)} {arguments}")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -59,9 +68,9 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
             CreateNoWindow = true
         };
 
-        using var process = new Process { StartInfo = info };
+        using Process process = new Process { StartInfo = info };
         process.Start();
-        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        string stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
         _ = await process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
 
@@ -75,8 +84,8 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
 
     private static void AddPaths(ISet<string> output, string raw)
     {
-        var lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var line in lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+        string[] lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (string line in lines.Where(line => !string.IsNullOrWhiteSpace(line)))
         {
             output.Add(line);
         }

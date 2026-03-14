@@ -9,6 +9,8 @@ namespace ArchHarness.App.Agents.Analyzers;
 public sealed class SrpAnalyzer : IArchitectureAnalyzer
 {
     private const string SEVERITY_HIGH = "high";
+    private const int MAX_METHOD_COUNT = 15;
+    private const int MAX_MEMBER_COUNT = 30;
 
     /// <inheritdoc />
     public void Analyze(IReadOnlyList<ParsedFile> files, List<ArchitectureFinding> findings, HashSet<string> requiredActions)
@@ -19,7 +21,7 @@ public sealed class SrpAnalyzer : IArchitectureAnalyzer
             {
                 int methodCount = cls.Members.OfType<MethodDeclarationSyntax>().Count();
                 int memberCount = cls.Members.Count;
-                if (methodCount > 15 || memberCount > 30)
+                if (methodCount > MAX_METHOD_COUNT || memberCount > MAX_MEMBER_COUNT)
                 {
                     findings.Add(new ArchitectureFinding(
                         SEVERITY_HIGH,

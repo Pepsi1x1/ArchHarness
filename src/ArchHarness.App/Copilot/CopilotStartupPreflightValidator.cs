@@ -6,39 +6,62 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Copilot;
 
+/// <summary>
+/// Validates that prerequisites for Copilot SDK usage are met (git, CLI, authentication).
+/// </summary>
 public interface IStartupPreflightValidator
 {
+    /// <summary>
+    /// Runs all preflight checks and returns the aggregated result.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The preflight validation result.</returns>
     Task<PreflightValidationResult> ValidateAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Represents the outcome of a preflight validation check.
+/// </summary>
+/// <param name="IsSuccess">Whether the check passed.</param>
+/// <param name="Summary">A human-readable summary of the result.</param>
+/// <param name="FixSteps">Suggested remediation steps if the check failed.</param>
 public sealed record PreflightValidationResult(bool IsSuccess, string Summary, IReadOnlyList<string> FixSteps);
 
+/// <summary>
+/// Default implementation of <see cref="IStartupPreflightValidator"/> that checks git, Copilot CLI, and authentication.
+/// </summary>
 public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidator
 {
     private readonly CopilotOptions _options;
     private readonly IDiscoveredModelCatalog _catalog;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CopilotStartupPreflightValidator"/>.
+    /// </summary>
+    /// <param name="options">The Copilot configuration options.</param>
+    /// <param name="catalog">The discovered model catalog for runtime model updates.</param>
     public CopilotStartupPreflightValidator(IOptions<CopilotOptions> options, IDiscoveredModelCatalog catalog)
     {
-        _options = options.Value;
-        _catalog = catalog;
+        this._options = options.Value;
+        this._catalog = catalog;
     }
 
+    /// <inheritdoc />
     public async Task<PreflightValidationResult> ValidateAsync(CancellationToken cancellationToken = default)
     {
-        var gitCheck = await CheckGitAsync();
+        PreflightValidationResult gitCheck = await CheckGitAsync();
         if (!gitCheck.IsSuccess)
         {
             return gitCheck;
         }
 
-        var cliCheck = await CheckCliAsync();
+        PreflightValidationResult cliCheck = await CheckCliAsync();
         if (!cliCheck.IsSuccess)
         {
             return cliCheck;
         }
 
-        var authCheck = await CheckAuthenticationAsync();
+        PreflightValidationResult authCheck = await this.CheckAuthenticationAsync();
         if (!authCheck.IsSuccess)
         {
             return authCheck;
@@ -51,7 +74,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
     {
         try
         {
-            var info = new ProcessStartInfo("git", "--version")
+            ProcessStartInfo info = new ProcessStartInfo("git", "--version")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -59,10 +82,10 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
                 CreateNoWindow = true
             };
 
-            using var process = new Process { StartInfo = info };
+            using Process process = new Process { StartInfo = info };
             process.Start();
-            var stdout = await process.StandardOutput.ReadToEndAsync();
-            var stderr = await process.StandardError.ReadToEndAsync();
+            string stdout = await process.StandardOutput.ReadToEndAsync();
+            string stderr = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
             if (process.ExitCode == 0)
@@ -101,7 +124,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
     {
         try
         {
-            var info = new ProcessStartInfo("copilot", "--version")
+            ProcessStartInfo info = new ProcessStartInfo("copilot", "--version")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -109,10 +132,10 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
                 CreateNoWindow = true
             };
 
-            using var process = new Process { StartInfo = info };
+            using Process process = new Process { StartInfo = info };
             process.Start();
-            var stdout = await process.StandardOutput.ReadToEndAsync();
-            var stderr = await process.StandardError.ReadToEndAsync();
+            string stdout = await process.StandardOutput.ReadToEndAsync();
+            string stderr = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
             if (process.ExitCode == 0)
@@ -146,12 +169,12 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
 
     private async Task<PreflightValidationResult> CheckAuthenticationAsync()
     {
-        var token = Environment.GetEnvironmentVariable(_options.ApiTokenEnvironmentVariable);
-        var clientOptions = CopilotClientOptionsFactory.Build(_options, autoRestart: false);
+        string? token = Environment.GetEnvironmentVariable(this._options.ApiTokenEnvironmentVariable);
+        CopilotClientOptions clientOptions = CopilotClientOptionsFactory.Build(this._options, autoRestart: false);
 
         try
         {
-            await using var client = new GitHub.Copilot.SDK.CopilotClient(clientOptions);
+            await using GitHub.Copilot.SDK.CopilotClient client = new GitHub.Copilot.SDK.CopilotClient(clientOptions);
             await client.StartAsync();
             await client.PingAsync("archharness-preflight");
             await RefreshDiscoveredModelsWithAuthGuardAsync(client);
@@ -159,7 +182,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
         }
         catch (Exception ex)
         {
-            var fixSteps = new List<string>
+            List<string> fixSteps = new List<string>
             {
                 "Run `copilot` to open the Copilot CLI interactive session.",
                 "At the prompt, run `/login` and complete authentication in the browser.",
@@ -168,11 +191,11 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
 
             if (!string.IsNullOrWhiteSpace(token))
             {
-                fixSteps.Add($"Validate `{_options.ApiTokenEnvironmentVariable}` is set to a valid token with Copilot access.");
+                fixSteps.Add($"Validate `{this._options.ApiTokenEnvironmentVariable}` is set to a valid token with Copilot access.");
             }
             else
             {
-                fixSteps.Add($"Optionally set `{_options.ApiTokenEnvironmentVariable}` to provide token-based auth.");
+                fixSteps.Add($"Optionally set `{this._options.ApiTokenEnvironmentVariable}` to provide token-based auth.");
             }
 
             if (LooksLikeAuthenticationFailure(ex))
@@ -205,11 +228,11 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
 
             if (names.Length > 0)
             {
-                _catalog.ReplaceModels(names!);
+                this._catalog.ReplaceModels(names!);
             }
             else
             {
-                _catalog.ReplaceModels(_options.SupportedModels);
+                this._catalog.ReplaceModels(this._options.SupportedModels);
             }
         }
         catch (Exception ex)
@@ -221,13 +244,13 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
                     ex);
             }
 
-            _catalog.ReplaceModels(_options.SupportedModels);
+            this._catalog.ReplaceModels(this._options.SupportedModels);
         }
     }
 
     private static bool LooksLikeAuthenticationFailure(Exception ex)
     {
-        var text = ex.ToString();
+        string text = ex.ToString();
         return text.Contains("not authenticated", StringComparison.OrdinalIgnoreCase)
             || text.Contains("authenticate first", StringComparison.OrdinalIgnoreCase)
             || text.Contains("unauthorized", StringComparison.OrdinalIgnoreCase)

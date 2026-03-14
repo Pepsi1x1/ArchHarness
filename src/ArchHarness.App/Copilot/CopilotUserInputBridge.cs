@@ -2,70 +2,106 @@ using GitHub.Copilot.SDK;
 
 namespace ArchHarness.App.Copilot;
 
+/// <summary>
+/// Tracks whether the system is currently awaiting user input during a Copilot session.
+/// </summary>
 public interface IUserInputState
 {
+    /// <summary>Gets whether user input is currently being awaited.</summary>
     bool IsAwaitingInput { get; }
+
+    /// <summary>Gets the active question text, or null if none.</summary>
     string? ActiveQuestion { get; }
+
+    /// <summary>
+    /// Marks the state as awaiting input with the specified question.
+    /// </summary>
+    /// <param name="question">The question being asked, or null.</param>
     void SetAwaiting(string? question);
+
+    /// <summary>Clears the awaiting-input state.</summary>
     void Clear();
 }
 
+/// <summary>
+/// Thread-safe implementation of <see cref="IUserInputState"/>.
+/// </summary>
 public sealed class UserInputState : IUserInputState
 {
-    private readonly object _sync = new();
+    private readonly object _sync = new object();
     private bool _awaiting;
     private string? _question;
 
+    /// <inheritdoc />
     public bool IsAwaitingInput
     {
-        get { lock (_sync) { return _awaiting; } }
+        get { lock (this._sync) { return this._awaiting; } }
     }
 
+    /// <inheritdoc />
     public string? ActiveQuestion
     {
-        get { lock (_sync) { return _question; } }
+        get { lock (this._sync) { return this._question; } }
     }
 
+    /// <inheritdoc />
     public void SetAwaiting(string? question)
     {
-        lock (_sync)
+        lock (this._sync)
         {
-            _awaiting = true;
-            _question = question;
+            this._awaiting = true;
+            this._question = question;
         }
     }
 
+    /// <inheritdoc />
     public void Clear()
     {
-        lock (_sync)
+        lock (this._sync)
         {
-            _awaiting = false;
-            _question = null;
+            this._awaiting = false;
+            this._question = null;
         }
     }
 }
 
+/// <summary>
+/// Bridges Copilot agent user-input requests to the host application's input mechanism.
+/// </summary>
 public interface ICopilotUserInputBridge
 {
+    /// <summary>
+    /// Requests user input synchronously and returns the response.
+    /// </summary>
+    /// <param name="request">The user input request.</param>
+    /// <returns>The user input response.</returns>
     Task<UserInputResponse> RequestInputAsync(UserInputRequest request);
 }
 
+/// <summary>
+/// Console-based implementation of <see cref="ICopilotUserInputBridge"/> that renders questions in the terminal.
+/// </summary>
 public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
 {
     private readonly IUserInputState _state;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="ConsoleCopilotUserInputBridge"/>.
+    /// </summary>
+    /// <param name="state">The shared user input state tracker.</param>
     public ConsoleCopilotUserInputBridge(IUserInputState state)
     {
-        _state = state;
+        this._state = state;
     }
 
+    /// <inheritdoc />
     public async Task<UserInputResponse> RequestInputAsync(UserInputRequest request)
     {
-        await _gate.WaitAsync();
+        await this._gate.WaitAsync();
         try
         {
-            _state.SetAwaiting(request.Question);
+            this._state.SetAwaiting(request.Question);
             int width = Math.Max(60, Console.WindowWidth - 1);
             int startRow = Math.Min(Console.CursorTop + 1, Math.Max(0, Console.WindowHeight - 1));
 
@@ -74,7 +110,7 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
 
             if (request.Choices is { Count: > 0 })
             {
-                for (var i = 0; i < request.Choices.Count; i++)
+                for (int i = 0; i < request.Choices.Count; i++)
                 {
                     WriteLineAt(startRow++, $"  [{i + 1}] {request.Choices[i]}", width, ConsoleColor.Gray);
                 }
@@ -110,8 +146,8 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
         }
         finally
         {
-            _state.Clear();
-            _gate.Release();
+            this._state.Clear();
+            this._gate.Release();
         }
     }
 

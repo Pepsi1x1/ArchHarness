@@ -7,7 +7,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class SetupFormRenderer
 {
-    private const string NoneText = "(none)";
+    private const string NONE_TEXT = "(none)";
     private static int _spinnerFrame;
     private static readonly char[] SpinnerFrames = ['|', '/', '-', '\\'];
 
@@ -115,8 +115,8 @@ internal static class SetupFormRenderer
             return;
         }
 
-        var isPlaceholder = string.IsNullOrWhiteSpace(field.Value) || field.Value == NoneText || field.IsPlaceholderValue;
-        var displayValue = isPlaceholder && !field.IsPlaceholderValue ? NoneText : field.Value;
+        var isPlaceholder = string.IsNullOrWhiteSpace(field.Value) || field.Value == NONE_TEXT || field.IsPlaceholderValue;
+        var displayValue = isPlaceholder && !field.IsPlaceholderValue ? NONE_TEXT : field.Value;
         var icon = GetFieldIconForId(field.Id);
         string selectionMarker;
         if (isError)

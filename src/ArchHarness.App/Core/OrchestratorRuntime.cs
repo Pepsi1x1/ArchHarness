@@ -10,16 +10,16 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class OrchestratorRuntime
 {
-    private const string OrchestratorSource = "orchestrator";
+    private const string ORCHESTRATOR_SOURCE = "orchestrator";
 
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
     private readonly IRunContextAccessor _runContextAccessor;
-    private readonly ArchitectureReviewLoop _architectureReviewLoop;
-    private readonly PlanExecutor _planExecutor;
-    private readonly BuildValidator _buildValidator;
-    private readonly RunArtifactWriter _artifactWriter;
-    private readonly RunEventLogger _eventLogger;
+    private readonly IArchitectureReviewLoop _architectureReviewLoop;
+    private readonly IPlanExecutor _planExecutor;
+    private readonly IBuildValidator _buildValidator;
+    private readonly IRunArtifactWriter _artifactWriter;
+    private readonly IRunEventLogger _eventLogger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
@@ -28,11 +28,11 @@ public sealed class OrchestratorRuntime
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
         IRunContextAccessor runContextAccessor,
-        ArchitectureReviewLoop architectureReviewLoop,
-        PlanExecutor planExecutor,
-        BuildValidator buildValidator,
-        RunArtifactWriter artifactWriter,
-        RunEventLogger eventLogger)
+        IArchitectureReviewLoop architectureReviewLoop,
+        IPlanExecutor planExecutor,
+        IBuildValidator buildValidator,
+        IRunArtifactWriter artifactWriter,
+        IRunEventLogger eventLogger)
     {
         _agentDependencies = agentDependencies;
         _copilotClient = copilotClient;
@@ -75,7 +75,7 @@ public sealed class OrchestratorRuntime
 
         try
         {
-            await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = OrchestratorSource, message = "Run started" }, cancellationToken);
+            await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run started" }, cancellationToken);
             await _eventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
@@ -98,7 +98,7 @@ public sealed class OrchestratorRuntime
                 inferred = initialBuildSelection.Inferred,
                 reason = initialBuildSelection.Reason
             }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, OrchestratorSource, "Run started"));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, ORCHESTRATOR_SOURCE, "Run started"));
 
             PlanExecutionResult planResult;
             try
@@ -116,7 +116,7 @@ public sealed class OrchestratorRuntime
                 await _eventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = OrchestratorSource,
+                    source = ORCHESTRATOR_SOURCE,
                     status = "failed",
                     failureType = "parse_error",
                     stage = "planning",
@@ -197,7 +197,7 @@ public sealed class OrchestratorRuntime
                 {
                     new { role = "orchestration", model = _agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "frontend", model = _agentDependencies.FrontendAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "builder", model = _agentDependencies.BuilderAgent.ResolveModel(request.ModelOverrides) },
+                    new { role = "backend-implementation", model = _agentDependencies.BackendImplementationAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "coding-style", model = _agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "security", model = _agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
                     new { role = "architecture", model = _agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
@@ -205,8 +205,8 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = OrchestratorSource, message = "Run completed" }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, OrchestratorSource, "Run completed"));
+            await _eventLogger.AppendEventAsync(runDirectory, new { runId, source = ORCHESTRATOR_SOURCE, message = "Run completed" }, cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, ORCHESTRATOR_SOURCE, "Run completed"));
 
             await sessionEventCts.CancelAsync();
             await sessionEventPump;
@@ -229,14 +229,14 @@ public sealed class OrchestratorRuntime
         public OrchestratorAgentDependencies(
             OrchestrationAgent orchestrationAgent,
             FrontendAgent frontendAgent,
-            BuilderAgent builderAgent,
+            BackendImplementationAgent backendImplementationAgent,
             CodingStyleAgent codingStyleAgent,
             SecurityAgent securityAgent,
             ArchitectureAgent architectureAgent)
         {
             OrchestrationAgent = orchestrationAgent;
             FrontendAgent = frontendAgent;
-            BuilderAgent = builderAgent;
+            BackendImplementationAgent = backendImplementationAgent;
             CodingStyleAgent = codingStyleAgent;
             SecurityAgent = securityAgent;
             ArchitectureAgent = architectureAgent;
@@ -246,7 +246,7 @@ public sealed class OrchestratorRuntime
 
         public FrontendAgent FrontendAgent { get; }
 
-        public BuilderAgent BuilderAgent { get; }
+        public BackendImplementationAgent BackendImplementationAgent { get; }
 
         public CodingStyleAgent CodingStyleAgent { get; }
 

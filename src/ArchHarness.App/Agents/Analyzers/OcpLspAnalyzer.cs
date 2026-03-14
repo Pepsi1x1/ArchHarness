@@ -11,13 +11,14 @@ namespace ArchHarness.App.Agents.Analyzers;
 public sealed class OcpLspAnalyzer : IArchitectureAnalyzer
 {
     private const string SEVERITY_MEDIUM = "medium";
+    private const int MAX_SWITCH_SECTIONS = 6;
 
     /// <inheritdoc />
     public void Analyze(IReadOnlyList<ParsedFile> files, List<ArchitectureFinding> findings, HashSet<string> requiredActions)
     {
         foreach (ParsedFile file in files)
         {
-            foreach (SwitchStatementSyntax switchStmt in file.Root.DescendantNodes().OfType<SwitchStatementSyntax>().Where(s => s.Sections.Count >= 6))
+            foreach (SwitchStatementSyntax switchStmt in file.Root.DescendantNodes().OfType<SwitchStatementSyntax>().Where(s => s.Sections.Count >= MAX_SWITCH_SECTIONS))
             {
                 findings.Add(new ArchitectureFinding(
                     SEVERITY_MEDIUM,

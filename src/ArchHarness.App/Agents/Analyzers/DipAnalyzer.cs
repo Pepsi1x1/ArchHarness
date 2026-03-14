@@ -9,6 +9,7 @@ namespace ArchHarness.App.Agents.Analyzers;
 public sealed class DipAnalyzer : IArchitectureAnalyzer
 {
     private const string SEVERITY_MEDIUM = "medium";
+    private const int MAX_CONSTRUCTOR_PARAMETERS = 6;
 
     /// <inheritdoc />
     public void Analyze(IReadOnlyList<ParsedFile> files, List<ArchitectureFinding> findings, HashSet<string> requiredActions)
@@ -18,7 +19,7 @@ public sealed class DipAnalyzer : IArchitectureAnalyzer
             foreach (ConstructorDeclarationSyntax ctor in file.Root.DescendantNodes().OfType<ConstructorDeclarationSyntax>())
             {
                 int parameterCount = ctor.ParameterList.Parameters.Count;
-                if (parameterCount > 6)
+                if (parameterCount > MAX_CONSTRUCTOR_PARAMETERS)
                 {
                     findings.Add(new ArchitectureFinding(
                         SEVERITY_MEDIUM,

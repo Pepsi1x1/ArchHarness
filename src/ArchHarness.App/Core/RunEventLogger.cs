@@ -6,7 +6,7 @@ namespace ArchHarness.App.Core;
 /// <summary>
 /// Handles run event logging and Copilot session event pumping for the orchestrator.
 /// </summary>
-public sealed class RunEventLogger
+public sealed class RunEventLogger : IRunEventLogger
 {
     private readonly IArtefactStore _artefactStore;
     private readonly ICopilotSessionEventStream _sessionEventStream;

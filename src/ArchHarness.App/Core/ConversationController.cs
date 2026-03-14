@@ -8,7 +8,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ConversationController
 {
-    private const string ExistingFolderMode = "existing-folder";
+    private const string EXISTING_FOLDER_MODE = "existing-folder";
 
     private static string? _validationError;
 
@@ -91,7 +91,7 @@ public sealed class ConversationController
         {
             TaskPrompt = architectureLoopMode ? string.Empty : "Implement requested change",
             WorkspacePath = Directory.GetCurrentDirectory(),
-            WorkspaceMode = ExistingFolderMode,
+            WorkspaceMode = EXISTING_FOLDER_MODE,
             ArchitectureLoopMode = architectureLoopMode,
             ArchitectureLoopPrompt = architectureLoopPrompt
         };

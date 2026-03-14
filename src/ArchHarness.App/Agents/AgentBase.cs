@@ -4,15 +4,32 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
+/// <summary>
+/// Base class for all agents, providing model resolution, tool policy enforcement, and common configuration.
+/// </summary>
 public abstract class AgentBase
 {
+    /// <summary>The Copilot client used for completions.</summary>
     protected readonly ICopilotClient CopilotClient;
     private readonly IModelResolver _modelResolver;
     private readonly IAgentToolPolicyProvider _toolPolicyProvider;
     private readonly IOptions<AgentsOptions> _agentsOptions;
+
+    /// <summary>Gets the unique identifier for this agent instance.</summary>
     public string Id { get; }
+
+    /// <summary>Gets the role identifier for this agent (e.g., "frontend", "backend-implementation").</summary>
     public string Role { get; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AgentBase"/>.
+    /// </summary>
+    /// <param name="copilotClient">The Copilot client for completions.</param>
+    /// <param name="modelResolver">The model resolver for determining which model to use.</param>
+    /// <param name="toolPolicyProvider">The tool policy provider for enforcing tool access.</param>
+    /// <param name="agentsOptions">The agents configuration options.</param>
+    /// <param name="role">The role identifier for this agent.</param>
+    /// <param name="id">The unique identifier for this agent instance.</param>
     protected AgentBase(
         ICopilotClient copilotClient,
         IModelResolver modelResolver,
@@ -21,26 +38,38 @@ public abstract class AgentBase
         string role,
         string id)
     {
-        CopilotClient = copilotClient;
-        _modelResolver = modelResolver;
-        _toolPolicyProvider = toolPolicyProvider;
-        _agentsOptions = agentsOptions;
-        Id = id;
-        Role = role;
+        this.CopilotClient = copilotClient;
+        this._modelResolver = modelResolver;
+        this._toolPolicyProvider = toolPolicyProvider;
+        this._agentsOptions = agentsOptions;
+        this.Id = id;
+        this.Role = role;
     }
 
-    protected bool IsGuidelinesDisabled => _agentsOptions.Value.ForRole(Role).DisableGuidelines;
+    /// <summary>Gets whether guideline loading is disabled for this agent role.</summary>
+    protected bool IsGuidelinesDisabled => this._agentsOptions.Value.ForRole(this.Role).DisableGuidelines;
 
-    public string DefaultModel => _modelResolver.Resolve(Role, overrides: null);
+    /// <summary>Gets the default model for this agent's role.</summary>
+    public string DefaultModel => this._modelResolver.Resolve(this.Role, overrides: null);
 
+    /// <summary>
+    /// Resolves the model for this agent's role, applying any overrides.
+    /// </summary>
+    /// <param name="overrides">Optional model overrides keyed by role.</param>
+    /// <returns>The resolved model identifier.</returns>
     public string ResolveModel(IDictionary<string, string>? overrides)
-        => _modelResolver.Resolve(Role, overrides);
+        => this._modelResolver.Resolve(this.Role, overrides);
 
+    /// <summary>
+    /// Merges the configured tool policy with the provided completion options.
+    /// </summary>
+    /// <param name="options">The base completion options to augment with tool policies.</param>
+    /// <returns>A new options instance with merged tool lists.</returns>
     protected CopilotCompletionOptions ApplyToolPolicy(CopilotCompletionOptions options)
     {
-        var policy = _toolPolicyProvider.Resolve(Role);
-        var available = MergeTools(policy.AvailableTools, options.AvailableTools);
-        var excluded = MergeTools(policy.ExcludedTools, options.ExcludedTools);
+        AgentToolPolicy policy = this._toolPolicyProvider.Resolve(this.Role);
+        IReadOnlyList<string>? available = MergeTools(policy.AvailableTools, options.AvailableTools);
+        IReadOnlyList<string>? excluded = MergeTools(policy.ExcludedTools, options.ExcludedTools);
 
         return new CopilotCompletionOptions
         {
@@ -53,7 +82,7 @@ public abstract class AgentBase
 
     private static IReadOnlyList<string>? MergeTools(IReadOnlyList<string> primary, IReadOnlyList<string>? secondary)
     {
-        var merged = primary
+        string[] merged = primary
             .Concat(secondary ?? Array.Empty<string>())
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Select(item => item.Trim())

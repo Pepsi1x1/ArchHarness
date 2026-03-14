@@ -2,21 +2,43 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
 
+/// <summary>
+/// Configuration options for an agent's allowed and excluded tool lists.
+/// </summary>
 public sealed class AgentToolOptions
 {
-    public List<string> AvailableTools { get; set; } = new();
-    public List<string> ExcludedTools { get; set; } = new();
+    /// <summary>Gets or sets the list of tools explicitly available to the agent.</summary>
+    public List<string> AvailableTools { get; set; } = new List<string>();
+
+    /// <summary>Gets or sets the list of tools explicitly excluded from the agent.</summary>
+    public List<string> ExcludedTools { get; set; } = new List<string>();
 }
 
+/// <summary>
+/// Immutable resolved tool policy containing the final available and excluded tool lists.
+/// </summary>
+/// <param name="AvailableTools">The resolved list of available tools.</param>
+/// <param name="ExcludedTools">The resolved list of excluded tools.</param>
 public sealed record AgentToolPolicy(
     IReadOnlyList<string> AvailableTools,
     IReadOnlyList<string> ExcludedTools);
 
+/// <summary>
+/// Resolves the tool policy for a given agent role by merging configuration with defaults.
+/// </summary>
 public interface IAgentToolPolicyProvider
 {
+    /// <summary>
+    /// Resolves the effective tool policy for the specified agent role.
+    /// </summary>
+    /// <param name="role">The agent role identifier.</param>
+    /// <returns>The resolved tool policy.</returns>
     AgentToolPolicy Resolve(string role);
 }
 
+/// <summary>
+/// Default implementation of <see cref="IAgentToolPolicyProvider"/> that builds policies from configuration.
+/// </summary>
 public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
 {
     private static readonly string[] DefaultOrchestrationExcluded =
@@ -26,21 +48,26 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
 
     private readonly AgentsOptions _options;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="AgentToolPolicyProvider"/>.
+    /// </summary>
+    /// <param name="options">The agents configuration options.</param>
     public AgentToolPolicyProvider(IOptions<AgentsOptions> options)
     {
-        _options = options.Value;
+        this._options = options.Value;
     }
 
+    /// <inheritdoc />
     public AgentToolPolicy Resolve(string role)
     {
-        var tools = role.ToLowerInvariant() switch
+        AgentToolOptions tools = role.ToLowerInvariant() switch
         {
-            "frontend" => _options.Frontend.Tools,
-            "builder" => _options.Builder.Tools,
-            "coding-style" => _options.CodingStyle.Tools,
-            "security" => _options.Security.Tools,
-            "architecture" => _options.Architecture.Tools,
-            "orchestration" => _options.Orchestration.Tools,
+            "frontend" => this._options.Frontend.Tools,
+            "backend-implementation" => this._options.BackendImplementation.Tools,
+            "coding-style" => this._options.CodingStyle.Tools,
+            "security" => this._options.Security.Tools,
+            "architecture" => this._options.Architecture.Tools,
+            "orchestration" => this._options.Orchestration.Tools,
             _ => new AgentToolOptions()
         };
 
@@ -48,7 +75,7 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
         {
             "orchestration" => BuildPolicy(tools, Array.Empty<string>(), DefaultOrchestrationExcluded),
             "frontend" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
-            "builder" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
+            "backend-implementation" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "coding-style" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "security" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
             "architecture" => BuildPolicy(tools, Array.Empty<string>(), Array.Empty<string>()),
@@ -58,8 +85,8 @@ public sealed class AgentToolPolicyProvider : IAgentToolPolicyProvider
 
     private static AgentToolPolicy BuildPolicy(AgentToolOptions tools, IReadOnlyList<string> fallbackAllow, IReadOnlyList<string> fallbackExclude)
     {
-        var available = tools.AvailableTools.Count > 0 ? tools.AvailableTools : fallbackAllow;
-        var excluded = tools.ExcludedTools.Count > 0 ? tools.ExcludedTools : fallbackExclude;
+        IReadOnlyList<string> available = tools.AvailableTools.Count > 0 ? tools.AvailableTools : fallbackAllow;
+        IReadOnlyList<string> excluded = tools.ExcludedTools.Count > 0 ? tools.ExcludedTools : fallbackExclude;
 
         return new AgentToolPolicy(
             NormalizeList(available),

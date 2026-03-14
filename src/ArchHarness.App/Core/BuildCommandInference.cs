@@ -2,8 +2,17 @@ using System.Text.RegularExpressions;
 
 namespace ArchHarness.App.Core;
 
+/// <summary>
+/// Represents the result of build command selection, including the command, whether it was inferred, and reasoning.
+/// </summary>
+/// <param name="Command">The selected build command, or null if none could be determined.</param>
+/// <param name="Inferred">Whether the command was inferred rather than explicitly specified.</param>
+/// <param name="Reason">Human-readable explanation of the selection decision.</param>
 public sealed record BuildCommandSelection(string? Command, bool Inferred, string Reason);
 
+/// <summary>
+/// Infers or validates a dotnet build command for a given workspace by discovering solution and project files.
+/// </summary>
 public static class BuildCommandInference
 {
     private static readonly Regex TargetRegex = new("\\.(sln|csproj)(?=(\"|'|\\s|$))", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -22,18 +31,26 @@ public static class BuildCommandInference
 
     private static readonly BuildCommandSelection NoTargetFallback = new BuildCommandSelection(null, Inferred: false, Reason: "No suitable .sln or .csproj discovered in workspace.");
 
+    /// <summary>
+    /// Selects the best build command by inspecting the workspace and optionally enriching a user-specified command.
+    /// </summary>
+    /// <param name="workspaceRoot">The workspace root directory.</param>
+    /// <param name="requestedBuildCommand">An optional user-specified build command.</param>
+    /// <param name="workspaceMode">The workspace mode (existing-git, existing-folder, or new-project).</param>
+    /// <param name="projectName">An optional project name used for target matching.</param>
+    /// <returns>The selected build command with inference metadata.</returns>
     public static BuildCommandSelection Select(
         string workspaceRoot,
         string? requestedBuildCommand,
         string workspaceMode,
         string? projectName)
     {
-        var normalizedRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspaceRoot));
-        var target = ResolveBestBuildTarget(normalizedRoot, projectName);
+        string normalizedRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspaceRoot));
+        string? target = ResolveBestBuildTarget(normalizedRoot, projectName);
 
         if (!string.IsNullOrWhiteSpace(requestedBuildCommand))
         {
-            var trimmed = requestedBuildCommand.Trim();
+            string trimmed = requestedBuildCommand.Trim();
             if (!trimmed.StartsWith("dotnet build", StringComparison.OrdinalIgnoreCase))
             {
                 return new BuildCommandSelection(trimmed, Inferred: false, Reason: "User-specified build command is not dotnet build.");
@@ -69,8 +86,8 @@ public static class BuildCommandInference
 
     private static string InjectTargetIntoDotnetBuild(string command, string targetPath)
     {
-        var prefix = "dotnet build";
-        var remainder = command[prefix.Length..].Trim();
+        string prefix = "dotnet build";
+        string remainder = command[prefix.Length..].Trim();
         return string.IsNullOrWhiteSpace(remainder)
             ? $"dotnet build \"{targetPath}\" --nologo"
             : $"dotnet build \"{targetPath}\" {remainder}";
@@ -83,18 +100,18 @@ public static class BuildCommandInference
             return null;
         }
 
-        var slnFiles = Directory.GetFiles(workspaceRoot, "*.sln", SearchOption.AllDirectories)
+        string[] slnFiles = Directory.GetFiles(workspaceRoot, "*.sln", SearchOption.AllDirectories)
             .Where(IsBuildCandidate)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         if (slnFiles.Length > 0)
         {
-            var sln = PickByProjectNameOrFirst(slnFiles, projectName);
+            string sln = PickByProjectNameOrFirst(slnFiles, projectName);
             return Path.GetFullPath(sln);
         }
 
-        var csprojFiles = Directory.GetFiles(workspaceRoot, "*.csproj", SearchOption.AllDirectories)
+        string[] csprojFiles = Directory.GetFiles(workspaceRoot, "*.csproj", SearchOption.AllDirectories)
             .Where(IsBuildCandidate)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -104,13 +121,13 @@ public static class BuildCommandInference
             return null;
         }
 
-        var preferred = csprojFiles
+        string[] preferred = csprojFiles
             .Where(p => !Path.GetFileNameWithoutExtension(p).Contains("test", StringComparison.OrdinalIgnoreCase))
             .OrderBy(p => p.Contains($"{Path.DirectorySeparatorChar}src{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var chosen = preferred.Length > 0 ? PickByProjectNameOrFirst(preferred, projectName) : PickByProjectNameOrFirst(csprojFiles, projectName);
+        string chosen = preferred.Length > 0 ? PickByProjectNameOrFirst(preferred, projectName) : PickByProjectNameOrFirst(csprojFiles, projectName);
         return Path.GetFullPath(chosen);
     }
 
@@ -118,7 +135,7 @@ public static class BuildCommandInference
     {
         if (!string.IsNullOrWhiteSpace(projectName))
         {
-            var match = files.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Contains(projectName, StringComparison.OrdinalIgnoreCase));
+            string? match = files.FirstOrDefault(f => Path.GetFileNameWithoutExtension(f).Contains(projectName, StringComparison.OrdinalIgnoreCase));
             if (!string.IsNullOrWhiteSpace(match))
             {
                 return match;
@@ -130,7 +147,7 @@ public static class BuildCommandInference
 
     private static bool IsBuildCandidate(string path)
     {
-        var normalized = path.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+        string normalized = path.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
         return !normalized.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
             && !normalized.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase);
     }

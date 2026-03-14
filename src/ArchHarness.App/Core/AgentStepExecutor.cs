@@ -7,11 +7,11 @@ namespace ArchHarness.App.Core;
 /// <summary>
 /// Executes plan steps in dependency order, dispatching each step to the appropriate agent.
 /// </summary>
-public sealed class AgentStepExecutor
+public sealed class AgentStepExecutor : IAgentStepExecutor
 {
     private const string ORCHESTRATOR_SOURCE = "orchestrator";
     private readonly FrontendAgent _frontendAgent;
-    private readonly BuilderAgent _builderAgent;
+    private readonly BackendImplementationAgent _backendImplementationAgent;
     private readonly CodingStyleAgent _codingStyleAgent;
     private readonly SecurityAgent _securityAgent;
     private readonly ArchitectureAgent _architectureAgent;
@@ -21,21 +21,21 @@ public sealed class AgentStepExecutor
     /// Initializes a new instance of the <see cref="AgentStepExecutor"/> class.
     /// </summary>
     /// <param name="frontendAgent">Agent that creates frontend plans.</param>
-    /// <param name="builderAgent">Agent that implements code changes.</param>
+    /// <param name="backendImplementationAgent">Agent that implements backend code changes.</param>
     /// <param name="codingStyleAgent">Agent that enforces coding style standards.</param>
     /// <param name="securityAgent">Agent that performs security reviews.</param>
     /// <param name="architectureAgent">Agent that performs architecture reviews.</param>
     /// <param name="artefactStore">Store for persisting run events.</param>
     public AgentStepExecutor(
         FrontendAgent frontendAgent,
-        BuilderAgent builderAgent,
+        BackendImplementationAgent backendImplementationAgent,
         CodingStyleAgent codingStyleAgent,
         SecurityAgent securityAgent,
         ArchitectureAgent architectureAgent,
         IArtefactStore artefactStore)
     {
         this._frontendAgent = frontendAgent;
-        this._builderAgent = builderAgent;
+        this._backendImplementationAgent = backendImplementationAgent;
         this._codingStyleAgent = codingStyleAgent;
         this._securityAgent = securityAgent;
         this._architectureAgent = architectureAgent;
@@ -89,15 +89,15 @@ public sealed class AgentStepExecutor
                     ? $"Frontend implemented and touched {newFiles.Count} file(s)."
                     : "Frontend step executed.";
             },
-            ["Builder"] = async (ExecutionPlanStep s) =>
+            ["BackendImplementation"] = async (ExecutionPlanStep s) =>
             {
-                IReadOnlyList<string> newFiles = await this._builderAgent.ImplementAsync(
+                IReadOnlyList<string> newFiles = await this._backendImplementationAgent.ImplementAsync(
                     adapter,
                     s.Objective,
                     request.ModelOverrides,
                     null,
-                    this._builderAgent.Id,
-                    this._builderAgent.Role,
+                    this._backendImplementationAgent.Id,
+                    this._backendImplementationAgent.Role,
                     cancellationToken);
 
                 filesTouched = filesTouched
@@ -262,7 +262,7 @@ public sealed class AgentStepExecutor
     /// Contains the aggregated results from executing all plan steps.
     /// </summary>
     /// <param name="FrontendPlan">The frontend plan produced by the Frontend agent.</param>
-    /// <param name="FilesTouched">Files modified by the Builder agent.</param>
+    /// <param name="FilesTouched">Files modified by the Backend Implementation agent.</param>
     /// <param name="Review">The architecture review produced by the Architecture agent.</param>
     public sealed record StepExecutionResult(
         string FrontendPlan,

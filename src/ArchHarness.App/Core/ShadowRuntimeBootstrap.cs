@@ -3,29 +3,37 @@ using System.Reflection;
 
 namespace ArchHarness.App.Core;
 
+/// <summary>
+/// Provides shadow-copy relaunch capability so the main application can be updated while running.
+/// </summary>
 public static class ShadowRuntimeBootstrap
 {
-    private const string ShadowRunFlag = "ARCHHARNESS_SHADOW_RUN";
-    private const string ShadowDisableFlag = "ARCHHARNESS_SHADOW_DISABLE";
-    private const string ShadowForceFlag = "ARCHHARNESS_SHADOW_FORCE";
-    private const string OriginalBaseDirFlag = "ARCHHARNESS_ORIGINAL_BASEDIR";
-    private const string ShadowRootFlag = "ARCHHARNESS_SHADOW_ROOT";
+    private const string SHADOW_RUN_FLAG = "ARCHHARNESS_SHADOW_RUN";
+    private const string SHADOW_DISABLE_FLAG = "ARCHHARNESS_SHADOW_DISABLE";
+    private const string SHADOW_FORCE_FLAG = "ARCHHARNESS_SHADOW_FORCE";
+    private const string ORIGINAL_BASE_DIR_FLAG = "ARCHHARNESS_ORIGINAL_BASEDIR";
+    private const string SHADOW_ROOT_FLAG = "ARCHHARNESS_SHADOW_ROOT";
 
+    /// <summary>
+    /// Attempts to relaunch the application from a shadow copy directory, returning true if relaunch was initiated.
+    /// </summary>
+    /// <param name="args">The original command-line arguments to forward.</param>
+    /// <returns>True if the process was relaunched from a shadow copy; false to continue in-place.</returns>
     public static bool TryRelaunchFromShadowCopy(string[] args)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable(ShadowDisableFlag), "1", StringComparison.Ordinal))
+        if (string.Equals(Environment.GetEnvironmentVariable(SHADOW_DISABLE_FLAG), "1", StringComparison.Ordinal))
         {
             return false;
         }
 
-        if (string.Equals(Environment.GetEnvironmentVariable(ShadowRunFlag), "1", StringComparison.Ordinal))
+        if (string.Equals(Environment.GetEnvironmentVariable(SHADOW_RUN_FLAG), "1", StringComparison.Ordinal))
         {
             return false;
         }
 
         // Keep interactive setup sessions in-process by default.
         // Explicit CLI run invocations can still use shadow mode safely.
-        bool forceShadow = string.Equals(Environment.GetEnvironmentVariable(ShadowForceFlag), "1", StringComparison.Ordinal);
+        bool forceShadow = string.Equals(Environment.GetEnvironmentVariable(SHADOW_FORCE_FLAG), "1", StringComparison.Ordinal);
         bool isExplicitCliRun = args.Length > 0 && string.Equals(args[0], "run", StringComparison.OrdinalIgnoreCase);
         if (!forceShadow && !isExplicitCliRun && IsLikelyInteractiveConsole())
         {
@@ -56,8 +64,8 @@ public static class ShadowRuntimeBootstrap
             }
 
             relaunchStartInfo.WorkingDirectory = Directory.GetCurrentDirectory();
-            relaunchStartInfo.EnvironmentVariables[ShadowRunFlag] = "1";
-            relaunchStartInfo.EnvironmentVariables[OriginalBaseDirFlag] = sourceBaseDirectory;
+            relaunchStartInfo.EnvironmentVariables[SHADOW_RUN_FLAG] = "1";
+            relaunchStartInfo.EnvironmentVariables[ORIGINAL_BASE_DIR_FLAG] = sourceBaseDirectory;
 
             _ = Process.Start(relaunchStartInfo);
             return true;
@@ -111,7 +119,7 @@ public static class ShadowRuntimeBootstrap
 
     private static string GetShadowRootPath()
     {
-        string? configuredRoot = Environment.GetEnvironmentVariable(ShadowRootFlag);
+        string? configuredRoot = Environment.GetEnvironmentVariable(SHADOW_ROOT_FLAG);
         if (!string.IsNullOrWhiteSpace(configuredRoot))
         {
             return Path.GetFullPath(configuredRoot);

@@ -7,7 +7,7 @@ namespace ArchHarness.App.Core;
 /// Owns the architecture review remediation iteration loop, invoking the Architecture agent
 /// to re-review after remediation and enforcing the maximum iteration limit.
 /// </summary>
-public sealed class ArchitectureReviewLoop
+public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
 {
     public const string NO_PROGRESS_BLOCKED_STATUS = "blocked:no-progress-identical-findings";
     private readonly OrchestrationAgent _orchestrationAgent;

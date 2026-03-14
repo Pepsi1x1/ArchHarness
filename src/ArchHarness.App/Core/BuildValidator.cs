@@ -13,12 +13,12 @@ public sealed record BuildValidationResult(BuildResult BuildResult, bool Complet
 /// <summary>
 /// Executes the final build and validates run completion.
 /// </summary>
-public sealed class BuildValidator
+public sealed class BuildValidator : IBuildValidator
 {
     private readonly IBuildRunner _buildRunner;
     private readonly OrchestrationAgent _orchestrationAgent;
-    private readonly RunEventLogger _eventLogger;
-    private readonly RunArtifactWriter _artifactWriter;
+    private readonly IRunEventLogger _eventLogger;
+    private readonly IRunArtifactWriter _artifactWriter;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BuildValidator"/> class.
@@ -30,8 +30,8 @@ public sealed class BuildValidator
     public BuildValidator(
         IBuildRunner buildRunner,
         OrchestrationAgent orchestrationAgent,
-        RunEventLogger eventLogger,
-        RunArtifactWriter artifactWriter)
+        IRunEventLogger eventLogger,
+        IRunArtifactWriter artifactWriter)
     {
         _buildRunner = buildRunner;
         _orchestrationAgent = orchestrationAgent;

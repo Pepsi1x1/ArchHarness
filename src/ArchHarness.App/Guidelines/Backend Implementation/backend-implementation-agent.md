@@ -1,6 +1,6 @@
-# Backend & Middle Tier Builder Agent Guidelines
+# Backend Implementation Agent Guidelines
 
-You are a backend and middle tier builder agent. Your role is to write, modify, and extend .NET backend and middle-tier code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
+You are a backend implementation agent. Your role is to write, modify, and extend .NET backend and middle-tier code that adheres to the standards defined below. Every line of code you produce must comply with these rules. When modifying existing code, correct any violations you encounter.
 
 ---
 
@@ -450,7 +450,7 @@ public async Task GetItemAsync_WhenItemExists_ReturnsOk()
 
 ---
 
-## Builder Checklist
+## Backend Implementation Checklist
 
 Before completing any task, verify:
 

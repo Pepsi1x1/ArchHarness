@@ -9,6 +9,7 @@ namespace ArchHarness.App.Agents.Analyzers;
 public sealed class IspAnalyzer : IArchitectureAnalyzer
 {
     private const string SEVERITY_MEDIUM = "medium";
+    private const int MAX_INTERFACE_MEMBERS = 12;
 
     /// <inheritdoc />
     public void Analyze(IReadOnlyList<ParsedFile> files, List<ArchitectureFinding> findings, HashSet<string> requiredActions)
@@ -17,7 +18,7 @@ public sealed class IspAnalyzer : IArchitectureAnalyzer
         {
             foreach (InterfaceDeclarationSyntax iface in file.Root.DescendantNodes().OfType<InterfaceDeclarationSyntax>())
             {
-                if (iface.Members.Count > 12)
+                if (iface.Members.Count > MAX_INTERFACE_MEMBERS)
                 {
                     findings.Add(new ArchitectureFinding(
                         SEVERITY_MEDIUM,

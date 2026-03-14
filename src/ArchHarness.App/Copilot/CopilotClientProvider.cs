@@ -17,30 +17,30 @@ public sealed class CopilotClientProvider : IAsyncDisposable
     /// <param name="options">Copilot configuration options.</param>
     public CopilotClientProvider(IOptions<CopilotOptions> options)
     {
-        _clientTask = InitializeClientAsync(options.Value);
+        this._clientTask = InitializeClientAsync(options.Value);
     }
 
     /// <summary>
     /// Returns the initialized SDK client, awaiting startup if still in progress.
     /// </summary>
     /// <returns>The fully initialized SDK client.</returns>
-    public Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync() => _clientTask;
+    public Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync() => this._clientTask;
 
     /// <summary>
     /// Disposes the underlying SDK client if it was successfully started.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        if (_clientTask.IsCompletedSuccessfully)
+        if (this._clientTask.IsCompletedSuccessfully)
         {
-            await _clientTask.Result.DisposeAsync();
+            await this._clientTask.Result.DisposeAsync();
         }
     }
 
     private static async Task<GitHub.Copilot.SDK.CopilotClient> InitializeClientAsync(CopilotOptions options)
     {
-        var clientOptions = CopilotClientOptionsFactory.Build(options, autoRestart: true);
-        var client = new GitHub.Copilot.SDK.CopilotClient(clientOptions);
+        GitHub.Copilot.SDK.CopilotClientOptions clientOptions = CopilotClientOptionsFactory.Build(options, autoRestart: true);
+        GitHub.Copilot.SDK.CopilotClient client = new GitHub.Copilot.SDK.CopilotClient(clientOptions);
         await client.StartAsync();
         return client;
     }

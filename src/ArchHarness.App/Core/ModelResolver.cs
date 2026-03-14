@@ -3,65 +3,93 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
 
+/// <summary>
+/// Resolves the model identifier for a given agent role, applying overrides and validating against supported models.
+/// </summary>
 public interface IModelResolver
 {
+    /// <summary>
+    /// Resolves the model for the specified role, applying any overrides.
+    /// </summary>
+    /// <param name="role">The agent role identifier.</param>
+    /// <param name="overrides">Optional model overrides keyed by role.</param>
+    /// <returns>The resolved model identifier.</returns>
     string Resolve(string role, IDictionary<string, string>? overrides);
+
+    /// <summary>
+    /// Validates that the specified model is in the supported model list, throwing if not.
+    /// </summary>
+    /// <param name="model">The model identifier to validate.</param>
     void ValidateOrThrow(string model);
+
+    /// <summary>Gets the collection of supported model identifiers.</summary>
     IReadOnlyCollection<string> SupportedModels { get; }
 }
 
+/// <summary>
+/// Default implementation of <see cref="IModelResolver"/> that resolves models from configuration and a discovered catalog.
+/// </summary>
 public sealed class ModelResolver : IModelResolver
 {
     private readonly AgentsOptions _agents;
     private readonly CopilotOptions _copilot;
     private readonly IDiscoveredModelCatalog _catalog;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="ModelResolver"/>.
+    /// </summary>
+    /// <param name="agentOptions">The agents configuration options.</param>
+    /// <param name="copilotOptions">The Copilot configuration options.</param>
+    /// <param name="catalog">The discovered model catalog.</param>
     public ModelResolver(
         IOptions<AgentsOptions> agentOptions,
         IOptions<CopilotOptions> copilotOptions,
         IDiscoveredModelCatalog catalog)
     {
-        _agents = agentOptions.Value;
-        _copilot = copilotOptions.Value;
-        _catalog = catalog;
+        this._agents = agentOptions.Value;
+        this._copilot = copilotOptions.Value;
+        this._catalog = catalog;
     }
 
+    /// <inheritdoc />
     public IReadOnlyCollection<string> SupportedModels
-        => _catalog.HasModels ? _catalog.GetModels() : _copilot.SupportedModels;
+        => this._catalog.HasModels ? this._catalog.GetModels() : this._copilot.SupportedModels;
 
+    /// <inheritdoc />
     public string Resolve(string role, IDictionary<string, string>? overrides)
     {
-        if (overrides is not null && overrides.TryGetValue(role, out var overrideModel) && !string.IsNullOrWhiteSpace(overrideModel))
+        if (overrides is not null && overrides.TryGetValue(role, out string? overrideModel) && !string.IsNullOrWhiteSpace(overrideModel))
         {
-            ValidateOrThrow(overrideModel);
+            this.ValidateOrThrow(overrideModel);
             return overrideModel;
         }
 
-        var model = role.ToLowerInvariant() switch
+        string model = role.ToLowerInvariant() switch
         {
-            "orchestration" => _agents.Orchestration.Model,
-            "frontend" => _agents.Frontend.Model,
-            "builder" => _agents.Builder.Model,
-            "coding-style" => _agents.CodingStyle.Model,
-            "security" => _agents.Security.Model,
-            "architecture" => _agents.Architecture.Model,
-            "conversation" => _copilot.ConversationModel,
+            "orchestration" => this._agents.Orchestration.Model,
+            "frontend" => this._agents.Frontend.Model,
+            "backend-implementation" => this._agents.BackendImplementation.Model,
+            "coding-style" => this._agents.CodingStyle.Model,
+            "security" => this._agents.Security.Model,
+            "architecture" => this._agents.Architecture.Model,
+            "conversation" => this._copilot.ConversationModel,
             _ => throw new ArgumentOutOfRangeException(nameof(role), $"Unsupported role: {role}")
         };
 
-        ValidateOrThrow(model);
+        this.ValidateOrThrow(model);
         return model;
     }
 
+    /// <inheritdoc />
     public void ValidateOrThrow(string model)
     {
-        var supported = SupportedModels;
+        IReadOnlyCollection<string> supported = this.SupportedModels;
         if (supported.Count == 0)
         {
             throw new InvalidOperationException("No supported models configured.");
         }
 
-        var isSupported = supported.Any(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
+        bool isSupported = supported.Any(m => string.Equals(m, model, StringComparison.OrdinalIgnoreCase));
         if (!isSupported)
         {
             throw new InvalidOperationException(

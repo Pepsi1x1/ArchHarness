@@ -3,11 +3,20 @@ using GitHub.Copilot.SDK;
 
 namespace ArchHarness.App.Copilot;
 
+/// <summary>
+/// Builds Copilot SDK client options from application configuration.
+/// </summary>
 internal static class CopilotClientOptionsFactory
 {
+    /// <summary>
+    /// Creates a <see cref="CopilotClientOptions"/> instance from the provided application options.
+    /// </summary>
+    /// <param name="options">The Copilot configuration options.</param>
+    /// <param name="autoRestart">Whether the SDK should auto-restart on failure.</param>
+    /// <returns>A configured SDK client options instance.</returns>
     public static CopilotClientOptions Build(CopilotOptions options, bool autoRestart)
     {
-        var clientOptions = new CopilotClientOptions
+        CopilotClientOptions clientOptions = new CopilotClientOptions
         {
             AutoStart = true,
             AutoRestart = autoRestart,
@@ -35,7 +44,7 @@ internal static class CopilotClientOptionsFactory
             clientOptions.CliArgs = options.CliArgs.ToArray();
         }
 
-        var token = Environment.GetEnvironmentVariable(options.ApiTokenEnvironmentVariable);
+        string? token = Environment.GetEnvironmentVariable(options.ApiTokenEnvironmentVariable);
         if (!string.IsNullOrWhiteSpace(token))
         {
             clientOptions.GithubToken = token;

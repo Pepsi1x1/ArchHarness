@@ -27,7 +27,7 @@ public sealed class OrchestrationAgent : AgentBase
         ExcludedTools = new[] { "edit_file" }
     };
 
-    private readonly ExecutionPlanParser _executionPlanParser;
+    private readonly IExecutionPlanParser _executionPlanParser;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestrationAgent"/> class.
@@ -37,7 +37,7 @@ public sealed class OrchestrationAgent : AgentBase
         IModelResolver modelResolver,
         IAgentToolPolicyProvider toolPolicyProvider,
         IOptions<AgentsOptions> agentsOptions,
-        ExecutionPlanParser executionPlanParser)
+        IExecutionPlanParser executionPlanParser)
         : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "orchestration", Guid.NewGuid().ToString("N"))
     {
         _executionPlanParser = executionPlanParser;
@@ -62,13 +62,13 @@ public sealed class OrchestrationAgent : AgentBase
         string planningPrompt = $$"""
             You are the orchestration planner. Return ONLY strict JSON with this schema:
             {
-                "steps": [{"id":1,"agent":"Frontend|Builder|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+                "steps": [{"id":1,"agent":"Frontend|BackendImplementation|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
                 "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
                 "completionCriteria": ["string"]
             }
 
             Constraints:
-            - Always include at least one Builder, one CodingStyle, one Security, and one Architecture step.
+            - Always include at least one BackendImplementation, one CodingStyle, one Security, and one Architecture step.
             - Include Frontend when UI/UX work is implied.
             - CodingStyle, Security, and Architecture are review/enforcement steps.
             - CodingStyle must execute before Security.

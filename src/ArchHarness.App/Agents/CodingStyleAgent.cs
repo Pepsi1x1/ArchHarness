@@ -4,9 +4,12 @@ using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
 
+/// <summary>
+/// Agent responsible for enforcing coding style, naming conventions, and language-specific standards.
+/// </summary>
 public sealed class CodingStyleAgent : AgentBase
 {
-    private const string CodingStyleInstructions = """
+    private const string CODING_STYLE_INSTRUCTIONS = """
         You are the Coding Style Agent.
         Enforce coding style, naming conventions, and language-specific coding standards by directly editing files.
         Run in agent mode and use built-in tools to apply required style and standards fixes.
@@ -14,11 +17,25 @@ public sealed class CodingStyleAgent : AgentBase
         Return a concise completion summary after applying changes.
         """;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="CodingStyleAgent"/>.
+    /// </summary>
+    /// <param name="copilotClient">The Copilot client for completions.</param>
+    /// <param name="modelResolver">The model resolver.</param>
+    /// <param name="toolPolicyProvider">The tool policy provider.</param>
+    /// <param name="agentsOptions">The agents configuration options.</param>
     public CodingStyleAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
         : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "coding-style", Guid.NewGuid().ToString("N"))
     {
     }
 
+    /// <summary>
+    /// Enforces coding style standards on the workspace by running a Copilot completion with the style guidelines.
+    /// </summary>
+    /// <param name="request">The style enforcement request containing workspace context and scope.</param>
+    /// <param name="agentId">Optional override for the agent identifier.</param>
+    /// <param name="agentRole">Optional override for the agent role.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     public async Task EnforceAsync(
         StyleEnforcementRequest request,
         string? agentId = null,
@@ -28,7 +45,7 @@ public sealed class CodingStyleAgent : AgentBase
         string model = this.ResolveModel(request.ModelOverrides);
         (string languageLabel, string guidelines) = BuildGuidanceContext(request.WorkspaceRoot, request.FilesTouched, request.Diff, request.LanguageScope);
         string systemPrompt = BuildSystemPrompt(guidelines, languageLabel);
-        var enforcementPrompt = AgentPromptHelper.BuildEnforcementPrompt(request.DelegatedPrompt, request.WorkspaceRoot, request.FilesTouched, request.Diff);
+        string enforcementPrompt = AgentPromptHelper.BuildEnforcementPrompt(request.DelegatedPrompt, request.WorkspaceRoot, request.FilesTouched, request.Diff);
         CopilotCompletionOptions options = this.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
@@ -58,7 +75,7 @@ public sealed class CodingStyleAgent : AgentBase
 
     private static string BuildSystemPrompt(string guidelines, string languageLabel)
         => $"""
-            {CodingStyleInstructions}
+            {CODING_STYLE_INSTRUCTIONS}
 
             LanguageContext: {languageLabel}
             Apply the following coding style guidelines for this language:

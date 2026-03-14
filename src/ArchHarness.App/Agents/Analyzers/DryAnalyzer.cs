@@ -9,6 +9,7 @@ namespace ArchHarness.App.Agents.Analyzers;
 public sealed class DryAnalyzer : IArchitectureAnalyzer
 {
     private const string SEVERITY_HIGH = "high";
+    private const int MIN_METHOD_BODY_LENGTH = 120;
 
     /// <inheritdoc />
     public void Analyze(IReadOnlyList<ParsedFile> files, List<ArchitectureFinding> findings, HashSet<string> requiredActions)
@@ -20,7 +21,7 @@ public sealed class DryAnalyzer : IArchitectureAnalyzer
             foreach (MethodDeclarationSyntax method in file.Root.DescendantNodes().OfType<MethodDeclarationSyntax>())
             {
                 string normalized = NormalizeMethodBody(method);
-                if (string.IsNullOrWhiteSpace(normalized) || normalized.Length < 120)
+                if (string.IsNullOrWhiteSpace(normalized) || normalized.Length < MIN_METHOD_BODY_LENGTH)
                 {
                     continue;
                 }

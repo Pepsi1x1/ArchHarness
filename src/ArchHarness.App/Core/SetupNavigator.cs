@@ -5,9 +5,9 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class SetupNavigator
 {
-    private const string ExistingFolderMode = "existing-folder";
-    private const string NewProjectMode = "new-project";
-    private const string ExistingGitMode = "existing-git";
+    private const string EXISTING_FOLDER_MODE = "existing-folder";
+    private const string NEW_PROJECT_MODE = "new-project";
+    private const string EXISTING_GIT_MODE = "existing-git";
 
     /// <summary>
     /// Attempts to handle an up/down arrow navigation key, skipping non-interactive fields.
@@ -90,7 +90,7 @@ internal static class SetupNavigator
     /// <returns>The next mode string.</returns>
     public static string NextMode(string currentMode, int delta)
     {
-        string[] modes = new[] { NewProjectMode, ExistingFolderMode, ExistingGitMode };
+        string[] modes = new[] { NEW_PROJECT_MODE, EXISTING_FOLDER_MODE, EXISTING_GIT_MODE };
         int currentIndex = Array.FindIndex(modes, m => string.Equals(m, currentMode, StringComparison.OrdinalIgnoreCase));
         if (currentIndex < 0)
         {

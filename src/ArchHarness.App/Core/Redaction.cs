@@ -2,8 +2,16 @@ using System.Text.RegularExpressions;
 
 namespace ArchHarness.App.Core;
 
+/// <summary>
+/// Provides secret redaction utilities for sanitizing sensitive data in output strings.
+/// </summary>
 public static partial class Redaction
 {
+    /// <summary>
+    /// Replaces known secret patterns (JSON secret values, environment variable secrets, GitHub tokens) with redaction markers.
+    /// </summary>
+    /// <param name="text">The text to redact secrets from.</param>
+    /// <returns>The text with secrets replaced by redaction markers.</returns>
     public static string RedactSecrets(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -11,7 +19,7 @@ public static partial class Redaction
             return text;
         }
 
-        var output = JsonSecretValueRegex().Replace(text, "$1***REDACTED***$3");
+        var output = JsonSecretValueRegex().Replace(text, "$1***REDACTED***$2");
         output = EnvSecretValueRegex().Replace(output, "$1=***REDACTED***");
         output = GitHubTokenRegex().Replace(output, "***REDACTED***");
         return output;

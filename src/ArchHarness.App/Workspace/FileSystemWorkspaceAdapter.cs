@@ -1,44 +1,54 @@
 namespace ArchHarness.App.Workspace;
 
+/// <summary>
+/// File-system-backed workspace adapter that tracks changes via file snapshots.
+/// </summary>
 public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
 {
-    private Dictionary<string, FileSignature> _baselineSnapshot = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, FileSignature> _baselineSnapshot = new Dictionary<string, FileSignature>(StringComparer.OrdinalIgnoreCase);
 
+    /// <inheritdoc />
     public string RootPath { get; private set; }
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="FileSystemWorkspaceAdapter"/> for the specified root path.
+    /// </summary>
+    /// <param name="rootPath">The workspace root directory path.</param>
     public FileSystemWorkspaceAdapter(string rootPath)
     {
-        RootPath = Path.GetFullPath(rootPath);
+        this.RootPath = Path.GetFullPath(rootPath);
     }
 
+    /// <inheritdoc />
     public virtual Task InitializeAsync(string? projectName, bool initGit, CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(RootPath);
+        Directory.CreateDirectory(this.RootPath);
         if (!string.IsNullOrWhiteSpace(projectName))
         {
-            RootPath = Path.Combine(RootPath, projectName);
-            Directory.CreateDirectory(RootPath);
+            this.RootPath = Path.Combine(this.RootPath, projectName);
+            Directory.CreateDirectory(this.RootPath);
         }
 
         if (initGit)
         {
-            Directory.CreateDirectory(Path.Combine(RootPath, ".git"));
+            Directory.CreateDirectory(Path.Combine(this.RootPath, ".git"));
         }
 
-        _baselineSnapshot = BuildSnapshot();
+        this._baselineSnapshot = this.BuildSnapshot();
 
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async Task WriteTextAsync(string relativePath, string content, CancellationToken cancellationToken)
     {
-        var fullPath = Path.GetFullPath(Path.Combine(RootPath, relativePath));
-        if (!fullPath.StartsWith(RootPath, StringComparison.Ordinal))
+        string fullPath = Path.GetFullPath(Path.Combine(this.RootPath, relativePath));
+        if (!fullPath.StartsWith(this.RootPath, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Write attempted outside workspace root.");
         }
 
-        var directory = Path.GetDirectoryName(fullPath);
+        string? directory = Path.GetDirectoryName(fullPath);
         if (!string.IsNullOrEmpty(directory))
         {
             Directory.CreateDirectory(directory);
@@ -47,28 +57,33 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
         await File.WriteAllTextAsync(fullPath, content, cancellationToken);
     }
 
+    /// <inheritdoc />
     public virtual Task<string> DiffAsync(CancellationToken cancellationToken)
     {
-        var content = ComputeChangedPathsSinceBaseline()
+        string[] content = this.ComputeChangedPathsSinceBaseline()
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
         return Task.FromResult(string.Join(Environment.NewLine, content));
     }
 
+    /// <summary>
+    /// Computes the set of relative paths that have changed since the baseline snapshot was taken.
+    /// </summary>
+    /// <returns>A collection of changed relative file paths.</returns>
     protected IReadOnlyCollection<string> ComputeChangedPathsSinceBaseline()
     {
-        var currentSnapshot = BuildSnapshot();
-        var changedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, FileSignature> currentSnapshot = this.BuildSnapshot();
+        HashSet<string> changedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var entry in currentSnapshot
-                     .Where(entry => !_baselineSnapshot.TryGetValue(entry.Key, out var baselineSignature)
+        foreach (KeyValuePair<string, FileSignature> entry in currentSnapshot
+                     .Where(entry => !this._baselineSnapshot.TryGetValue(entry.Key, out FileSignature baselineSignature)
                                      || !entry.Value.Equals(baselineSignature)))
         {
             changedPaths.Add(entry.Key);
         }
 
-        foreach (var baselinePath in _baselineSnapshot.Keys.Where(baselinePath => !currentSnapshot.ContainsKey(baselinePath)))
+        foreach (string baselinePath in this._baselineSnapshot.Keys.Where(baselinePath => !currentSnapshot.ContainsKey(baselinePath)))
         {
             changedPaths.Add(baselinePath);
         }
@@ -78,13 +93,13 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
 
     private Dictionary<string, FileSignature> BuildSnapshot()
     {
-        var snapshot = new Dictionary<string, FileSignature>(StringComparer.OrdinalIgnoreCase);
-        foreach (var filePath in Directory
-                     .GetFiles(RootPath, "*", SearchOption.AllDirectories)
-                     .Where(filePath => !IsExcludedPath(filePath)))
+        Dictionary<string, FileSignature> snapshot = new Dictionary<string, FileSignature>(StringComparer.OrdinalIgnoreCase);
+        foreach (string filePath in Directory
+                     .GetFiles(this.RootPath, "*", SearchOption.AllDirectories)
+                     .Where(filePath => !this.IsExcludedPath(filePath)))
         {
-            var relativePath = Path.GetRelativePath(RootPath, filePath);
-            var info = new FileInfo(filePath);
+            string relativePath = Path.GetRelativePath(this.RootPath, filePath);
+            FileInfo info = new FileInfo(filePath);
             snapshot[relativePath] = new FileSignature(info.Length, info.LastWriteTimeUtc.Ticks);
         }
 
@@ -93,8 +108,8 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
 
     private bool IsExcludedPath(string fullPath)
     {
-        var relativePath = Path.GetRelativePath(RootPath, fullPath);
-        var normalized = relativePath.Replace('\\', '/');
+        string relativePath = Path.GetRelativePath(this.RootPath, fullPath);
+        string normalized = relativePath.Replace('\\', '/');
 
         return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)

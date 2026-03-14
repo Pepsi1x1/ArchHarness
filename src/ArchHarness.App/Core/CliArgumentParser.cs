@@ -92,9 +92,15 @@ internal static class CliArgumentParser
             return false;
         }
 
-        string workflow = forceLoopWorkflow
-            ? "architecture-loop"
-            : (args.Length >= 5 ? args[4] : "frontend_feature");
+        string workflow;
+        if (forceLoopWorkflow)
+        {
+            workflow = "architecture-loop";
+        }
+        else
+        {
+            workflow = args.Length >= 5 ? args[4] : "frontend_feature";
+        }
 
         request = new RunRequest(
             TaskPrompt: ResolveTaskPrompt(args[1], forceLoopWorkflow),
