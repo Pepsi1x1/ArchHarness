@@ -13,15 +13,17 @@ public sealed class ConversationController
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly AgentsOptions _agentsOptions;
     private readonly IModelResolver _modelResolver;
+    private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversationController"/> class.
     /// </summary>
-    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver)
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, IWorkspaceRootAccessor workspaceRootAccessor)
     {
         this._summaryGenerator = summaryGenerator;
         this._agentsOptions = agentsOptions.Value;
         this._modelResolver = modelResolver;
+        this._workspaceRootAccessor = workspaceRootAccessor;
     }
 
     /// <summary>
@@ -32,6 +34,7 @@ public sealed class ConversationController
         RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
+            this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
             this._modelResolver.ValidateConfiguredModelsOrThrow(cliRequest.ModelOverrides);
             string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
             return (cliRequest, setupSummary);
@@ -43,6 +46,7 @@ public sealed class ConversationController
 
         Console.Clear();
         Console.WriteLine("Preparing run configuration...");
+    this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
         this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
         Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");
 
@@ -155,4 +159,7 @@ public sealed class ConversationController
 
         return false;
     }
+
+    private static string ResolveWorkspaceRoot(string workspacePath)
+        => Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath));
 }

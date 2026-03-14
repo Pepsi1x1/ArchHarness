@@ -36,6 +36,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     private readonly ICopilotClientProvider _clientProvider;
     private readonly SessionHooksDependencies _hooks;
     private readonly CopilotSessionContext _sessionContext;
+    private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
     private readonly ILogger<CopilotSessionFactory> _logger;
     private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>>();
     private readonly int _sessionInactivityTimeoutSeconds;
@@ -54,12 +55,14 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         ICopilotClientProvider clientProvider,
         SessionHooksDependencies hooks,
         CopilotSessionContext sessionContext,
+        IWorkspaceRootAccessor workspaceRootAccessor,
         ILogger<CopilotSessionFactory> logger)
     {
         this._options = options.Value;
         this._clientProvider = clientProvider;
         this._hooks = hooks;
         this._sessionContext = sessionContext;
+        this._workspaceRootAccessor = workspaceRootAccessor;
         this._logger = logger;
         this._sessionInactivityTimeoutSeconds = Math.Max(0, options.Value.SessionResponseTimeoutSeconds);
         this._sessionAbsoluteTimeoutSeconds = Math.Max(0, options.Value.SessionAbsoluteTimeoutSeconds);
@@ -130,7 +133,8 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
 
     internal Task<SessionHandle> GetOrCreateSessionHandleAsync(string model, CopilotCompletionOptions? options)
     {
-        SessionCacheKey key = BuildSessionCacheKey(model, options);
+        string workspaceRoot = ResolveWorkspaceRoot(this._workspaceRootAccessor.Current);
+        SessionCacheKey key = BuildSessionCacheKey(model, options, workspaceRoot);
         Lazy<Task<SessionHandle>> lazy = this._sessionHandles.GetOrAdd(
             key,
             cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options), LazyThreadSafetyMode.ExecutionAndPublication));
@@ -219,14 +223,19 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         }
     }
 
-    private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options)
+    private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options, string workspaceRoot)
     {
         string systemMessage = options?.SystemMessage ?? string.Empty;
         CopilotSystemMessageMode mode = options?.SystemMessageMode ?? CopilotSystemMessageMode.Append;
         string available = NormalizeToolList(options?.AvailableTools);
         string excluded = NormalizeToolList(options?.ExcludedTools);
-        return new SessionCacheKey(model, systemMessage, mode, available, excluded);
+        return new SessionCacheKey(model, systemMessage, mode, available, excluded, workspaceRoot);
     }
+
+    private static string ResolveWorkspaceRoot(string? workspaceRoot)
+        => string.IsNullOrWhiteSpace(workspaceRoot)
+            ? Directory.GetCurrentDirectory()
+            : Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspaceRoot));
 
     private static string NormalizeToolList(IReadOnlyList<string>? tools)
     {
@@ -259,7 +268,8 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         string SystemMessage,
         CopilotSystemMessageMode SystemMessageMode,
         string AvailableTools,
-        string ExcludedTools);
+        string ExcludedTools,
+        string WorkspaceRoot);
 
     internal sealed record SessionHandle(CopilotSession Session, SemaphoreSlim Gate);
 

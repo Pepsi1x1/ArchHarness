@@ -170,7 +170,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
     private async Task<PreflightValidationResult> CheckAuthenticationAsync()
     {
         string? token = Environment.GetEnvironmentVariable(this._options.ApiTokenEnvironmentVariable);
-        CopilotClientOptions clientOptions = CopilotClientOptionsFactory.Build(this._options, autoRestart: false);
+        CopilotClientOptions clientOptions = CopilotClientOptionsFactory.Build(this._options, autoRestart: false, Directory.GetCurrentDirectory());
 
         try
         {

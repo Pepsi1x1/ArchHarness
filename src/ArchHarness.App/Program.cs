@@ -32,6 +32,7 @@ builder.Services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStr
 builder.Services.AddSingleton<IAgentStreamEventStream, AgentStreamEventStream>();
 builder.Services.AddSingleton<IAgentToolPolicyProvider, AgentToolPolicyProvider>();
 builder.Services.AddSingleton<IRunContextAccessor, RunContextAccessor>();
+builder.Services.AddSingleton<IWorkspaceRootAccessor, WorkspaceRootAccessor>();
 builder.Services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
 builder.Services.AddSingleton<OrchestrationAgent>();
 builder.Services.AddSingleton<FrontendDeveloperAgent>();
@@ -66,14 +67,5 @@ builder.Services.AddSingleton<ConversationController>();
 builder.Services.AddSingleton<ChatTerminal>();
 
 using IHost host = builder.Build();
-CopilotSessionFactory? sessionFactory = host.Services.GetRequiredService<ICopilotSessionFactory>() as CopilotSessionFactory;
-if (sessionFactory is not null)
-{
-    OrchestrationAgent orchestrationAgent = host.Services.GetRequiredService<OrchestrationAgent>();
-    _ = sessionFactory.WarmUpAsync(
-        orchestrationAgent.DefaultModel,
-        orchestrationAgent.GetWarmUpCompletionOptions());
-}
-
 ChatTerminal terminal = host.Services.GetRequiredService<ChatTerminal>();
 await terminal.RunAsync(args);

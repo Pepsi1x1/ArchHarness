@@ -36,3 +36,33 @@ public sealed class RunContextAccessor : IRunContextAccessor
         CURRENT_CONTEXT.Value = context;
     }
 }
+
+/// <summary>
+/// Provides access to the current workspace root for the executing async flow.
+/// </summary>
+public interface IWorkspaceRootAccessor
+{
+    /// <summary>Gets the current workspace root, or null if no workspace is active.</summary>
+    string? Current { get; }
+
+    /// <summary>Sets or clears the current workspace root.</summary>
+    /// <param name="workspaceRoot">The workspace root to set, or null to clear.</param>
+    void SetCurrent(string? workspaceRoot);
+}
+
+/// <summary>
+/// AsyncLocal-backed implementation of <see cref="IWorkspaceRootAccessor"/>.
+/// </summary>
+public sealed class WorkspaceRootAccessor : IWorkspaceRootAccessor
+{
+    private static readonly AsyncLocal<string?> CURRENT_WORKSPACE_ROOT = new AsyncLocal<string?>();
+
+    /// <inheritdoc />
+    public string? Current => CURRENT_WORKSPACE_ROOT.Value;
+
+    /// <inheritdoc />
+    public void SetCurrent(string? workspaceRoot)
+    {
+        CURRENT_WORKSPACE_ROOT.Value = workspaceRoot;
+    }
+}

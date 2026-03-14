@@ -14,6 +14,7 @@ public sealed class OrchestratorRuntime
     private readonly ICopilotClient _copilotClient;
     private readonly RunInfrastructure _runInfrastructure;
     private readonly RunPhaseDependencies _runPhases;
+    private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
@@ -22,12 +23,14 @@ public sealed class OrchestratorRuntime
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
         RunInfrastructure runInfrastructure,
-        RunPhaseDependencies runPhases)
+        RunPhaseDependencies runPhases,
+        IWorkspaceRootAccessor workspaceRootAccessor)
     {
         this._agentDependencies = agentDependencies;
         this._copilotClient = copilotClient;
         this._runInfrastructure = runInfrastructure;
         this._runPhases = runPhases;
+        this._workspaceRootAccessor = workspaceRootAccessor;
     }
 
     /// <summary>
@@ -55,6 +58,7 @@ public sealed class OrchestratorRuntime
 
         string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
+        this._workspaceRootAccessor.SetCurrent(adapter.RootPath);
         this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task sessionEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
@@ -199,6 +203,7 @@ public sealed class OrchestratorRuntime
         finally
         {
             this._runInfrastructure.RunContextAccessor.SetCurrent(null);
+            this._workspaceRootAccessor.SetCurrent(null);
         }
     }
 

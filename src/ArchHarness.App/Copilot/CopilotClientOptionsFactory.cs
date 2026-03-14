@@ -13,14 +13,15 @@ internal static class CopilotClientOptionsFactory
     /// </summary>
     /// <param name="options">The Copilot configuration options.</param>
     /// <param name="autoRestart">Whether the SDK should auto-restart on failure.</param>
+    /// <param name="workingDirectory">The working directory to use for the Copilot client process.</param>
     /// <returns>A configured SDK client options instance.</returns>
-    public static CopilotClientOptions Build(CopilotOptions options, bool autoRestart)
+    public static CopilotClientOptions Build(CopilotOptions options, bool autoRestart, string workingDirectory)
     {
         CopilotClientOptions clientOptions = new CopilotClientOptions
         {
             AutoStart = true,
             AutoRestart = autoRestart,
-            Cwd = Directory.GetCurrentDirectory(),
+            Cwd = workingDirectory,
             UseStdio = options.UseStdio,
             LogLevel = options.LogLevel
         };
