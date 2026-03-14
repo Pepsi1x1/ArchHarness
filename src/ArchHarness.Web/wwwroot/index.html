@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArchHarness Control Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=4">
+</head>
+<body>
+  <div class="backdrop"></div>
+  <main class="shell">
+    <section class="hero panel">
+      <div>
+        <p class="eyebrow">Local Orchestration Surface</p>
+        <h1>ArchHarness Control Room</h1>
+        <p class="lede">Launch runs, watch live agent output, answer pending prompts, and inspect artifacts from a browser-first shell.</p>
+      </div>
+      <div class="hero-status-grid">
+        <article class="status-card">
+          <span class="status-label">Preflight</span>
+          <strong id="preflight-title">Checking local runtime</strong>
+          <p id="preflight-detail">Waiting for preflight result.</p>
+        </article>
+        <article class="status-card accent">
+          <span class="status-label">Active Run</span>
+          <strong id="active-run-status">Idle</strong>
+          <p id="active-run-detail">No run is active yet.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="workspace-grid">
+      <aside class="panel rail">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Workspace History</p>
+            <h2>Recent Runs</h2>
+          </div>
+          <button id="refresh-history" class="ghost-button" type="button">Refresh</button>
+        </div>
+        <p class="field-hint" id="history-hint">Choose a workspace path to load persisted runs.</p>
+        <div id="recent-runs" class="run-list empty-state">No runs loaded.</div>
+      </aside>
+
+      <section class="panel setup-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Run Setup</p>
+            <h2>Compose Request</h2>
+          </div>
+          <div class="button-row">
+            <button id="generate-summary" class="ghost-button" type="button">Generate Summary</button>
+            <button id="start-run" class="primary-button" type="button">Start Run</button>
+            <button id="cancel-run" class="ghost-button" type="button">Cancel Run</button>
+          </div>
+        </div>
+
+        <form id="run-form" class="setup-grid">
+          <label class="field field-wide">
+            <span>Task Prompt</span>
+            <textarea id="task-prompt" rows="4" placeholder="Describe the requested change"></textarea>
+          </label>
+
+          <label class="field field-wide">
+            <span>Workspace Path</span>
+            <input id="workspace-path" type="text" placeholder="/path/to/workspace">
+          </label>
+
+          <label class="field">
+            <span>Workspace Mode</span>
+            <select id="workspace-mode"></select>
+          </label>
+
+          <label class="field">
+            <span>Workflow</span>
+            <input id="workflow" type="text" value="auto">
+          </label>
+
+          <label class="field">
+            <span>Project Name</span>
+            <input id="project-name" type="text" placeholder="Optional for new-project mode">
+          </label>
+
+          <label class="field">
+            <span>Build Command</span>
+            <input id="build-command" type="text" placeholder="Optional override">
+          </label>
+
+          <label class="field field-wide">
+            <span>Model Overrides</span>
+            <input id="model-overrides" type="text" placeholder="backend-developer=gpt-5.4,architecture=claude-opus-4.6">
+          </label>
+
+          <label class="field">
+            <span>Permission Mode</span>
+            <select id="permission-mode"></select>
+          </label>
+
+          <label class="field">
+            <span>Architecture Loop Prompt</span>
+            <input id="architecture-loop-prompt" type="text" placeholder="Optional loop prompt">
+          </label>
+
+          <div class="toggle-cluster field-wide">
+            <label class="toggle">
+              <input id="architecture-loop-mode" type="checkbox">
+              <span>Architecture loop mode</span>
+            </label>
+            <label class="toggle">
+              <input id="review-coding-style" type="checkbox">
+              <span>Coding style review</span>
+            </label>
+            <label class="toggle">
+              <input id="review-security" type="checkbox">
+              <span>Security review</span>
+            </label>
+            <label class="toggle">
+              <input id="review-architecture" type="checkbox">
+              <span>Architecture review</span>
+            </label>
+          </div>
+        </form>
+
+        <div class="message-band" id="setup-message">Ready.</div>
+        <article class="summary-card">
+          <p class="eyebrow">Setup Summary</p>
+          <pre id="setup-summary">Generate a run summary to preview the request.</pre>
+        </article>
+      </section>
+    </section>
+
+    <section class="live-grid">
+      <section class="panel timeline-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Live Run</p>
+            <h2>Timeline Stream</h2>
+          </div>
+          <span class="pill" id="event-stream-state">disconnected</span>
+        </div>
+        <div id="timeline" class="timeline empty-state">No live events yet.</div>
+      </section>
+
+      <section class="panel interaction-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Pending Interaction</p>
+            <h2>Approval Queue</h2>
+          </div>
+        </div>
+        <div id="interaction-card" class="empty-state">No pending user input or permission prompts.</div>
+      </section>
+    </section>
+
+    <section class="artifact-grid">
+      <section class="panel artifact-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Artifacts</p>
+            <h2>Run Output</h2>
+          </div>
+          <span class="pill subtle" id="artifact-context">No run selected</span>
+        </div>
+        <div class="artifact-body">
+          <div id="artifact-list" class="artifact-list empty-state">Select a run to inspect artifacts.</div>
+          <pre id="artifact-preview" class="artifact-preview">Artifact previews appear here.</pre>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <template id="run-item-template">
+    <button class="run-item" type="button">
+      <strong class="run-item-title"></strong>
+      <span class="run-item-subtitle"></span>
+      <span class="run-item-path"></span>
+    </button>
+  </template>
+
+  <template id="artifact-item-template">
+    <button class="artifact-item" type="button">
+      <strong class="artifact-item-title"></strong>
+      <span class="artifact-item-kind"></span>
+      <span class="artifact-item-description"></span>
+    </button>
+  </template>
+
+  <script src="/app.js?v=4" defer></script>
+</body>
+</html>

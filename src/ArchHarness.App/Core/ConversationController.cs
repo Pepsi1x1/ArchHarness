@@ -14,16 +14,18 @@ public sealed class ConversationController
     private readonly AgentsOptions _agentsOptions;
     private readonly IModelResolver _modelResolver;
     private readonly RuntimeStateAccessors _stateAccessors;
+    private readonly ISetupStatusSink _statusSink;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversationController"/> class.
     /// </summary>
-    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, RuntimeStateAccessors stateAccessors)
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, RuntimeStateAccessors stateAccessors, ISetupStatusSink statusSink)
     {
         this._summaryGenerator = summaryGenerator;
         this._agentsOptions = agentsOptions.Value;
         this._modelResolver = modelResolver;
         this._stateAccessors = stateAccessors;
+        this._statusSink = statusSink;
     }
 
     /// <summary>
@@ -47,13 +49,13 @@ public sealed class ConversationController
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             CliArgumentParser.NormalizeArchitectureLoopPrompt(this._agentsOptions.Architecture.ArchitectureLoopPrompt));
 
-        Console.Clear();
-        Console.WriteLine("Preparing run configuration...");
+        this._statusSink.Clear();
+        this._statusSink.WriteLine("Preparing run configuration...");
         this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode));
         this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(ResolveReviewLoopAgents(requestInteractive, this._agentsOptions));
         this._stateAccessors.WorkspaceRoot.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
         this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
-        Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");
+        this._statusSink.WriteLine("Contacting Copilot for intent extraction and setup summary.");
 
         try
         {
@@ -74,8 +76,8 @@ public sealed class ConversationController
             summary = $"Copilot summary unavailable ({ex.Message}). Proceeding with provided setup values.";
         }
 
-        Console.WriteLine("[Chat/Setup Confirmation]");
-        Console.WriteLine(summary);
+        this._statusSink.WriteLine("[Chat/Setup Confirmation]");
+        this._statusSink.WriteLine(summary);
 
         return (requestInteractive, summary);
     }

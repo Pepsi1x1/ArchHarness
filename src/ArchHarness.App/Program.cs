@@ -20,6 +20,7 @@ public static class ArchHarnessServiceCollectionExtensions
 		services.Configure<AgentsOptions>(configuration.GetSection("agents"));
 		services.Configure<CopilotOptions>(configuration.GetSection("copilot"));
 		services.AddHttpClient();
+		services.AddSingleton<IRunHistoryCatalog, FileSystemRunHistoryCatalog>();
 		services.AddSingleton<IDiscoveredModelCatalog, DiscoveredModelCatalog>();
 		services.AddSingleton<ICopilotGovernancePolicy, CopilotGovernancePolicy>();
 		services.AddSingleton<IModelResolver, ModelResolver>();
@@ -27,6 +28,7 @@ public static class ArchHarnessServiceCollectionExtensions
 		services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
 		services.AddSingleton<CopilotClientProvider>();
 		services.AddSingleton<ICopilotClientProvider>(sp => sp.GetRequiredService<CopilotClientProvider>());
+		services.AddSingleton<ICopilotPermissionPromptHandler, InteractivePermissionPromptHandler>();
 		services.AddSingleton<CopilotSessionFactory.SessionHooksDependencies>();
 		services.AddSingleton<CopilotSessionFactory.CopilotSessionContext>();
 		services.AddSingleton<ICopilotClient, CopilotClient>();
@@ -76,6 +78,7 @@ public static class ArchHarnessServiceCollectionExtensions
 	/// </summary>
 	public static IServiceCollection AddArchHarnessInteractiveServices(this IServiceCollection services)
 	{
+		services.AddSingleton<ISetupStatusSink, NullSetupStatusSink>();
 		services.AddSingleton<IUserInputState, UserInputState>();
 		services.AddSingleton<ConversationController>();
 		return services;

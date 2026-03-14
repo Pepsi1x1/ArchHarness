@@ -15,17 +15,19 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     public const string NO_PROGRESS_BLOCKED_STATUS = "blocked:no-progress-identical-findings";
     private readonly AgentsOptions _agentsOptions;
     private readonly LoopAgentDependencies _agents;
-    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
+    private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArchitectureReviewLoop"/> class.
     /// </summary>
     /// <param name="agents">Grouped agent references needed for the review loop.</param>
-    public ArchitectureReviewLoop(LoopAgentDependencies agents, Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions, IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor)
+    /// <param name="agentsOptions">Agent configuration options.</param>
+    /// <param name="stateAccessors">Grouped async-local runtime state accessors.</param>
+    public ArchitectureReviewLoop(LoopAgentDependencies agents, Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions, RuntimeStateAccessors stateAccessors)
     {
         this._agentsOptions = agentsOptions.Value;
         this._agents = agents;
-        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
+        this._stateAccessors = stateAccessors;
     }
 
     /// <summary>
@@ -48,7 +50,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
         CancellationToken cancellationToken)
     {
         ReviewLoopAgentSelection reviewLoopAgents = request.RunRequest.ReviewLoopAgents
-            ?? this._reviewLoopAgentSelectionAccessor.Current
+            ?? this._stateAccessors.ReviewLoopAgentSelection.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
         ArchitectureReview review = request.InitialReview;
         SecurityReview securityReview = request.InitialSecurityReview;

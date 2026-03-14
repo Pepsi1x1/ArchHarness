@@ -1,4 +1,4 @@
-using ArchHarness.Desktop;
+using ArchHarness.App.Storage;
 
 namespace ArchHarness.App.Tests.Desktop;
 
@@ -14,9 +14,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Directory.CreateDirectory(Path.Combine(runsRoot, "20260314T121500000"));
         Directory.CreateDirectory(Path.Combine(runsRoot, "20260314T121000000"));
 
-        RunHistoryService service = new RunHistoryService();
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
 
-        IReadOnlyList<ArchHarness.Desktop.ViewModels.RunSummaryViewModel> runs = service.GetRecentRuns(this._workspaceRoot);
+        IReadOnlyList<PersistedRunSummary> runs = service.GetRecentRuns(this._workspaceRoot);
 
         Assert.Collection(
             runs,
@@ -32,9 +32,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Directory.CreateDirectory(runDirectory);
         File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), new string('a', 3000));
 
-        RunHistoryService service = new RunHistoryService();
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
 
-        IReadOnlyList<ArchHarness.Desktop.ViewModels.ArtifactItemViewModel> artifacts = service.GetArtifacts(runDirectory, previewLength: 64);
+        IReadOnlyList<RunArtifactPreview> artifacts = service.GetArtifacts(runDirectory, previewLength: 64);
 
         Assert.Single(artifacts);
         Assert.Contains("...", artifacts[0].Preview);
@@ -49,9 +49,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Directory.CreateDirectory(runDirectory);
         File.WriteAllText(Path.Combine(runDirectory, "BuildResult.json"), "{\"status\":\"ok\",\"warnings\":[1,2]}");
 
-        RunHistoryService service = new RunHistoryService();
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
 
-        IReadOnlyList<ArchHarness.Desktop.ViewModels.ArtifactItemViewModel> artifacts = service.GetArtifacts(runDirectory, previewLength: 512);
+        IReadOnlyList<RunArtifactPreview> artifacts = service.GetArtifacts(runDirectory, previewLength: 512);
 
         Assert.Single(artifacts);
         Assert.Equal("JSON", artifacts[0].Kind);
