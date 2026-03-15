@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ArchHarness.App\ArchHarness.App.csproj" />
-    <ProjectReference Include="..\..\src\ArchHarness.Desktop\ArchHarness.Desktop.csproj" />
     <ProjectReference Include="..\..\src\ArchHarness.Web\ArchHarness.Web.csproj" />
   </ItemGroup>
 
