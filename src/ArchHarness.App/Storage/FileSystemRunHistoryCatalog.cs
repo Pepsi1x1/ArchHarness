@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Security;
 using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
@@ -79,6 +80,14 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             return "Binary file preview is not supported.";
         }
         catch (IOException)
+        {
+            return "Unable to read file preview.";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return "Unable to read file preview.";
+        }
+        catch (SecurityException)
         {
             return "Unable to read file preview.";
         }
@@ -207,6 +216,14 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         {
             return PersistedRunSummaryMetadata.Empty;
         }
+        catch (UnauthorizedAccessException)
+        {
+            return PersistedRunSummaryMetadata.Empty;
+        }
+        catch (SecurityException)
+        {
+            return PersistedRunSummaryMetadata.Empty;
+        }
         catch (JsonException)
         {
             return PersistedRunSummaryMetadata.Empty;
@@ -252,6 +269,14 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             }
         }
         catch (IOException)
+        {
+            return PersistedRunSummaryMetadata.Empty;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return PersistedRunSummaryMetadata.Empty;
+        }
+        catch (SecurityException)
         {
             return PersistedRunSummaryMetadata.Empty;
         }

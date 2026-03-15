@@ -60,6 +60,35 @@ public sealed class RunHistoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void GetArtifacts_ReturnsFriendlyPreviewForUnreadableFiles()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121650000");
+        Directory.CreateDirectory(runDirectory);
+
+        string filePath = Path.Combine(runDirectory, "BuildResult.json");
+        File.WriteAllText(filePath, "{\"status\":\"ok\"}");
+        File.SetUnixFileMode(filePath, UnixFileMode.UserWrite);
+
+        try
+        {
+            FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
+
+            RunArtifactPreview artifact = Assert.Single(service.GetArtifacts(runDirectory));
+
+            Assert.Equal("Unable to read file preview.", artifact.Preview);
+        }
+        finally
+        {
+            File.SetUnixFileMode(filePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
     public void GetRecentRuns_ReadsRunTitlesAndProjectMetadataFromRunLog()
     {
         string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121700000");
