@@ -437,6 +437,23 @@ button {
   border-color: transparent;
 }
 
+.run-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.run-dot--live {
+  background: #3b82f6;
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.7);
+}
+
+.run-dot--done {
+  background: #4fd18b;
+}
+
 /* Run items */
 .run-row {
   display: flex;

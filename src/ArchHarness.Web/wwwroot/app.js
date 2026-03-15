@@ -18,7 +18,8 @@ const state = {
   pendingInteractionInFlight: false,
   isUnloading: false,
   openModalId: null,
-  expandedProjectIds: new Set()
+  expandedProjectIds: new Set(),
+  seenRunIds: new Set()
 };
 
 const desktopBridge = window.archHarnessDesktop || null;
@@ -108,7 +109,8 @@ function saveShellState() {
     taskPrompt: elements.taskPrompt.value,
     runMode: elements.runMode.value,
     permissionMode: elements.permissionMode.value,
-    architectureReviewPreset: elements.architectureReviewPreset.value
+    architectureReviewPreset: elements.architectureReviewPreset.value,
+    seenRunIds: [...state.seenRunIds]
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
@@ -122,6 +124,7 @@ function restoreShellState() {
   try {
     const saved = JSON.parse(raw);
     state.activeProjectId = saved.activeProjectId || null;
+    state.seenRunIds = new Set(Array.isArray(saved.seenRunIds) ? saved.seenRunIds : []);
     elements.taskPrompt.value = saved.taskPrompt || "";
     setSelectValue(elements.runMode, saved.runMode);
     setSelectValue(elements.permissionMode, saved.permissionMode);
@@ -461,6 +464,7 @@ function renderProjects() {
       project.runs.forEach(run => {
         const runFragment = elements.runTemplate.content.cloneNode(true);
         const runLink = runFragment.querySelector(".run-link");
+        const dotNode = runFragment.querySelector(".run-dot");
         const titleNode = runFragment.querySelector(".run-title");
         const timeNode = runFragment.querySelector(".run-time");
         const menuButton = runFragment.querySelector(".run-menu-button");
@@ -470,9 +474,24 @@ function renderProjects() {
         timeNode.textContent = timeAgo(runDate);
         runLink.classList.toggle("active", run.runId === state.activeRunId);
 
+        const isLiveRun = state.activeRun?.isRunning && run.runId === state.activeRun?.runId;
+        const isUnseen = !state.seenRunIds.has(run.runId);
+        if (isLiveRun) {
+          dotNode.classList.remove("hidden", "run-dot--done");
+          dotNode.classList.add("run-dot--live");
+        } else if (isUnseen) {
+          dotNode.classList.remove("hidden", "run-dot--live");
+          dotNode.classList.add("run-dot--done");
+        } else {
+          dotNode.classList.add("hidden");
+        }
+
         runLink.addEventListener("click", () => {
           state.activeProjectId = project.projectId;
           state.activeRunId = run.runId;
+          if (!state.activeRun?.isRunning || state.activeRun?.runId !== run.runId) {
+            state.seenRunIds.add(run.runId);
+          }
           syncComposerFromProject(project);
           saveShellState();
           renderProjects();
