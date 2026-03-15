@@ -7,10 +7,12 @@ const path = require("node:path");
  */
 class WindowManager {
   #preloadPath;
+  #windowIconPath;
   #mainWindow = null;
 
-  constructor({ preloadPath }) {
+  constructor({ preloadPath, windowIconPath }) {
     this.#preloadPath = preloadPath;
+    this.#windowIconPath = windowIconPath;
   }
 
   get mainWindow() {
@@ -28,6 +30,7 @@ class WindowManager {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 14, y: 13 },
       title: "ArchHarness",
+      icon: this.#windowIconPath,
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
