@@ -73,11 +73,14 @@ internal sealed class SdkCopilotSession(
                     string? toolName = TryGetToolName(toolStart.Data);
                     if (!string.IsNullOrWhiteSpace(toolName))
                     {
+                        string argsJson = TryGetToolArgs(toolStart.Data) ?? "{}";
+                        string escapedName = System.Text.Json.JsonSerializer.Serialize(toolName);
+                        string message = $"{{\"name\":{escapedName},\"args\":{argsJson}}}";
                         sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
                             DateTimeOffset.UtcNow,
                             string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId,
                             string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole,
-                            toolName,
+                            message,
                             ContentFormat: "text",
                             StreamKind: "tool-call",
                             Title: toolName));
@@ -251,6 +254,20 @@ internal sealed class SdkCopilotSession(
         try
         {
             return data.GetType().GetProperty("ToolName")?.GetValue(data) as string;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? TryGetToolArgs(object? data)
+    {
+        if (data is null) return null;
+        try
+        {
+            object? args = data.GetType().GetProperty("Arguments")?.GetValue(data);
+            return args is null ? null : System.Text.Json.JsonSerializer.Serialize(args);
         }
         catch
         {

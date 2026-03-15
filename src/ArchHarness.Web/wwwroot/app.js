@@ -578,11 +578,29 @@ function getOrCreateToolGroup(section) {
   return seg;
 }
 
+function formatToolCall(call) {
+  try {
+    const parsed = JSON.parse(call);
+    if (parsed && typeof parsed.name === "string") {
+      if (parsed.args && typeof parsed.args === "object") {
+        const argStr = Object.entries(parsed.args)
+          .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+          .join(", ");
+        return argStr ? `${parsed.name}(${argStr})` : parsed.name;
+      }
+      return parsed.name;
+    }
+  } catch {
+    // fall through to plain text
+  }
+  return call;
+}
+
 function renderToolGroupHtml(seg) {
   const count = seg.calls.length;
   const label = count === 1 ? "Tool call" : "Tool calls";
   const items = seg.calls.map(call =>
-    `<li class="stream-tool-call-item">${escapeHtml(call)}</li>`).join("");
+    `<li class="stream-tool-call-item">${escapeHtml(formatToolCall(call))}</li>`).join("");
   return `<details class="stream-tool-calls"><summary class="stream-tool-calls-header">${label} (${count})</summary><ul class="stream-tool-calls-list">${items}</ul></details>`;
 }
 
