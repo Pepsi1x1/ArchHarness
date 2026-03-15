@@ -63,6 +63,15 @@ internal sealed class SdkCopilotSession(
                 case AssistantMessageEvent msg when !string.IsNullOrWhiteSpace(msg.Data.Content):
                     finalMessage = msg.Data.Content;
                     break;
+                case AssistantTurnEndEvent:
+                    // Resolve as soon as the assistant's turn ends and we have content.
+                    // This is earlier than SessionIdleEvent (which waits for SDK idle detection)
+                    // and avoids premature completion on tool-call-only turns that produce no text.
+                    if (finalMessage != null || completion.Length > 0)
+                    {
+                        done.TrySetResult();
+                    }
+                    break;
                 case SessionErrorEvent err:
                     done.TrySetException(new InvalidOperationException($"Copilot SDK session error: {err.Data.Message}"));
                     break;
