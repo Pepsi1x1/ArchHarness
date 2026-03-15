@@ -794,8 +794,8 @@ function recordStreamEvent(entry) {
     return;
   }
 
-  const title = readEventField(entry, "title");
   const streamKind = readEventField(entry, "streamKind") || "assistant";
+  const title = streamKind === "tool-call" ? null : readEventField(entry, "title");
   const section = ensureStreamSection(agentId, agentRole, title);
   if (section.segmentCount === 0) {
     hideAgentSpinningUp(agentRole);
