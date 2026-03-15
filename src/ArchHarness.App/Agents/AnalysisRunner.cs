@@ -1,4 +1,5 @@
 using ArchHarness.App.Agents.Analyzers;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -9,8 +10,8 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class AnalysisRunner
 {
-    private const string SEVERITY_HIGH = "high";
-    private const string SEVERITY_MEDIUM = "medium";
+    private const string SEVERITY_HIGH = Severities.HIGH;
+    private const string SEVERITY_MEDIUM = Severities.MEDIUM;
 
     private static readonly IArchitectureAnalyzer SRP_ANALYZER = new SrpAnalyzer();
     private static readonly IArchitectureAnalyzer DIP_ANALYZER = new DipAnalyzer();

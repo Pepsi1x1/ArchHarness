@@ -33,7 +33,9 @@ public static class SetupScreenRenderer
         Console.WriteLine();
         ChatTerminalRenderer.WriteColored("  Chat Preview", ConsoleColor.Cyan);
         Console.WriteLine();
-        ChatTerminalRenderer.WriteColored($"  {new string('─', Math.Max(18, Math.Min(panelWidth - 4, width - 6)))}", ConsoleColor.DarkGray);
+        int separatorWidth = Math.Max(18, Math.Min(panelWidth - 4, width - 6));
+        string separator = new string('─', separatorWidth);
+        ChatTerminalRenderer.WriteColored($"  {separator}", ConsoleColor.DarkGray);
         Console.WriteLine();
         WriteStyledChatMessage("▶ You:", request.TaskPrompt, ConsoleColor.Cyan, width);
         WriteStyledChatMessage("◈ Agent:", setupSummary, ConsoleColor.White, width);

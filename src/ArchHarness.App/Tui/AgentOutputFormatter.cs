@@ -15,7 +15,8 @@ internal static class AgentOutputFormatter
     /// <returns>A list of formatted lines ready for rendering.</returns>
     internal static IReadOnlyList<string> FormatDeltaContent(IEnumerable<AgentStreamDeltaEvent> events, int maxWidth)
     {
-        string fullContent = string.Concat(events.Select(e => e.DeltaContent));
+        IEnumerable<string> deltas = events.Select(e => e.DeltaContent);
+        string fullContent = string.Concat(deltas);
         string[] contentLines = fullContent.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
 
         List<string> formatted = new List<string>(contentLines.Length);

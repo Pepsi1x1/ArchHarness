@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
 
@@ -77,9 +78,9 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         {
             return "Binary file preview is not supported.";
         }
-        catch (IOException ex)
+        catch (IOException)
         {
-            return $"Unable to read file preview: {ex.Message}";
+            return "Unable to read file preview.";
         }
     }
 
@@ -117,7 +118,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         try
         {
             using JsonDocument document = JsonDocument.Parse(input);
-            return JsonSerializer.Serialize(document.RootElement, new JsonSerializerOptions { WriteIndented = true });
+            return JsonSerializer.Serialize(document.RootElement, JsonDefaults.INDENTED);
         }
         catch (JsonException)
         {

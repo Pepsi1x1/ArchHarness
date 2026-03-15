@@ -8,10 +8,6 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
 {
-    private static readonly JsonSerializerOptions SERIALIZER_OPTIONS = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
 
     private readonly object _sync = new object();
     private readonly string _storageFilePath;
@@ -151,7 +147,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
         try
         {
             string json = File.ReadAllText(this._storageFilePath);
-            return JsonSerializer.Deserialize<List<PersistedProjectWorkspace>>(json, SERIALIZER_OPTIONS)
+            return JsonSerializer.Deserialize<List<PersistedProjectWorkspace>>(json, JsonDefaults.WEB_INDENTED)
                 ?? new List<PersistedProjectWorkspace>();
         }
         catch (IOException)
@@ -172,7 +168,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
             Directory.CreateDirectory(directory);
         }
 
-        string json = JsonSerializer.Serialize(projects.OrderByDescending(project => project.UpdatedAtUtc), SERIALIZER_OPTIONS);
+        string json = JsonSerializer.Serialize(projects.OrderByDescending(project => project.UpdatedAtUtc), JsonDefaults.WEB_INDENTED);
         File.WriteAllText(this._storageFilePath, json);
     }
 

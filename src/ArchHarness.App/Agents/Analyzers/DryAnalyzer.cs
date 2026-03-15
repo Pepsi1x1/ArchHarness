@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -8,7 +9,7 @@ namespace ArchHarness.App.Agents.Analyzers;
 /// </summary>
 public sealed class DryAnalyzer : IArchitectureAnalyzer
 {
-    private const string SEVERITY_HIGH = "high";
+    private const string SEVERITY_HIGH = Severities.HIGH;
     private const int MIN_METHOD_BODY_LENGTH = 120;
 
     /// <inheritdoc />

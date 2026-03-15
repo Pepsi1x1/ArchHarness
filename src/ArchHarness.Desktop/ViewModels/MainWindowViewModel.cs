@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
@@ -11,8 +12,8 @@ namespace ArchHarness.Desktop.ViewModels;
 /// </summary>
 public sealed class MainWindowViewModel : ViewModelBase
 {
-    private const string DEFAULT_TASK_PROMPT = "Implement requested change";
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_TASK_PROMPT = DefaultPrompts.DEFAULT_TASK;
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
 
     private readonly IRunHistoryService _runHistoryService;
     private readonly OrchestratorRuntime _runtime;
@@ -66,6 +67,15 @@ public sealed class MainWindowViewModel : ViewModelBase
     }
     private CancellationTokenSource? _runCts;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MainWindowViewModel"/> class with full runtime dependencies.
+    /// </summary>
+    /// <param name="runHistoryService">Service for loading persisted run history.</param>
+    /// <param name="runtime">The orchestrator runtime for executing runs.</param>
+    /// <param name="streamingCoordinator">Coordinator for agent streaming output.</param>
+    /// <param name="preflightValidator">Validator for Copilot CLI readiness.</param>
+    /// <param name="summaryGenerator">Generator for setup summary text.</param>
+    /// <param name="agentsOptions">Agent configuration options.</param>
     public MainWindowViewModel(
         IRunHistoryService runHistoryService,
         OrchestratorRuntime runtime,
@@ -178,7 +188,11 @@ public sealed class MainWindowViewModel : ViewModelBase
     public string PermissionHandlerMode
     {
         get => this._permissionHandlerMode;
-        set => this.SetProperty(ref this._permissionHandlerMode, RunRequestFactory.NormalizePermissionMode(value));
+        set
+        {
+            string normalizedMode = RunRequestFactory.NormalizePermissionMode(value);
+            this.SetProperty(ref this._permissionHandlerMode, normalizedMode);
+        }
     }
 
     /// <summary>Gets or sets the optional project name used when creating a new workspace.</summary>

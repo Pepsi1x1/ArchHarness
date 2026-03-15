@@ -204,17 +204,21 @@ public sealed class AgentsOptions
     /// </summary>
     /// <param name="role">The agent role identifier.</param>
     /// <returns>The matching agent model options.</returns>
-    public AgentModelOptions ForRole(string role) => role.ToLowerInvariant() switch
+    public AgentModelOptions ForRole(string role)
     {
-        "frontend-developer" => this.FrontendDeveloper,
-        "backend-developer" => this.BackendDeveloper,
-        "build" => this.Build,
-        "coding-style" => this.CodingStyle,
-        "security" => this.Security,
-        "architecture" => this.Architecture,
-        "orchestration" => this.Orchestration,
-        _ => new AgentModelOptions()
-    };
+        string normalizedRole = role.ToLowerInvariant();
+        return normalizedRole switch
+        {
+            "frontend-developer" => this.FrontendDeveloper,
+            "backend-developer" => this.BackendDeveloper,
+            "build" => this.Build,
+            "coding-style" => this.CodingStyle,
+            "security" => this.Security,
+            "architecture" => this.Architecture,
+            "orchestration" => this.Orchestration,
+            _ => new AgentModelOptions()
+        };
+    }
 
     /// <summary>
     /// Gets the effective review-loop agent enablement derived from per-role configuration.

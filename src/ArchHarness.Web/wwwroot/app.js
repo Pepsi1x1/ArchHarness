@@ -260,7 +260,14 @@ function sanitizeHtml(html) {
   doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,link[rel=import]").forEach(el => el.remove());
   doc.querySelectorAll("*").forEach(el => {
     for (const attr of [...el.attributes]) {
-      if (attr.name.startsWith("on") || (attr.name === "href" && attr.value.trimStart().startsWith("javascript:"))) {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith("on")
+        || name === "style"
+        || name === "formaction"
+        || name === "xlink:href"
+        || name === "data" && (el.tagName === "OBJECT" || el.tagName === "EMBED")
+        || (name === "href" && attr.value.trimStart().toLowerCase().startsWith("javascript:"))
+        || (name === "src" && attr.value.trimStart().toLowerCase().startsWith("javascript:"))) {
         el.removeAttribute(attr.name);
       }
     }

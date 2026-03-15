@@ -1,4 +1,5 @@
 using ArchHarness.App.Agents;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Workspace;
 
@@ -63,7 +64,8 @@ public sealed class OrchestratorRuntime
         string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
         onRunContextEstablished?.Invoke(runId, runDirectory);
-        this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(request.PermissionHandlerMode));
+        string normalizedPermissionMode = PermissionHandlerModes.Normalize(request.PermissionHandlerMode);
+        this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedPermissionMode);
         ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents ?? this._agentsOptions.GetReviewLoopAgentSelection();
         this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(reviewLoopAgents);
         this._stateAccessors.WorkspaceRoot.SetCurrent(adapter.RootPath);
@@ -173,13 +175,16 @@ public sealed class OrchestratorRuntime
                 this._agentDependencies.OrchestrationAgent.Role,
                 cancellationToken);
 
+            int securityHighCount = securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            int architectureHighCount = review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            string filesTouchedList = string.Join(", ", filesTouched);
             string summary = $"""
                 # Final Summary
                 - Completed: {completed}
                 - FrontendPlan: {frontendPlan}
-                - FilesTouched: {string.Join(", ", filesTouched)}
-                - SecurityHighFindings: {securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
-                - ArchitectureHighFindings: {review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
+                - FilesTouched: {filesTouchedList}
+                - SecurityHighFindings: {securityHighCount}
+                - ArchitectureHighFindings: {architectureHighCount}
                 """;
             await this._runInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 

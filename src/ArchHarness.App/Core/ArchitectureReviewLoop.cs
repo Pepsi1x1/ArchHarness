@@ -61,9 +61,9 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
         string previousFindingsFingerprint = BuildFindingsFingerprint(review.Findings);
         string previousSecurityFindingsFingerprint = BuildSecurityFindingsFingerprint(securityReview.Findings);
 
-         while (request.IterationStrategy.ReviewRequired &&
-             (HasEnabledHighArchitectureFindings(reviewLoopAgents, review) || HasEnabledHighSecurityFindings(reviewLoopAgents, securityReview)) &&
-               iteration < request.IterationStrategy.MaxIterations)
+        while (request.IterationStrategy.ReviewRequired &&
+            (HasEnabledHighArchitectureFindings(reviewLoopAgents, review) || HasEnabledHighSecurityFindings(reviewLoopAgents, securityReview)) &&
+            iteration < request.IterationStrategy.MaxIterations)
         {
             iteration++;
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", $"Review iteration {iteration}"));

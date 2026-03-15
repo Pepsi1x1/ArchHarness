@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Tui;
 
 namespace ArchHarness.App.Core;
@@ -7,7 +8,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class SetupFormRenderer
 {
-    private const string NONE_TEXT = "(none)";
+    private const string NONE_TEXT = DisplayConstants.NONE_TEXT;
     private static int _spinnerFrame;
     private static readonly char[] SPINNER_FRAMES = ['|', '/', '-', '\\'];
 

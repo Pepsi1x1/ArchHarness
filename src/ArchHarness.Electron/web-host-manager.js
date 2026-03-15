@@ -92,28 +92,20 @@ class WebHostManager extends EventEmitter {
     const publishedExecutablePath = this.#getPublishedWebHostExecutablePath();
     const shouldUseProjectSource = this.#preferProjectSource && this.#canLaunchLocalWebHost();
 
-    if (shouldUseProjectSource) {
-      this.#process = spawn("dotnet", ["run", "--project", WEB_PROJECT_PATH, "--no-launch-profile"], {
-        cwd: REPO_ROOT,
-        env: environment,
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-    } else if (publishedExecutablePath) {
+    if (publishedExecutablePath && !shouldUseProjectSource) {
       this.#process = spawn(publishedExecutablePath, [], {
         cwd: path.dirname(publishedExecutablePath),
         env: environment,
         stdio: ["ignore", "pipe", "pipe"]
       });
-    } else {
-      if (!this.#canLaunchLocalWebHost()) {
-        return;
-      }
-
+    } else if (this.#canLaunchLocalWebHost()) {
       this.#process = spawn("dotnet", ["run", "--project", WEB_PROJECT_PATH, "--no-launch-profile"], {
         cwd: REPO_ROOT,
         env: environment,
         stdio: ["ignore", "pipe", "pipe"]
       });
+    } else {
+      return;
     }
 
     this.#ownsProcess = true;

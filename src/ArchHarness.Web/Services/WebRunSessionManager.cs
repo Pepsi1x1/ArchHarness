@@ -223,6 +223,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         catch (Exception ex)
         {
             DateTimeOffset completedAt = DateTimeOffset.UtcNow;
+            await Console.Error.WriteLineAsync($"[WebRunSessionManager] Run failed: {ex}");
             lock (this._sync)
             {
                 this._snapshot = this._snapshot with
@@ -230,11 +231,11 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                     IsRunning = false,
                     Status = "failed",
                     CompletedAtUtc = completedAt,
-                    FailureMessage = ex.Message
+                    FailureMessage = "The run failed due to an internal error."
                 };
             }
 
-            this.Publish(new WebRunEvent(completedAt, "run-state", "orchestrator", "Run failed.", Details: ex.Message));
+            this.Publish(new WebRunEvent(completedAt, "run-state", "orchestrator", "Run failed."));
         }
         finally
         {

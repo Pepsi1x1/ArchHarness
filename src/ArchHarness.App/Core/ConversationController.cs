@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
@@ -8,7 +9,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ConversationController
 {
-    private const string EXISTING_FOLDER_MODE = "existing-folder";
+    private const string EXISTING_FOLDER_MODE = WorkspaceModes.EXISTING_FOLDER;
 
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly AgentsOptions _agentsOptions;
@@ -37,9 +38,12 @@ public sealed class ConversationController
         if (cliRequest is not null)
         {
             cliRequest = await this._summaryGenerator.PopulateRunTitleAsync(cliRequest, cancellationToken);
-            this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode));
-            this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(ResolveReviewLoopAgents(cliRequest, this._agentsOptions));
-            this._stateAccessors.WorkspaceRoot.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
+            string normalizedPermissionMode = PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode);
+            this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedPermissionMode);
+            ReviewLoopAgentSelection resolvedAgents = ResolveReviewLoopAgents(cliRequest, this._agentsOptions);
+            this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(resolvedAgents);
+            string resolvedRoot = ResolveWorkspaceRoot(cliRequest.WorkspacePath);
+            this._stateAccessors.WorkspaceRoot.SetCurrent(resolvedRoot);
             this._modelResolver.ValidateConfiguredModelsOrThrow(cliRequest.ModelOverrides);
             string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
             return (cliRequest, setupSummary);
@@ -52,9 +56,12 @@ public sealed class ConversationController
 
         this._statusSink.Clear();
         this._statusSink.WriteLine("Preparing run configuration...");
-        this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode));
-        this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(ResolveReviewLoopAgents(requestInteractive, this._agentsOptions));
-        this._stateAccessors.WorkspaceRoot.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
+        string normalizedInteractivePermissionMode = PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode);
+        this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedInteractivePermissionMode);
+        ReviewLoopAgentSelection resolvedInteractiveAgents = ResolveReviewLoopAgents(requestInteractive, this._agentsOptions);
+        this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(resolvedInteractiveAgents);
+        string resolvedInteractiveRoot = ResolveWorkspaceRoot(requestInteractive.WorkspacePath);
+        this._stateAccessors.WorkspaceRoot.SetCurrent(resolvedInteractiveRoot);
         this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
         this._statusSink.WriteLine("Contacting Copilot for intent extraction and setup summary.");
 
@@ -74,9 +81,9 @@ public sealed class ConversationController
         {
             summary = await this._summaryGenerator.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            summary = $"Copilot summary unavailable ({ex.Message}). Proceeding with provided setup values.";
+            summary = "Copilot summary unavailable. Proceeding with provided setup values.";
         }
 
         this._statusSink.WriteLine("[Chat/Setup Confirmation]");
@@ -95,7 +102,7 @@ public sealed class ConversationController
 
         SetupDraft draft = new SetupDraft
         {
-            TaskPrompt = architectureLoopMode ? string.Empty : "Implement requested change",
+            TaskPrompt = architectureLoopMode ? string.Empty : DefaultPrompts.DEFAULT_TASK,
             WorkspacePath = Directory.GetCurrentDirectory(),
             WorkspaceMode = EXISTING_FOLDER_MODE,
             PermissionHandlerMode = PermissionHandlerModes.APPROVE_ALL,
@@ -175,7 +182,10 @@ public sealed class ConversationController
     }
 
     private static string ResolveWorkspaceRoot(string workspacePath)
-        => Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath));
+    {
+        string expandedPath = Environment.ExpandEnvironmentVariables(workspacePath);
+        return Path.GetFullPath(expandedPath);
+    }
 
     private static ReviewLoopAgentSelection ResolveReviewLoopAgents(RunRequest request, AgentsOptions agentsOptions)
         => request.ReviewLoopAgents ?? agentsOptions.GetReviewLoopAgentSelection();

@@ -55,6 +55,7 @@ public sealed class RunStore : IRunStore
     {
         string serialized = JsonSerializer.Serialize(payload, JsonDefaults.INDENTED);
         string redacted = Redaction.RedactSecrets(serialized);
-        return File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), redacted, cancellationToken);
+        string filePath = Path.Combine(runDirectory, "run-log.json");
+        return File.WriteAllTextAsync(filePath, redacted, cancellationToken);
     }
 }

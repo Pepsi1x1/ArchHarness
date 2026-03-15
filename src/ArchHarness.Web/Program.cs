@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ArchHarness.App;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Storage;
@@ -13,8 +14,6 @@ JsonSerializerOptions eventJsonOptions = new JsonSerializerOptions(JsonSerialize
 {
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 };
-const string DEFAULT_TASK_PROMPT = "Implement requested change";
-const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
 MarkdownPipeline markdownPipeline = new MarkdownPipelineBuilder()
     .UseAdvancedExtensions()
     .DisableHtml()
@@ -64,7 +63,7 @@ app.MapGet("/api/bootstrap", (IOptions<AgentsOptions> agentsOptions, IGlobalSett
     return Results.Ok(new
     {
         workspacePath = Environment.CurrentDirectory,
-        defaultTaskPrompt = settings.DefaultArchitectureReviewMode ? DEFAULT_ARCH_LOOP_TASK_PROMPT : DEFAULT_TASK_PROMPT,
+        defaultTaskPrompt = settings.DefaultArchitectureReviewMode ? DefaultPrompts.ARCHITECTURE_LOOP_TASK : DefaultPrompts.DEFAULT_TASK,
         workspaceModes = new[] { "existing-folder", "new-project", "existing-git" },
         permissionModes = new[] { "approve-all", "prompt" },
         workflow = settings.DefaultArchitectureReviewMode ? "architecture-loop" : "auto",
@@ -208,17 +207,22 @@ app.MapPost("/api/markdown/render", (MarkdownRenderRequest request) =>
     return Results.Ok(new { html });
 });
 
-app.MapGet("/api/runs", (string workspacePath, int? maxCount, IRunHistoryCatalog catalog) =>
+app.MapGet("/api/runs", (string workspacePath, int? maxCount, IRunHistoryCatalog catalog, IProjectWorkspaceCatalog projectCatalog) =>
 {
     if (string.IsNullOrWhiteSpace(workspacePath))
     {
         return Results.BadRequest(new { error = "workspacePath is required." });
     }
 
+    if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+    {
+        return Results.BadRequest(new { error = "workspacePath does not match a registered project." });
+    }
+
     return Results.Ok(catalog.GetRecentRuns(workspacePath, Math.Max(1, maxCount ?? 20)));
 });
 
-app.MapGet("/api/runs/{runId}/artifacts", (string runId, string workspacePath, int? previewLength, IRunHistoryCatalog catalog) =>
+app.MapGet("/api/runs/{runId}/artifacts", (string runId, string workspacePath, int? previewLength, IRunHistoryCatalog catalog, IProjectWorkspaceCatalog projectCatalog) =>
 {
     if (string.IsNullOrWhiteSpace(workspacePath))
     {
@@ -228,6 +232,11 @@ app.MapGet("/api/runs/{runId}/artifacts", (string runId, string workspacePath, i
     if (!IsSafeRunId(runId))
     {
         return Results.BadRequest(new { error = "runId must be a single directory name." });
+    }
+
+    if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+    {
+        return Results.BadRequest(new { error = "workspacePath does not match a registered project." });
     }
 
     string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs", runId);
@@ -339,6 +348,14 @@ static bool IsSafeRunId(string runId)
     => !string.IsNullOrWhiteSpace(runId)
         && runId.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }) < 0
         && !runId.Contains("..");
+
+static bool IsKnownWorkspacePath(string workspacePath, IProjectWorkspaceCatalog projectCatalog)
+{
+    string normalized = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath))
+        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    return projectCatalog.GetProjects()
+        .Any(p => string.Equals(p.WorkspacePath, normalized, StringComparison.OrdinalIgnoreCase));
+}
 
 public partial class Program
 {

@@ -6,17 +6,19 @@ const path = require("node:path");
  * Single Responsibility: only window management concerns.
  */
 class WindowManager {
+  #preloadPath;
+  #mainWindow = null;
+
   constructor({ preloadPath }) {
-    this._preloadPath = preloadPath;
-    this._mainWindow = null;
+    this.#preloadPath = preloadPath;
   }
 
   get mainWindow() {
-    return this._mainWindow;
+    return this.#mainWindow;
   }
 
   createMainWindow(loadUrl) {
-    this._mainWindow = new BrowserWindow({
+    this.#mainWindow = new BrowserWindow({
       width: 1600,
       height: 1040,
       minWidth: 1200,
@@ -28,11 +30,11 @@ class WindowManager {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        preload: this._preloadPath
+        preload: this.#preloadPath
       }
     });
 
-    this._mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    this.#mainWindow.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const parsed = new URL(url);
         if (parsed.protocol === "https:") {
@@ -44,13 +46,13 @@ class WindowManager {
       return { action: "deny" };
     });
 
-    void this._mainWindow.loadURL(loadUrl);
+    void this.#mainWindow.loadURL(loadUrl);
 
-    this._mainWindow.on("closed", () => {
-      this._mainWindow = null;
+    this.#mainWindow.on("closed", () => {
+      this.#mainWindow = null;
     });
 
-    return this._mainWindow;
+    return this.#mainWindow;
   }
 
   hasWindows() {

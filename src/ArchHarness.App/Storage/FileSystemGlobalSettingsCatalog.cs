@@ -9,10 +9,6 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 {
-    private static readonly JsonSerializerOptions SERIALIZER_OPTIONS = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
 
     private readonly object _sync = new object();
     private readonly string _storageFilePath;
@@ -80,7 +76,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         try
         {
             string json = File.ReadAllText(this._storageFilePath);
-            return JsonSerializer.Deserialize<PersistedGlobalSettings>(json, SERIALIZER_OPTIONS);
+            return JsonSerializer.Deserialize<PersistedGlobalSettings>(json, JsonDefaults.WEB_INDENTED);
         }
         catch (IOException)
         {
@@ -117,7 +113,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             Directory.CreateDirectory(directory);
         }
 
-        string json = JsonSerializer.Serialize(settings, SERIALIZER_OPTIONS);
+        string json = JsonSerializer.Serialize(settings, JsonDefaults.WEB_INDENTED);
         File.WriteAllText(this._storageFilePath, json);
     }
 

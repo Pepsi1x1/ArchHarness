@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -5,11 +7,11 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class SetupFieldEditor
 {
-    private const string NONE_TEXT = "(none)";
-    private const string EXISTING_FOLDER_MODE = "existing-folder";
-    private const string NEW_PROJECT_MODE = "new-project";
+    private const string NONE_TEXT = DisplayConstants.NONE_TEXT;
+    private const string EXISTING_FOLDER_MODE = WorkspaceModes.EXISTING_FOLDER;
+    private const string NEW_PROJECT_MODE = WorkspaceModes.NEW_PROJECT;
     private const string WORKSPACE_PATH_FIELD = "WorkspacePath";
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
 
     private static readonly Dictionary<string, Action<SetupDraft, string>> FIELD_SETTERS = new Dictionary<string, Action<SetupDraft, string>>(StringComparer.Ordinal)
     {
@@ -176,7 +178,7 @@ internal static class SetupFieldEditor
                 : draft.TaskPrompt;
         }
 
-        return string.IsNullOrWhiteSpace(draft.TaskPrompt) ? "Implement requested change" : draft.TaskPrompt;
+        return string.IsNullOrWhiteSpace(draft.TaskPrompt) ? DefaultPrompts.DEFAULT_TASK : draft.TaskPrompt;
     }
 
     private static void EnsureWorkspaceExists(string workspacePath)

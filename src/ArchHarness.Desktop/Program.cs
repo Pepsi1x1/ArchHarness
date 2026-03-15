@@ -1,7 +1,7 @@
 using ArchHarness.App;
 using ArchHarness.App.Copilot;
-using Avalonia;
 using ArchHarness.Desktop.ViewModels;
+using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 

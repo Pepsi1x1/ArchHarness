@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Agents;
@@ -8,8 +9,8 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class SecurityAnalysisRunner
 {
-    private const string SEVERITY_HIGH = "high";
-    private const string SEVERITY_MEDIUM = "medium";
+    private const string SEVERITY_HIGH = Severities.HIGH;
+    private const string SEVERITY_MEDIUM = Severities.MEDIUM;
 
     private static readonly string[] CANDIDATE_EXTENSIONS = [".cs", ".json", ".config", ".ts", ".tsx", ".js", ".jsx", ".vue", ".csproj", ".props", ".targets", ".md"];
 

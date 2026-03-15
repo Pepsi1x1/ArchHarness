@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -6,7 +8,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal sealed class SetupDraft
 {
-    private const string EXISTING_FOLDER_MODE = "existing-folder";
+    private const string EXISTING_FOLDER_MODE = WorkspaceModes.EXISTING_FOLDER;
 
     /// <summary>Gets or sets the task prompt.</summary>
     public string TaskPrompt { get; set; } = string.Empty;
