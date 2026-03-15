@@ -77,7 +77,9 @@ public sealed class OrchestratorRuntime
                 runId,
                 source = "request",
                 message = "Run request received",
+                projectId = request.ProjectId,
                 taskPrompt = request.TaskPrompt,
+                runTitle = request.RunTitle,
                 workspacePath = request.WorkspacePath,
                 workspaceMode = request.WorkspaceMode,
                 workflow = request.Workflow,
@@ -186,6 +188,9 @@ public sealed class OrchestratorRuntime
             await this._runInfrastructure.ArtifactWriter.WriteRunLogAsync(runDirectory, new
             {
                 status = completed ? "completed" : "incomplete",
+                projectId = request.ProjectId,
+                projectName = request.ProjectName,
+                runTitle = request.RunTitle,
                 request.WorkspaceMode,
                 request.Workflow,
                 request.PermissionHandlerMode,

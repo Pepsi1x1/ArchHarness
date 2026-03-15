@@ -25,6 +25,8 @@ internal static class WellKnownSources
 /// <param name="ReviewLoopAgents">Optional per-run review-loop agent selection override.</param>
 /// <param name="ArchitectureLoopMode">When true, enables iterative architecture review over the entire workspace.</param>
 /// <param name="ArchitectureLoopPrompt">Optional supplementary prompt applied during architecture loop iterations.</param>
+/// <param name="ProjectId">Optional stable project identifier associated with the run workspace.</param>
+/// <param name="RunTitle">Optional human-friendly title for the run.</param>
 public sealed record RunRequest(
     string TaskPrompt,
     string WorkspacePath,
@@ -36,7 +38,9 @@ public sealed record RunRequest(
     string PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
     ReviewLoopAgentSelection? ReviewLoopAgents = null,
     bool ArchitectureLoopMode = false,
-    string? ArchitectureLoopPrompt = null
+    string? ArchitectureLoopPrompt = null,
+    string? ProjectId = null,
+    string? RunTitle = null
 );
 
 /// <summary>

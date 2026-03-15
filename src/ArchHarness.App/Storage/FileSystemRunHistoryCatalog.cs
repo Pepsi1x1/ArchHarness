@@ -12,6 +12,13 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 	public IReadOnlyList<PersistedRunSummary> GetRecentRuns(string workspacePath, int maxCount = 20)
 	{
 		string root = Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs");
+		return this.GetRecentRunsFromRoot(root, maxCount);
+	}
+
+	/// <inheritdoc />
+	public IReadOnlyList<PersistedRunSummary> GetRecentRunsFromRoot(string runsRootDirectory, int maxCount = 20)
+	{
+		string root = Path.GetFullPath(runsRootDirectory);
 		if (!Directory.Exists(root))
 		{
 			return Array.Empty<PersistedRunSummary>();
@@ -20,7 +27,16 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 		return Directory.GetDirectories(root)
 			.OrderByDescending(path => path)
 			.Take(maxCount)
-			.Select(path => new PersistedRunSummary(Path.GetFileName(path), path))
+			.Select(path =>
+			{
+				PersistedRunSummaryMetadata metadata = TryReadRunSummaryMetadata(path);
+				return new PersistedRunSummary(
+					Path.GetFileName(path),
+					path,
+					metadata.RunTitle,
+					metadata.ProjectId,
+					metadata.ProjectName);
+			})
 			.ToList();
 	}
 
@@ -148,5 +164,131 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 		}
 
 		return $"{sizeInBytes / 1024d / 1024d:F1} MB";
+	}
+
+	private static PersistedRunSummaryMetadata TryReadRunSummaryMetadata(string runDirectory)
+	{
+		PersistedRunSummaryMetadata runLogMetadata = TryReadRunLogMetadata(runDirectory);
+		PersistedRunSummaryMetadata requestMetadata = TryReadRequestMetadata(runDirectory);
+
+		string? runTitle = FirstNonEmpty(runLogMetadata.RunTitle, requestMetadata.RunTitle);
+		if (string.IsNullOrWhiteSpace(runTitle))
+		{
+			runTitle = BuildFallbackTitle(requestMetadata.TaskPrompt);
+		}
+
+		return new PersistedRunSummaryMetadata(
+			runTitle,
+			FirstNonEmpty(runLogMetadata.ProjectId, requestMetadata.ProjectId),
+			FirstNonEmpty(runLogMetadata.ProjectName, requestMetadata.ProjectName),
+			requestMetadata.TaskPrompt);
+	}
+
+	private static PersistedRunSummaryMetadata TryReadRunLogMetadata(string runDirectory)
+	{
+		string runLogPath = Path.Combine(runDirectory, "run-log.json");
+		if (!File.Exists(runLogPath))
+		{
+			return PersistedRunSummaryMetadata.Empty;
+		}
+
+		try
+		{
+			using JsonDocument document = JsonDocument.Parse(File.ReadAllText(runLogPath));
+			JsonElement root = document.RootElement;
+			return new PersistedRunSummaryMetadata(
+				ReadString(root, "runTitle"),
+				ReadString(root, "projectId"),
+				ReadString(root, "projectName"),
+				null);
+		}
+		catch (IOException)
+		{
+			return PersistedRunSummaryMetadata.Empty;
+		}
+		catch (JsonException)
+		{
+			return PersistedRunSummaryMetadata.Empty;
+		}
+	}
+
+	private static PersistedRunSummaryMetadata TryReadRequestMetadata(string runDirectory)
+	{
+		string eventsPath = Path.Combine(runDirectory, "events.jsonl");
+		if (!File.Exists(eventsPath))
+		{
+			return PersistedRunSummaryMetadata.Empty;
+		}
+
+		try
+		{
+			foreach (string line in File.ReadLines(eventsPath))
+			{
+				if (string.IsNullOrWhiteSpace(line))
+				{
+					continue;
+				}
+
+				try
+				{
+					using JsonDocument document = JsonDocument.Parse(line);
+					JsonElement root = document.RootElement;
+					if (!string.Equals(ReadString(root, "source"), "request", StringComparison.OrdinalIgnoreCase))
+					{
+						continue;
+					}
+
+					return new PersistedRunSummaryMetadata(
+						ReadString(root, "runTitle"),
+						ReadString(root, "projectId"),
+						ReadString(root, "projectName"),
+						ReadString(root, "taskPrompt"));
+				}
+				catch (JsonException)
+				{
+					// Ignore malformed lines and continue scanning for the request event.
+				}
+			}
+		}
+		catch (IOException)
+		{
+			return PersistedRunSummaryMetadata.Empty;
+		}
+
+		return PersistedRunSummaryMetadata.Empty;
+	}
+
+	private static string? FirstNonEmpty(string? primary, string? fallback)
+		=> string.IsNullOrWhiteSpace(primary) ? fallback : primary;
+
+	private static string? BuildFallbackTitle(string? taskPrompt)
+	{
+		if (string.IsNullOrWhiteSpace(taskPrompt))
+		{
+			return null;
+		}
+
+		string[] words = taskPrompt
+			.Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)
+			.Take(6)
+			.ToArray();
+
+		string candidate = string.Join(" ", words).Trim();
+		return string.IsNullOrWhiteSpace(candidate) ? null : candidate;
+	}
+
+	private static string? ReadString(JsonElement root, string propertyName)
+	{
+		if (!root.TryGetProperty(propertyName, out JsonElement property) || property.ValueKind == JsonValueKind.Null)
+		{
+			return null;
+		}
+
+		return property.ValueKind == JsonValueKind.String ? property.GetString() : property.ToString();
+	}
+
+	private sealed record PersistedRunSummaryMetadata(string? RunTitle, string? ProjectId, string? ProjectName, string? TaskPrompt)
+	{
+		public static readonly PersistedRunSummaryMetadata Empty = new PersistedRunSummaryMetadata(null, null, null, null);
 	}
 }

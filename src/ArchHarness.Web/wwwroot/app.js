@@ -1,75 +1,91 @@
 const state = {
   bootstrap: null,
+  settings: null,
+  models: [],
+  projects: [],
+  activeProjectId: null,
+  activeRunId: null,
   activeRun: null,
-  selectedRunId: null,
-  selectedArtifactPath: null,
   artifacts: [],
-  recentRuns: [],
+  selectedArtifactPath: null,
+  streamSections: {},
+  streamOrder: [],
+  streamAutoScroll: true,
   eventSource: null,
   pendingInteraction: null,
   interactionPollHandle: null,
   pendingInteractionAbortController: null,
   pendingInteractionInFlight: false,
   isUnloading: false,
-  timeline: [],
-  agentTranscripts: {},
-  selectedAgentId: null,
-  agentTranscriptRenderHandle: null,
-  agentTranscriptRequestId: 0
+  openModalId: null,
+  expandedProjectIds: new Set()
 };
 
-const STORAGE_KEY = "archharness.web.form-state";
+const desktopBridge = window.archHarnessDesktop || null;
+
+const STORAGE_KEY = "archharness.web.shell-state";
 const IDLE_INTERACTION_POLL_MS = 5000;
 const ACTIVE_INTERACTION_POLL_MS = 400;
+const STREAM_RENDER_DELAY_MS = 140;
+const LEGACY_AUTOFILL_PROMPTS = [
+  "Implement requested change",
+  "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation."
+];
+const ROLE_LABELS = {
+  conversation: "Conversation",
+  orchestration: "Orchestration",
+  frontendDeveloper: "Frontend Developer",
+  backendDeveloper: "Backend Developer",
+  build: "Build",
+  codingStyle: "Coding Style",
+  security: "Security",
+  architecture: "Architecture"
+};
 
 const elements = {
-  preflightTitle: document.getElementById("preflight-title"),
-  preflightDetail: document.getElementById("preflight-detail"),
-  activeRunStatus: document.getElementById("active-run-status"),
-  activeRunDetail: document.getElementById("active-run-detail"),
-  workspaceSummary: document.getElementById("workspace-summary"),
-  workspaceModeSummary: document.getElementById("workspace-mode-summary"),
-  runCountSummary: document.getElementById("run-count-summary"),
-  runDetailSummary: document.getElementById("run-detail-summary"),
-  artifactCountSummary: document.getElementById("artifact-count-summary"),
-  selectionSummary: document.getElementById("selection-summary"),
-  queueSummary: document.getElementById("queue-summary"),
-  queueDetailSummary: document.getElementById("queue-detail-summary"),
-  recentRuns: document.getElementById("recent-runs"),
-  historyHint: document.getElementById("history-hint"),
-  refreshHistory: document.getElementById("refresh-history"),
+  sidebar: document.getElementById("sidebar"),
+  refreshProjects: document.getElementById("refresh-projects"),
+  newProjectButton: document.getElementById("new-project-button"),
+  settingsButton: document.getElementById("settings-button"),
+  projectList: document.getElementById("project-list"),
+  workspaceTitle: document.getElementById("workspace-title"),
+  eventStreamState: null,
+  streamSummary: null,
+  streamEmpty: document.getElementById("stream-empty"),
+  streamSections: document.getElementById("stream-sections"),
+  inlineInteraction: document.getElementById("inline-interaction"),
+
+  taskPrompt: document.getElementById("task-prompt"),
+  runMode: document.getElementById("run-mode"),
+  permissionMode: document.getElementById("permission-mode"),
+  architectureReviewChip: document.getElementById("architecture-review-chip"),
+  architectureReviewPreset: document.getElementById("architecture-review-preset"),
   startRun: document.getElementById("start-run"),
   cancelRun: document.getElementById("cancel-run"),
-  generateSummary: document.getElementById("generate-summary"),
-  setupSummary: document.getElementById("setup-summary"),
-  setupMessage: document.getElementById("setup-message"),
-  timeline: document.getElementById("timeline"),
-  eventStreamState: document.getElementById("event-stream-state"),
-  agentList: document.getElementById("agent-list"),
-  agentTranscriptStatus: document.getElementById("agent-transcript-status"),
-  agentTranscriptTitle: document.getElementById("agent-transcript-title"),
-  agentTranscriptMeta: document.getElementById("agent-transcript-meta"),
-  agentTranscriptRendered: document.getElementById("agent-transcript-rendered"),
-  interactionCard: document.getElementById("interaction-card"),
+  modalBackdrop: document.getElementById("modal-backdrop"),
+  newProjectModal: document.getElementById("new-project-modal"),
+  newProjectForm: document.getElementById("new-project-form"),
+  newProjectName: document.getElementById("new-project-name"),
+  newProjectPath: document.getElementById("new-project-path"),
+  pickProjectFolder: document.getElementById("pick-project-folder"),
+  newProjectPermission: document.getElementById("new-project-permission"),
+  newProjectArchitecture: document.getElementById("new-project-architecture"),
+  newProjectArchitecturePrompt: document.getElementById("new-project-architecture-prompt"),
+  projectPickerNote: document.getElementById("project-picker-note"),
+  settingsModal: document.getElementById("settings-modal"),
+  settingsForm: document.getElementById("settings-form"),
+  settingsGrid: document.getElementById("settings-grid"),
+  settingsPermissionMode: document.getElementById("settings-permission-mode"),
+  settingsArchitectureMode: document.getElementById("settings-architecture-mode"),
+  settingsArchitecturePrompt: document.getElementById("settings-architecture-prompt"),
+  runDetailsModal: document.getElementById("run-details-modal"),
+  runDetailsTitle: document.getElementById("run-details-title"),
   artifactList: document.getElementById("artifact-list"),
   artifactPreview: document.getElementById("artifact-preview"),
-  artifactContext: document.getElementById("artifact-context"),
   artifactSummary: document.getElementById("artifact-summary"),
-  runItemTemplate: document.getElementById("run-item-template"),
-  artifactItemTemplate: document.getElementById("artifact-item-template"),
-  taskPrompt: document.getElementById("task-prompt"),
-  workspacePath: document.getElementById("workspace-path"),
-  workspaceMode: document.getElementById("workspace-mode"),
-  workflow: document.getElementById("workflow"),
-  projectName: document.getElementById("project-name"),
-  buildCommand: document.getElementById("build-command"),
-  modelOverrides: document.getElementById("model-overrides"),
-  permissionMode: document.getElementById("permission-mode"),
-  architectureLoopPrompt: document.getElementById("architecture-loop-prompt"),
-  architectureLoopMode: document.getElementById("architecture-loop-mode"),
-  reviewCodingStyle: document.getElementById("review-coding-style"),
-  reviewSecurity: document.getElementById("review-security"),
-  reviewArchitecture: document.getElementById("review-architecture")
+  projectTemplate: document.getElementById("project-template"),
+  runTemplate: document.getElementById("run-template"),
+  artifactTemplate: document.getElementById("artifact-template")
 };
 
 async function requestJson(url, options) {
@@ -86,20 +102,178 @@ async function requestJson(url, options) {
   return response.json();
 }
 
-function closeEventStream(status = "disconnected") {
+function saveShellState() {
+  const payload = {
+    activeProjectId: state.activeProjectId,
+    taskPrompt: elements.taskPrompt.value,
+    runMode: elements.runMode.value,
+    permissionMode: elements.permissionMode.value,
+    architectureReviewPreset: elements.architectureReviewPreset.value
+  };
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function restoreShellState() {
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    return;
+  }
+
+  try {
+    const saved = JSON.parse(raw);
+    state.activeProjectId = saved.activeProjectId || null;
+    elements.taskPrompt.value = saved.taskPrompt || "";
+    setSelectValue(elements.runMode, saved.runMode);
+    setSelectValue(elements.permissionMode, saved.permissionMode);
+    setSelectValue(elements.architectureReviewPreset, saved.architectureReviewPreset);
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function clearLegacyAutofillPrompt() {
+  if (LEGACY_AUTOFILL_PROMPTS.includes(elements.taskPrompt.value.trim())) {
+    elements.taskPrompt.value = "";
+  }
+}
+
+function populateSelect(select, values) {
+  select.innerHTML = "";
+  values.forEach(value => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  });
+}
+
+function setSelectValue(select, value) {
+  if (!value) {
+    return;
+  }
+
+  const option = Array.from(select.options).find(candidate => candidate.value === value);
+  if (option) {
+    select.value = value;
+  }
+}
+
+function getActiveProject() {
+  return state.projects.find(project => project.projectId === state.activeProjectId) || null;
+}
+
+function syncComposerFromProject(project) {
+  if (!project) {
+    return;
+  }
+
+  setSelectValue(elements.permissionMode, project.permissionHandlerMode);
+  setSelectValue(elements.runMode, project.architectureReviewMode ? "architecture-review" : "standard");
+}
+
+function getProjectRunCount(project) {
+  return Array.isArray(project?.runs) ? project.runs.length : 0;
+}
+
+function timeAgo(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date)) return "";
+  const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
+function runDateFromId(runId) {
+  if (!runId || runId.length < 13) return null;
+  const year = runId.slice(0, 4);
+  const month = runId.slice(4, 6);
+  const day = runId.slice(6, 8);
+  const hour = runId.slice(9, 11);
+  const minute = runId.slice(11, 13);
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+}
+
+function readEventField(entry, field) {
+  if (!entry) {
+    return null;
+  }
+
+  const pascalCase = field.charAt(0).toUpperCase() + field.slice(1);
+  return entry[field] ?? entry[pascalCase] ?? null;
+}
+
+function formatTimestamp(value) {
+  return value
+    ? new Date(value).toLocaleString([], { hour: "2-digit", minute: "2-digit", month: "short", day: "numeric" })
+    : "Pending";
+}
+
+function formatRunTimestamp(runId) {
+  if (!runId || runId.length < 13) {
+    return runId || "Unknown";
+  }
+
+  const year = runId.slice(0, 4);
+  const month = runId.slice(4, 6);
+  const day = runId.slice(6, 8);
+  const hour = runId.slice(9, 11);
+  const minute = runId.slice(11, 13);
+  return `${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function summarizeWorkspacePath(path) {
+  const normalized = String(path || "").replace(/\\/g, "/").replace(/\/$/, "");
+  if (!normalized) {
+    return "No workspace path";
+  }
+
+  const segments = normalized.split("/").filter(Boolean);
+  return segments.length <= 3 ? normalized : `.../${segments.slice(-3).join("/")}`;
+}
+
+function escapeHtml(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function closeEventStream(status = "idle") {
   if (state.eventSource) {
     state.eventSource.close();
     state.eventSource = null;
   }
-
-  elements.eventStreamState.textContent = status;
 }
 
-function clearAgentTranscriptRender() {
-  if (state.agentTranscriptRenderHandle) {
-    window.clearTimeout(state.agentTranscriptRenderHandle);
-    state.agentTranscriptRenderHandle = null;
+function isArchitectureModeEnabled() {
+  return elements.runMode.value === "architecture-review";
+}
+
+function getPromptPlaceholder() {
+  return isArchitectureModeEnabled()
+    ? "Describe the architecture concern or boundary you want reviewed."
+    : "Describe the change or review you want ArchHarness to run.";
+}
+
+function buildArchitecturePrompt(prompt) {
+  if (!prompt) {
+    return null;
   }
+
+  if (elements.architectureReviewPreset.value === "full-review") {
+    return `Run a full workspace architecture review. Focus area: ${prompt}`;
+  }
+
+  return prompt;
 }
 
 function clearPendingInteractionPoll() {
@@ -129,329 +303,329 @@ function schedulePendingInteractionPoll(delayMs) {
   }, delayMs);
 }
 
-function setSetupMessage(message, tone = "neutral") {
-  elements.setupMessage.textContent = message;
-  elements.setupMessage.dataset.tone = tone;
-}
-
-function resetLiveAgentState() {
-  clearAgentTranscriptRender();
-  state.timeline = [];
-  state.agentTranscripts = {};
-  state.selectedAgentId = null;
-  renderTimeline();
-  renderAgentList();
-  void renderAgentTranscript();
-}
-
-function populateSelect(select, values) {
-  select.innerHTML = "";
-  values.forEach(value => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    select.append(option);
-  });
-}
-
-function collectRunRequest() {
-  return {
-    taskPrompt: elements.taskPrompt.value.trim(),
-    workspacePath: elements.workspacePath.value.trim(),
-    workspaceMode: elements.workspaceMode.value,
-    workflow: elements.architectureLoopMode.checked ? "architecture-loop" : (elements.workflow.value.trim() || "auto"),
-    projectName: elements.projectName.value.trim() || null,
-    modelOverrides: parseOverrides(elements.modelOverrides.value),
-    buildCommand: elements.buildCommand.value.trim() || null,
-    permissionHandlerMode: elements.permissionMode.value,
-    reviewLoopAgents: {
-      codingStyleEnabled: elements.reviewCodingStyle.checked,
-      securityEnabled: elements.reviewSecurity.checked,
-      architectureEnabled: elements.reviewArchitecture.checked
-    },
-    architectureLoopMode: elements.architectureLoopMode.checked,
-    architectureLoopPrompt: elements.architectureLoopPrompt.value.trim() || null
-  };
-}
-
-function parseOverrides(raw) {
-  const segments = raw.split(",").map(segment => segment.trim()).filter(Boolean);
-  if (segments.length === 0) {
-    return null;
+function openModal(modalId) {
+  closeModal();
+  const modal = document.getElementById(modalId);
+  if (!modal) {
+    return;
   }
 
-  const output = {};
-  segments.forEach(segment => {
-    const index = segment.indexOf("=");
-    if (index <= 0 || index >= segment.length - 1) {
-      return;
-    }
+  state.openModalId = modalId;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  elements.modalBackdrop.classList.remove("hidden");
+}
 
-    output[segment.slice(0, index).trim()] = segment.slice(index + 1).trim();
-  });
-  return Object.keys(output).length === 0 ? null : output;
+function closeModal() {
+  if (!state.openModalId) {
+    elements.modalBackdrop.classList.add("hidden");
+    return;
+  }
+
+  const modal = document.getElementById(state.openModalId);
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+
+  state.openModalId = null;
+  elements.modalBackdrop.classList.add("hidden");
 }
 
 function applyBootstrap(bootstrap) {
   state.bootstrap = bootstrap;
-  elements.taskPrompt.value = bootstrap.defaultTaskPrompt || "";
-  elements.workspacePath.value = bootstrap.workspacePath || "";
-  populateSelect(elements.workspaceMode, bootstrap.workspaceModes || []);
   populateSelect(elements.permissionMode, bootstrap.permissionModes || []);
-  elements.workflow.value = bootstrap.workflow || "auto";
-  elements.architectureLoopMode.checked = !!bootstrap.architectureLoopMode;
-  elements.architectureLoopPrompt.value = bootstrap.architectureLoopPrompt || "";
-  elements.reviewCodingStyle.checked = !!bootstrap.reviewLoopAgents?.codingStyleEnabled;
-  elements.reviewSecurity.checked = !!bootstrap.reviewLoopAgents?.securityEnabled;
-  elements.reviewArchitecture.checked = !!bootstrap.reviewLoopAgents?.architectureEnabled;
+  populateSelect(elements.newProjectPermission, bootstrap.permissionModes || []);
+  populateSelect(elements.settingsPermissionMode, bootstrap.permissionModes || []);
+
+  setSelectValue(elements.permissionMode, bootstrap.defaultPermissionHandlerMode);
+  setSelectValue(elements.newProjectPermission, bootstrap.defaultPermissionHandlerMode);
+  setSelectValue(elements.runMode, bootstrap.architectureLoopMode ? "architecture-review" : "standard");
+  elements.newProjectPath.value = bootstrap.workspacePath || "";
+  elements.newProjectArchitecture.checked = !!bootstrap.architectureLoopMode;
+  elements.newProjectArchitecturePrompt.value = bootstrap.architectureLoopPrompt || "";
+  elements.projectPickerNote.textContent = desktopBridge?.hostMode === "electron-local-web"
+    ? "Desktop mode can open the system folder picker."
+    : "Paste a workspace path here, or use the desktop picker.";
   state.activeRun = bootstrap.activeRun;
-  restoreFormState();
+  renderComposerState();
   renderActiveRun();
-  renderOverview();
+}
+
+async function pickProjectFolder() {
+  if (!desktopBridge?.selectFolder) {
+    elements.projectPickerNote.textContent = "The system picker is only available in desktop mode.";
+    return;
+  }
+
+  const selectedPath = await desktopBridge.selectFolder();
+  if (!selectedPath) {
+    return;
+  }
+
+  elements.newProjectPath.value = selectedPath;
+  if (!elements.newProjectName.value.trim()) {
+    const segments = selectedPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    elements.newProjectName.value = segments[segments.length - 1] || selectedPath;
+  }
 }
 
 function renderActiveRun() {
   const activeRun = state.activeRun;
   if (!activeRun) {
-    elements.activeRunStatus.textContent = "Idle";
-    elements.activeRunDetail.textContent = "No run is active yet.";
     elements.cancelRun.disabled = true;
     if (!state.isUnloading) {
       closeEventStream("idle");
     }
-    renderOverview();
+    renderTopbar();
     return;
   }
-
-  elements.activeRunStatus.textContent = activeRun.status || "idle";
   elements.cancelRun.disabled = !activeRun.isRunning;
-  const bits = [];
-  if (activeRun.taskPrompt) bits.push(activeRun.taskPrompt);
-  if (activeRun.runId) bits.push(`Run ${activeRun.runId}`);
-  if (activeRun.failureMessage) bits.push(activeRun.failureMessage);
-  elements.activeRunDetail.textContent = bits.join(" • ") || "Awaiting run details.";
 
   if (!activeRun.isRunning && !state.isUnloading) {
     closeEventStream("idle");
   }
 
-  renderOverview();
+  renderTopbar();
 }
 
-function saveFormState() {
-  const payload = {
-    taskPrompt: elements.taskPrompt.value,
-    workspacePath: elements.workspacePath.value,
-    workspaceMode: elements.workspaceMode.value,
-    workflow: elements.workflow.value,
-    projectName: elements.projectName.value,
-    buildCommand: elements.buildCommand.value,
-    modelOverrides: elements.modelOverrides.value,
-    permissionMode: elements.permissionMode.value,
-    architectureLoopPrompt: elements.architectureLoopPrompt.value,
-    architectureLoopMode: elements.architectureLoopMode.checked,
-    reviewCodingStyle: elements.reviewCodingStyle.checked,
-    reviewSecurity: elements.reviewSecurity.checked,
-    reviewArchitecture: elements.reviewArchitecture.checked
-  };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  renderOverview();
+function renderTopbar() {
+  const activeProject = getActiveProject();
+  const activeRun = state.activeRun;
+  const runStatus = activeRun?.isRunning
+    ? `Live run • ${activeRun.status || "running"}`
+    : (state.pendingInteraction ? (state.pendingInteraction.kind === "permission" ? "Approval needed" : "Input needed") : "idle");
+
+  elements.workspaceTitle.textContent = activeProject ? activeProject.displayName : "No project selected";
+  renderComposerState();
 }
 
-function restoreFormState() {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
+function renderComposerState() {
+  const activeProject = getActiveProject();
+  const architectureMode = isArchitectureModeEnabled();
+  elements.architectureReviewChip.classList.toggle("hidden", !architectureMode);
+  elements.taskPrompt.placeholder = getPromptPlaceholder();
+  elements.startRun.disabled = !activeProject || !elements.taskPrompt.value.trim();
+}
+
+function renderProjects() {
+  elements.projectList.innerHTML = "";
+  if (state.projects.length === 0) {
+    elements.projectList.className = "project-list empty-state";
+    elements.projectList.textContent = "No projects yet.";
+    renderTopbar();
     return;
   }
 
-  try {
-    const saved = JSON.parse(raw);
-    elements.taskPrompt.value = saved.taskPrompt || elements.taskPrompt.value;
-    elements.workspacePath.value = saved.workspacePath || elements.workspacePath.value;
-    setSelectValue(elements.workspaceMode, saved.workspaceMode);
-    elements.workflow.value = saved.workflow || elements.workflow.value;
-    elements.projectName.value = saved.projectName || "";
-    elements.buildCommand.value = saved.buildCommand || "";
-    elements.modelOverrides.value = saved.modelOverrides || "";
-    setSelectValue(elements.permissionMode, saved.permissionMode);
-    elements.architectureLoopPrompt.value = saved.architectureLoopPrompt || "";
-    elements.architectureLoopMode.checked = !!saved.architectureLoopMode;
-    elements.reviewCodingStyle.checked = saved.reviewCodingStyle ?? elements.reviewCodingStyle.checked;
-    elements.reviewSecurity.checked = saved.reviewSecurity ?? elements.reviewSecurity.checked;
-    elements.reviewArchitecture.checked = saved.reviewArchitecture ?? elements.reviewArchitecture.checked;
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
+  elements.projectList.className = "project-list";
+  state.projects.forEach(project => {
+    const fragment = elements.projectTemplate.content.cloneNode(true);
+    const card = fragment.querySelector(".project-card");
+    const main = fragment.querySelector(".project-main");
+    const title = fragment.querySelector(".project-title");
+    const meta = fragment.querySelector(".project-meta");
+    const runs = fragment.querySelector(".project-runs");
 
-  renderOverview();
-}
+    const isActive = project.projectId === state.activeProjectId;
+    const isExpanded = state.expandedProjectIds.has(project.projectId);
+    title.textContent = project.displayName;
+    meta.textContent = summarizeWorkspacePath(project.workspacePath);
+    main.classList.toggle("active", isActive);
+    card.classList.toggle("active", isActive);
+    card.classList.toggle("expanded", isExpanded);
 
-function setSelectValue(select, value) {
-  if (!value) {
-    return;
-  }
+    main.addEventListener("click", () => {
+      const wasActive = project.projectId === state.activeProjectId;
+      state.activeProjectId = project.projectId;
+      if (wasActive) {
+        if (state.expandedProjectIds.has(project.projectId)) {
+          state.expandedProjectIds.delete(project.projectId);
+        } else {
+          state.expandedProjectIds.add(project.projectId);
+        }
+      } else {
+        state.expandedProjectIds.add(project.projectId);
+      }
+      syncComposerFromProject(project);
+      saveShellState();
+      renderProjects();
+      renderTopbar();
+    });
 
-  const option = Array.from(select.options).find(candidate => candidate.value === value);
-  if (option) {
-    select.value = value;
-  }
-}
+    if (!Array.isArray(project.runs) || project.runs.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "run-empty";
+      empty.textContent = "No runs";
+      runs.append(empty);
+    } else {
+      project.runs.forEach(run => {
+        const runFragment = elements.runTemplate.content.cloneNode(true);
+        const runLink = runFragment.querySelector(".run-link");
+        const titleNode = runFragment.querySelector(".run-title");
+        const timeNode = runFragment.querySelector(".run-time");
+        const menuButton = runFragment.querySelector(".run-menu-button");
 
-function formatRunSubtitle(runId) {
-  const stem = runId.slice(0, 8);
-  const year = runId.slice(0, 4);
-  const month = runId.slice(4, 6);
-  const day = runId.slice(6, 8);
-  const hour = runId.slice(9, 11);
-  const minute = runId.slice(11, 13);
-  return `${stem} • ${year}-${month}-${day} ${hour}:${minute}`;
-}
+        titleNode.textContent = run.runTitle || `Run ${run.runId}`;
+        const runDate = runDateFromId(run.runId);
+        timeNode.textContent = timeAgo(runDate);
+        runLink.classList.toggle("active", run.runId === state.activeRunId);
 
-function summarizeWorkspacePath(path) {
-  const trimmed = path.trim();
-  if (!trimmed) {
-    return "No workspace selected";
-  }
+        runLink.addEventListener("click", () => {
+          state.activeProjectId = project.projectId;
+          state.activeRunId = run.runId;
+          syncComposerFromProject(project);
+          saveShellState();
+          renderProjects();
+          renderTopbar();
+        });
+        menuButton.addEventListener("click", event => {
+          event.stopPropagation();
+          void openRunDetails(project, run);
+        });
 
-  const normalized = trimmed.replace(/\\/g, "/").replace(/\/$/, "");
-  const segments = normalized.split("/").filter(Boolean);
-  if (segments.length <= 2) {
-    return normalized;
-  }
-
-  return `.../${segments.slice(-2).join("/")}`;
-}
-
-function formatCount(count, singular, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function summarizeText(text, maxLength = 220) {
-  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength - 1)}…`;
-}
-
-function stripMarkdown(text) {
-  return String(text ?? "")
-    .replace(/```[\s\S]*?```/g, block => block.replace(/```/g, ""))
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
-    .replace(/^>\s?/gm, "")
-    .replace(/^[-*+]\s+/gm, "")
-    .replace(/\|/g, " ");
-}
-
-function formatTimestamp(value) {
-  return value
-    ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : "Pending";
-}
-
-function getAgentTranscript(agentId) {
-  return state.agentTranscripts[agentId] || null;
-}
-
-function renderAgentList() {
-  elements.agentList.innerHTML = "";
-  const transcripts = Object.values(state.agentTranscripts)
-    .sort((left, right) => (right.updatedAt || "").localeCompare(left.updatedAt || ""));
-
-  if (transcripts.length === 0) {
-    elements.agentList.className = "agent-list empty-state";
-    elements.agentList.textContent = "No live agent output yet.";
-    elements.agentTranscriptStatus.textContent = "idle";
-    renderOverview();
-    return;
-  }
-
-  elements.agentList.className = "agent-list";
-  transcripts.forEach(transcript => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "agent-chip";
-    if (transcript.agentId === state.selectedAgentId) {
-      button.classList.add("active");
+        runs.append(runFragment);
+      });
     }
 
-    const title = document.createElement("strong");
-    title.textContent = transcript.agentRole;
-    const meta = document.createElement("span");
-    meta.className = "field-hint";
-    meta.textContent = `${formatCount(transcript.segmentCount, "segment")} • ${transcript.lastStreamKind === "subagent-report" ? "subagent report ready" : "live assistant stream"}`;
-    button.append(title, meta);
-    button.addEventListener("click", () => selectAgentTranscript(transcript.agentId));
-    elements.agentList.append(button);
+    elements.projectList.append(fragment);
   });
 
-  elements.agentTranscriptStatus.textContent = transcripts.some(transcript => transcript.lastStreamKind === "subagent-report")
-    ? "reports ready"
-    : "streaming";
-  renderOverview();
+  renderTopbar();
 }
 
-function selectAgentTranscript(agentId) {
-  state.selectedAgentId = agentId;
-  renderAgentList();
-  scheduleAgentTranscriptRender();
+function ensureStreamSection(agentId, agentRole, title) {
+  if (!state.streamSections[agentId]) {
+    state.streamSections[agentId] = {
+      agentId,
+      agentRole,
+      title: title || agentRole,
+      content: "",
+      html: "",
+      updatedAt: null,
+      segmentCount: 0,
+      streamKind: "assistant",
+      renderHandle: null,
+      renderVersion: 0
+    };
+    state.streamOrder.push(agentId);
+  }
+
+  const section = state.streamSections[agentId];
+  section.agentRole = agentRole || section.agentRole;
+  section.title = title || section.title || section.agentRole;
+  return section;
 }
 
-function scheduleAgentTranscriptRender() {
-  clearAgentTranscriptRender();
-  state.agentTranscriptRenderHandle = window.setTimeout(() => {
-    state.agentTranscriptRenderHandle = null;
-    void renderAgentTranscript();
-  }, 120);
+function renderStream() {
+  elements.streamSections.innerHTML = "";
+  const sections = state.streamOrder.map(agentId => state.streamSections[agentId]).filter(Boolean);
+  const hasSections = sections.length > 0;
+  elements.streamEmpty.classList.toggle("hidden", hasSections);
+  if (hasSections) hideStreamStarting();
+
+  sections.forEach(section => {
+    const details = document.createElement("details");
+    details.className = "stream-section";
+    details.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "stream-section-summary";
+    summary.innerHTML = `
+      <div>
+        <strong>${escapeHtml(section.title || section.agentRole)}</strong>
+        <span>${escapeHtml(section.agentRole || "agent")}</span>
+      </div>
+      <div class="stream-section-meta">
+        <span>${escapeHtml(formatTimestamp(section.updatedAt))}</span>
+      </div>
+    `;
+
+    const body = document.createElement("div");
+    body.className = "markdown-surface stream-markdown";
+    body.dataset.agentId = section.agentId;
+    body.innerHTML = section.html || `<pre>${escapeHtml(section.content || "Waiting for rendered markdown...")}</pre>`;
+
+    details.append(summary, body);
+    elements.streamSections.append(details);
+  });
+
+  scrollStreamToBottom();
+  renderTopbar();
 }
 
-async function renderAgentTranscript() {
-  const transcript = state.selectedAgentId ? getAgentTranscript(state.selectedAgentId) : null;
-  if (!transcript) {
-    elements.agentTranscriptTitle.textContent = "No agent selected";
-    elements.agentTranscriptMeta.textContent = "Start a run to stream agent and subagent output.";
-    elements.agentTranscriptRendered.className = "markdown-surface empty-state";
-    elements.agentTranscriptRendered.textContent = "Markdown-rendered agent and subagent output appears here.";
-    renderOverview();
+function scrollStreamToBottom() {
+  if (!state.streamAutoScroll) return;
+  const el = elements.streamSections;
+  el.scrollTop = el.scrollHeight;
+}
+
+function showStreamStarting() {
+  state.streamAutoScroll = true;
+  const el = document.createElement("div");
+  el.id = "stream-starting";
+  el.className = "stream-starting";
+  el.textContent = "Starting";
+  elements.streamSections.append(el);
+}
+
+function hideStreamStarting() {
+  const el = elements.streamSections.querySelector("#stream-starting");
+  if (el) el.remove();
+}
+
+function scheduleStreamRender(agentId) {
+  const section = state.streamSections[agentId];
+  if (!section) {
     return;
   }
 
-  elements.agentTranscriptTitle.textContent = transcript.agentRole;
-  elements.agentTranscriptMeta.textContent = `${formatCount(transcript.segmentCount, "segment")} • updated ${formatTimestamp(transcript.updatedAt)}`;
+  if (section.renderHandle) {
+    window.clearTimeout(section.renderHandle);
+  }
 
-  const requestId = ++state.agentTranscriptRequestId;
-  elements.agentTranscriptRendered.className = "markdown-surface";
-  elements.agentTranscriptRendered.textContent = "Rendering transcript...";
+  section.renderHandle = window.setTimeout(() => {
+    section.renderHandle = null;
+    void renderStreamSectionMarkdown(agentId);
+  }, STREAM_RENDER_DELAY_MS);
+}
 
+async function renderStreamSectionMarkdown(agentId) {
+  const section = state.streamSections[agentId];
+  if (!section) {
+    return;
+  }
+
+  const version = ++section.renderVersion;
   try {
     const response = await requestJson("/api/markdown/render", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markdown: transcript.content })
+      body: JSON.stringify({ markdown: section.content })
     });
 
-    if (requestId !== state.agentTranscriptRequestId || transcript.agentId !== state.selectedAgentId) {
+    if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) {
       return;
     }
 
-    elements.agentTranscriptRendered.innerHTML = response.html || "<p>No transcript content yet.</p>";
+    section.html = response.html || "<p>No output yet.</p>";
   } catch {
-    if (requestId !== state.agentTranscriptRequestId || transcript.agentId !== state.selectedAgentId) {
+    if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) {
       return;
     }
 
-    elements.agentTranscriptRendered.textContent = transcript.content;
+    section.html = `<pre>${escapeHtml(section.content)}</pre>`;
   }
 
-  renderOverview();
+  const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
+  if (container) {
+    container.innerHTML = section.html;
+    scrollStreamToBottom();
+  } else {
+    renderStream();
+  }
 }
 
-function recordAgentTranscript(entry) {
+function recordStreamEvent(entry) {
   const agentId = readEventField(entry, "agentId");
   if (!agentId) {
     return;
@@ -463,283 +637,27 @@ function recordAgentTranscript(entry) {
     return;
   }
 
-  const existing = state.agentTranscripts[agentId] || {
-    agentId,
-    agentRole,
-    content: "",
-    segmentCount: 0,
-    updatedAt: null,
-    lastStreamKind: "assistant"
-  };
-  existing.agentRole = agentRole;
-  existing.content += message;
-  existing.segmentCount += 1;
-  existing.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
-  existing.lastStreamKind = readEventField(entry, "streamKind") || "assistant";
-  state.agentTranscripts[agentId] = existing;
+  const title = readEventField(entry, "title");
+  const streamKind = readEventField(entry, "streamKind") || "assistant";
+  const section = ensureStreamSection(agentId, agentRole, title);
+  section.content += message;
+  section.segmentCount += 1;
+  section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
+  section.streamKind = streamKind;
 
-  if (!state.selectedAgentId) {
-    state.selectedAgentId = agentId;
-  }
-
-  renderAgentList();
-  if (state.selectedAgentId === agentId) {
-    scheduleAgentTranscriptRender();
-  }
+  renderStream();
+  scheduleStreamRender(agentId);
 }
 
-function ingestRunEvent(entry) {
-  state.timeline.push(entry);
-  if ((readEventField(entry, "kind") || "") === "agent-delta") {
-    recordAgentTranscript(entry);
-  }
-  renderTimeline();
-}
-
-function findSelectedRun() {
-  return state.recentRuns.find(run => run.runId === state.selectedRunId) || null;
-}
-
-function renderOverview() {
-  const workspacePath = elements.workspacePath.value.trim();
-  const selectedRun = findSelectedRun();
-  const pending = state.pendingInteraction;
-  const activeRun = state.activeRun;
-
-  elements.workspaceSummary.textContent = summarizeWorkspacePath(workspacePath);
-  elements.workspaceModeSummary.textContent = workspacePath
-    ? `${elements.workspaceMode.value || "existing-folder"} • ${elements.architectureLoopMode.checked ? "architecture-loop" : (elements.workflow.value.trim() || "auto")}`
-    : "Choose a workspace path to load history and enable run previews.";
-
-  elements.runCountSummary.textContent = state.recentRuns.length === 0
-    ? "0 archived runs"
-    : formatCount(state.recentRuns.length, "archived run");
-  elements.runDetailSummary.textContent = activeRun?.runId
-    ? `Active focus: Run ${activeRun.runId}`
-    : (workspacePath ? "Recent runs are ready for replay and artifact review." : "Recent run history appears as soon as a workspace is loaded.");
-
-  elements.artifactCountSummary.textContent = selectedRun
-    ? formatCount(state.artifacts.length, "artifact")
-    : "No artifact selection";
-  elements.selectionSummary.textContent = selectedRun
-    ? `Inspecting Run ${selectedRun.runId}`
-    : "Select a run to preview generated artifacts.";
-
-  elements.queueSummary.textContent = pending
-    ? (pending.kind === "permission" ? "Approval required" : "Input required")
-    : "Clear";
-  elements.queueDetailSummary.textContent = pending
-    ? pending.question
-    : (activeRun?.isRunning ? "Run is active and no operator action is blocked." : "No pending approvals or user input prompts.");
-}
-
-function renderRuns() {
-  elements.recentRuns.innerHTML = "";
-  if (state.recentRuns.length === 0) {
-    elements.recentRuns.className = "run-list empty-state";
-    elements.recentRuns.textContent = "No runs found for this workspace.";
-    return;
-  }
-
-  elements.recentRuns.className = "run-list";
-  state.recentRuns.forEach(run => {
-    const fragment = elements.runItemTemplate.content.cloneNode(true);
-    const button = fragment.querySelector(".run-item");
-    fragment.querySelector(".run-item-title").textContent = `Run ${run.runId}`;
-    fragment.querySelector(".run-item-subtitle").textContent = formatRunSubtitle(run.runId);
-    fragment.querySelector(".run-item-path").textContent = run.runDirectory;
-    if (run.runId === state.selectedRunId) {
-      button.classList.add("active");
+function resetStream() {
+  Object.values(state.streamSections).forEach(section => {
+    if (section.renderHandle) {
+      window.clearTimeout(section.renderHandle);
     }
-
-    button.addEventListener("click", () => selectRun(run));
-    elements.recentRuns.append(button);
   });
-}
-
-function renderArtifactPreview() {
-  const selectedArtifact = state.artifacts.find(artifact => artifact.fullPath === state.selectedArtifactPath) || null;
-  elements.artifactPreview.textContent = selectedArtifact?.preview || "Artifact previews appear here.";
-  elements.artifactSummary.textContent = selectedArtifact
-    ? `${selectedArtifact.name} • ${selectedArtifact.kind}`
-    : (state.selectedRunId
-        ? "Choose an artifact from the left rail to inspect its preview."
-        : "Latest run output appears here automatically once history is loaded.");
-  renderOverview();
-}
-
-function clearSelectedRun() {
-  state.selectedRunId = null;
-  state.selectedArtifactPath = null;
-  state.artifacts = [];
-  elements.artifactContext.textContent = "No run selected";
-  elements.artifactSummary.textContent = "Latest run output appears here automatically once history is loaded.";
-  renderRuns();
-  renderArtifacts();
-  renderOverview();
-}
-
-function renderArtifacts() {
-  elements.artifactList.innerHTML = "";
-  if (state.artifacts.length === 0) {
-    elements.artifactList.className = "artifact-list empty-state";
-    elements.artifactList.textContent = "No artifacts found for the selected run.";
-    elements.artifactPreview.textContent = "Artifact previews appear here.";
-    elements.artifactSummary.textContent = state.selectedRunId
-      ? "This run completed without previewable artifacts."
-      : "Latest run output appears here automatically once history is loaded.";
-    renderOverview();
-    return;
-  }
-
-  elements.artifactList.className = "artifact-list";
-  state.artifacts.forEach(artifact => {
-    const fragment = elements.artifactItemTemplate.content.cloneNode(true);
-    const button = fragment.querySelector(".artifact-item");
-    fragment.querySelector(".artifact-item-title").textContent = artifact.name;
-    fragment.querySelector(".artifact-item-kind").textContent = artifact.kind;
-    fragment.querySelector(".artifact-item-description").textContent = artifact.description;
-    if (artifact.fullPath === state.selectedArtifactPath) {
-      button.classList.add("active");
-    }
-
-    button.addEventListener("click", () => {
-      state.selectedArtifactPath = artifact.fullPath;
-      elements.artifactPreview.textContent = artifact.preview;
-      renderArtifacts();
-    });
-    elements.artifactList.append(button);
-  });
-}
-
-function renderTimeline() {
-  elements.timeline.innerHTML = "";
-  if (state.timeline.length === 0) {
-    elements.timeline.className = "timeline empty-state";
-    elements.timeline.textContent = "No live events yet.";
-    return;
-  }
-
-  elements.timeline.className = "timeline";
-  state.timeline.slice(-60).forEach(entry => {
-    const article = document.createElement("article");
-    const kind = readEventField(entry, "kind") || "runtime-progress";
-    const source = readEventField(entry, "source") || "orchestrator";
-    const agentRole = readEventField(entry, "agentRole") || source;
-    const title = readEventField(entry, "title");
-    const streamKind = readEventField(entry, "streamKind") || "default";
-    const message = readEventField(entry, "message") || readEventField(entry, "details") || "Event received.";
-    const timestampValue = readEventField(entry, "timestampUtc");
-    const timestamp = formatTimestamp(timestampValue);
-    article.className = "timeline-entry";
-    article.dataset.kind = kind;
-    article.dataset.streamKind = streamKind;
-    const preview = kind === "agent-delta"
-      ? summarizeText(stripMarkdown(message), streamKind === "subagent-report" ? 260 : 180)
-      : summarizeText(message, 180);
-    article.innerHTML = `
-      <div class="timeline-meta">
-        <span>${timestamp}</span>
-        <span>${escapeHtml(kind)}</span>
-        <span>${escapeHtml(source)}</span>
-      </div>
-      <strong>${escapeHtml(title || agentRole)}</strong>
-      <div class="timeline-preview">${escapeHtml(preview)}</div>
-    `;
-    elements.timeline.append(article);
-  });
-}
-
-function readEventField(entry, field) {
-  if (!entry) {
-    return null;
-  }
-
-  const pascalCase = field.charAt(0).toUpperCase() + field.slice(1);
-  return entry[field] ?? entry[pascalCase] ?? null;
-}
-
-function renderInteraction() {
-  const pending = state.pendingInteraction;
-  if (!pending) {
-    elements.interactionCard.className = "empty-state";
-    elements.interactionCard.textContent = "No pending user input or permission prompts.";
-    renderOverview();
-    return;
-  }
-
-  const wrapper = document.createElement("div");
-  wrapper.className = "interaction-surface";
-  const title = document.createElement("strong");
-  title.textContent = pending.kind === "permission" ? "Permission approval required" : "User input required";
-  const question = document.createElement("pre");
-  question.textContent = pending.question;
-  wrapper.append(title, question);
-
-  if (pending.choices?.length) {
-    const row = document.createElement("div");
-    row.className = "choice-row";
-    pending.choices.forEach(choice => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "choice-chip";
-      button.textContent = choice;
-      button.addEventListener("click", () => submitUserInput(choice));
-      row.append(button);
-    });
-    wrapper.append(row);
-  }
-
-  const input = document.createElement("textarea");
-  input.rows = 4;
-  input.placeholder = pending.kind === "permission" ? "Optional note while deciding" : "Type your response";
-  wrapper.append(input);
-
-  const actions = document.createElement("div");
-  actions.className = "interaction-actions";
-  if (pending.kind === "permission") {
-    actions.append(
-      interactionAction("Approve", "primary", () => submitPermission(true)),
-      interactionAction("Deny", "danger", () => submitPermission(false))
-    );
-  } else {
-    actions.append(interactionAction("Submit", "primary", () => submitUserInput(input.value)));
-  }
-  wrapper.append(actions);
-
-  elements.interactionCard.className = "";
-  elements.interactionCard.innerHTML = "";
-  elements.interactionCard.append(wrapper);
-  renderOverview();
-}
-
-function interactionAction(label, tone, onClick) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = `interaction-action ${tone}`;
-  button.textContent = label;
-  button.addEventListener("click", onClick);
-  return button;
-}
-
-function escapeHtml(text) {
-  return String(text ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-async function loadPreflight() {
-  try {
-    const result = await requestJson("/api/preflight");
-    elements.preflightTitle.textContent = result.isSuccess ? "Ready for runs" : "Preflight requires attention";
-    elements.preflightDetail.textContent = result.isSuccess
-      ? result.summary
-      : (result.fixSteps?.join(" • ") || result.summary);
-  } catch (error) {
-    elements.preflightTitle.textContent = "Preflight failed";
-    elements.preflightDetail.textContent = error.message;
-  }
+  state.streamSections = {};
+  state.streamOrder = [];
+  renderStream();
 }
 
 async function loadBootstrap() {
@@ -747,132 +665,182 @@ async function loadBootstrap() {
   applyBootstrap(bootstrap);
 }
 
-async function loadRuns() {
-  const workspacePath = elements.workspacePath.value.trim();
-  if (!workspacePath) {
-    state.recentRuns = [];
-    elements.historyHint.textContent = "Choose a workspace path to load persisted runs.";
-    clearSelectedRun();
-    return;
-  }
-
-  elements.historyHint.textContent = `Loading runs from ${workspacePath}`;
-  state.recentRuns = await requestJson(`/api/runs?workspacePath=${encodeURIComponent(workspacePath)}`) || [];
-  elements.historyHint.textContent = `Loaded ${state.recentRuns.length} runs from ${workspacePath}`;
-  renderRuns();
-  await syncSelectedRun();
-  renderOverview();
-}
-
-async function selectRun(run) {
-  const previousArtifactPath = run.runId === state.selectedRunId ? state.selectedArtifactPath : null;
-  state.selectedRunId = run.runId;
-  elements.artifactContext.textContent = `Run ${run.runId}`;
-  state.artifacts = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/artifacts?workspacePath=${encodeURIComponent(elements.workspacePath.value.trim())}`) || [];
-  state.selectedArtifactPath = state.artifacts.find(artifact => artifact.fullPath === previousArtifactPath)?.fullPath || state.artifacts[0]?.fullPath || null;
-  renderArtifactPreview();
-  renderRuns();
-  renderArtifacts();
-  renderOverview();
-}
-
-async function syncSelectedRun() {
-  if (state.recentRuns.length === 0) {
-    clearSelectedRun();
-    return;
-  }
-
-  const selectedRun = state.recentRuns.find(run => run.runId === state.selectedRunId) || state.recentRuns[0];
-  const shouldReloadArtifacts = selectedRun.runId !== state.selectedRunId || state.artifacts.length === 0;
-
-  if (shouldReloadArtifacts) {
-    await selectRun(selectedRun);
-    return;
-  }
-
-  renderRuns();
-  renderArtifacts();
-  renderArtifactPreview();
-}
-
-async function generateSummary() {
+async function warmModelDiscovery() {
   try {
-    setSetupMessage("Generating setup summary...", "neutral");
-    const response = await requestJson("/api/setup-summary", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(collectRunRequest())
-    });
-    elements.setupSummary.textContent = response.summary || "No summary returned.";
-    setSetupMessage("Setup summary ready.", "success");
-  } catch (error) {
-    elements.setupSummary.textContent = error.message;
-    setSetupMessage("Setup summary failed.", "danger");
+    await requestJson("/api/preflight");
+  } catch {
+    // Model discovery is opportunistic for settings UX; the shell can still run on configured fallbacks.
   }
+}
+
+async function loadProjects() {
+  state.projects = await requestJson("/api/projects?maxRunsPerProject=24") || [];
+  if (!state.activeProjectId || !state.projects.some(project => project.projectId === state.activeProjectId)) {
+    state.activeProjectId = state.projects[0]?.projectId || null;
+  }
+  if (state.activeProjectId) {
+    state.expandedProjectIds.add(state.activeProjectId);
+  }
+
+  if (!state.activeRunId && state.projects.length > 0) {
+    state.activeRunId = state.projects[0].runs?.[0]?.runId || null;
+  }
+
+  syncComposerFromProject(getActiveProject());
+
+  renderProjects();
+  saveShellState();
+}
+
+async function loadSettings() {
+  state.settings = await requestJson("/api/settings");
+  state.models = (await requestJson("/api/models"))?.models || [];
+  renderSettingsForm();
+  applySettingsDefaults();
+}
+
+function applySettingsDefaults() {
+  if (!state.settings) {
+    return;
+  }
+
+  setSelectValue(elements.permissionMode, state.settings.defaults.permissionHandlerMode);
+  setSelectValue(elements.settingsPermissionMode, state.settings.defaults.permissionHandlerMode);
+  setSelectValue(elements.runMode, state.settings.defaults.architectureReviewMode ? "architecture-review" : "standard");
+  elements.settingsArchitectureMode.checked = !!state.settings.defaults.architectureReviewMode;
+  elements.settingsArchitecturePrompt.value = state.settings.defaults.architectureReviewPrompt || "";
+}
+
+function renderSettingsForm() {
+  if (!state.settings) {
+    return;
+  }
+
+  elements.settingsGrid.innerHTML = "";
+  Object.entries(ROLE_LABELS).forEach(([key, label]) => {
+    const wrapper = document.createElement("label");
+    wrapper.className = "field settings-field";
+    const title = document.createElement("span");
+    title.textContent = label;
+
+    const select = document.createElement("select");
+    select.id = `settings-model-${key}`;
+    state.models.forEach(model => {
+      const option = document.createElement("option");
+      option.value = model.modelId;
+      option.textContent = model.costBand
+        ? `${model.displayName} • ${model.costBand}`
+        : model.displayName;
+      select.append(option);
+    });
+
+    setSelectValue(select, state.settings.agentModels[key]);
+    wrapper.append(title, select);
+    elements.settingsGrid.append(wrapper);
+  });
+}
+
+function collectSettingsPayload() {
+  const agentModels = {};
+  Object.keys(ROLE_LABELS).forEach(key => {
+    agentModels[key] = document.getElementById(`settings-model-${key}`).value;
+  });
+
+  return {
+    agentModels,
+    defaults: {
+      permissionHandlerMode: elements.settingsPermissionMode.value,
+      architectureReviewMode: elements.settingsArchitectureMode.checked,
+      architectureReviewPrompt: elements.settingsArchitecturePrompt.value.trim() || null
+    }
+  };
+}
+
+function collectRunRequest() {
+  const project = getActiveProject();
+  if (!project) {
+    throw new Error("Select a project before starting a run.");
+  }
+
+  const architectureLoopMode = isArchitectureModeEnabled();
+  const prompt = elements.taskPrompt.value.trim();
+  const architecturePrompt = architectureLoopMode
+    ? buildArchitecturePrompt(prompt)
+    : null;
+
+  return {
+    taskPrompt: architectureLoopMode ? "" : prompt,
+    workspacePath: project.workspacePath,
+    workspaceMode: project.workspaceMode,
+    workflow: architectureLoopMode ? "architecture-loop" : "auto",
+    projectName: project.displayName,
+    projectId: project.projectId,
+    modelOverrides: null,
+    buildCommand: null,
+    permissionHandlerMode: elements.permissionMode.value || project.permissionHandlerMode,
+    reviewLoopAgents: state.bootstrap?.reviewLoopAgents || {
+      codingStyleEnabled: true,
+      securityEnabled: true,
+      architectureEnabled: true
+    },
+    architectureLoopMode,
+    architectureLoopPrompt: architectureLoopMode ? (architecturePrompt || project.architectureReviewPrompt || null) : null
+  };
 }
 
 async function startRun() {
-  try {
-    setSetupMessage("Submitting run request...", "neutral");
-    resetLiveAgentState();
-    const snapshot = await requestJson("/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(collectRunRequest())
-    });
-    state.activeRun = snapshot;
-    state.timeline = [];
-    renderActiveRun();
-    renderTimeline();
-    connectEventStream();
-    await loadRuns();
-    setSetupMessage("Run accepted by local host.", "success");
-  } catch (error) {
-    setSetupMessage(`Run submission failed: ${error.message}`, "danger");
-  }
+  const request = collectRunRequest();
+  resetStream();
+  showStreamStarting();
+  const snapshot = await requestJson("/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+
+  state.activeRun = snapshot;
+  renderActiveRun();
+  connectEventStream();
+  await loadProjects();
 }
 
 async function cancelRun() {
-  try {
-    setSetupMessage("Canceling active run...", "warning");
-    state.activeRun = await requestJson("/api/runs/active", {
-      method: "DELETE"
-    });
-    renderActiveRun();
-    setSetupMessage("Cancellation requested.", "warning");
-  } catch (error) {
-    setSetupMessage(`Cancel failed: ${error.message}`, "danger");
-  }
+  state.activeRun = await requestJson("/api/runs/active", {
+    method: "DELETE"
+  });
+  renderActiveRun();
+}
+
+async function refreshActiveRun() {
+  state.activeRun = await requestJson("/api/runs/active");
+  renderActiveRun();
+  return state.activeRun;
 }
 
 function connectEventStream() {
   if (state.eventSource || !state.activeRun?.isRunning) {
-    if (!state.activeRun?.isRunning) {
-      elements.eventStreamState.textContent = "idle";
-    }
     return;
   }
 
   const eventSource = new EventSource("/api/runs/active/events");
   state.eventSource = eventSource;
-  elements.eventStreamState.textContent = "connected";
 
-  eventSource.onmessage = event => {
-    ingestRunEvent(JSON.parse(event.data));
+  const onEvent = async event => {
+    const payload = JSON.parse(event.data);
+    if ((readEventField(payload, "kind") || "") === "agent-delta") {
+      recordStreamEvent(payload);
+    }
+
+    const snapshot = await refreshActiveRun();
+    if (!snapshot?.isRunning) {
+      closeEventStream("idle");
+      await loadProjects();
+    }
   };
 
+  eventSource.onmessage = onEvent;
   ["run-state", "runtime-progress", "agent-delta", "copilot-session"].forEach(kind => {
-    eventSource.addEventListener(kind, event => {
-      ingestRunEvent(JSON.parse(event.data));
-      void refreshActiveRun().then(snapshot => {
-        if (!snapshot?.isRunning) {
-          closeEventStream("idle");
-        }
-      });
-      if (kind === "run-state") {
-        void loadRuns();
-      }
-    });
+    eventSource.addEventListener(kind, onEvent);
   });
 
   eventSource.onerror = () => {
@@ -887,10 +855,68 @@ function connectEventStream() {
   };
 }
 
-async function refreshActiveRun() {
-  state.activeRun = await requestJson("/api/runs/active");
-  renderActiveRun();
-  return state.activeRun;
+function renderInlineInteraction() {
+  const pending = state.pendingInteraction;
+  if (!pending) {
+    elements.inlineInteraction.classList.add("hidden");
+    elements.inlineInteraction.innerHTML = "";
+    renderTopbar();
+    return;
+  }
+
+  elements.inlineInteraction.classList.remove("hidden");
+  elements.inlineInteraction.innerHTML = "";
+
+  const label = document.createElement("div");
+  label.className = "inline-interaction-copy";
+  label.innerHTML = `
+    <strong>${pending.kind === "permission" ? "Permission" : "Input"}</strong>
+    <p>${escapeHtml(pending.question || "")}</p>
+  `;
+  elements.inlineInteraction.append(label);
+
+  if (pending.choices?.length) {
+    const row = document.createElement("div");
+    row.className = "choice-row";
+    pending.choices.forEach(choice => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice-chip";
+      button.textContent = choice;
+      button.addEventListener("click", () => submitUserInput(choice));
+      row.append(button);
+    });
+    elements.inlineInteraction.append(row);
+  }
+
+  if (pending.kind === "permission") {
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+    actions.append(
+      interactionAction("Approve", "primary", () => submitPermission(true)),
+      interactionAction("Deny", "danger", () => submitPermission(false))
+    );
+    elements.inlineInteraction.append(actions);
+  } else {
+    const input = document.createElement("textarea");
+    input.rows = 3;
+    input.placeholder = "Type your response";
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+    actions.append(interactionAction("Submit", "primary", () => submitUserInput(input.value)));
+    elements.inlineInteraction.append(input, actions);
+  }
+
+  renderTopbar();
+}
+
+function interactionAction(label, tone, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `interaction-action ${tone}`;
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
 }
 
 async function pollPendingInteraction() {
@@ -904,9 +930,7 @@ async function pollPendingInteraction() {
   state.pendingInteractionAbortController = controller;
 
   try {
-    state.pendingInteraction = await requestJson("/api/interactions/pending", {
-      signal: controller.signal
-    });
+    state.pendingInteraction = await requestJson("/api/interactions/pending", { signal: controller.signal });
   } catch (error) {
     if (error?.name !== "AbortError") {
       state.pendingInteraction = null;
@@ -914,7 +938,7 @@ async function pollPendingInteraction() {
   } finally {
     state.pendingInteractionAbortController = null;
     state.pendingInteractionInFlight = false;
-    renderInteraction();
+    renderInlineInteraction();
     schedulePendingInteractionPoll(state.pendingInteraction ? ACTIVE_INTERACTION_POLL_MS : IDLE_INTERACTION_POLL_MS);
   }
 }
@@ -941,6 +965,84 @@ async function submitPermission(approved) {
   await pollPendingInteraction();
 }
 
+async function createProject(event) {
+  event.preventDefault();
+  const payload = {
+    displayName: elements.newProjectName.value.trim() || null,
+    workspacePath: elements.newProjectPath.value.trim(),
+    workspaceMode: "new-project",
+    permissionHandlerMode: elements.newProjectPermission.value,
+    architectureReviewMode: elements.newProjectArchitecture.checked,
+    architectureReviewPrompt: elements.newProjectArchitecturePrompt.value.trim() || null
+  };
+
+  const project = await requestJson("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  state.activeProjectId = project.projectId;
+  closeModal();
+  elements.newProjectForm.reset();
+  applyBootstrap(state.bootstrap || { workspaceModes: [], permissionModes: [] });
+  await loadProjects();
+}
+
+async function saveSettings(event) {
+  event.preventDefault();
+  state.settings = await requestJson("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(collectSettingsPayload())
+  });
+  applySettingsDefaults();
+  closeModal();
+}
+
+async function openRunDetails(project, run) {
+  state.activeProjectId = project.projectId;
+  state.activeRunId = run.runId;
+  elements.runDetailsTitle.textContent = run.runTitle || `Run ${run.runId}`;
+  elements.artifactSummary.textContent = `${formatRunTimestamp(run.runId)} • ${project.displayName}`;
+  elements.artifactPreview.textContent = "Loading artifacts...";
+  openModal("run-details-modal");
+
+  state.artifacts = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/artifacts?workspacePath=${encodeURIComponent(project.workspacePath)}`) || [];
+  state.selectedArtifactPath = state.artifacts[0]?.fullPath || null;
+  renderArtifacts();
+}
+
+function renderArtifacts() {
+  elements.artifactList.innerHTML = "";
+  if (state.artifacts.length === 0) {
+    elements.artifactList.className = "artifact-list empty-state";
+    elements.artifactList.textContent = "No artifacts found for this run.";
+    elements.artifactPreview.textContent = "Artifact previews appear here.";
+    return;
+  }
+
+  elements.artifactList.className = "artifact-list";
+  state.artifacts.forEach(artifact => {
+    const fragment = elements.artifactTemplate.content.cloneNode(true);
+    const button = fragment.querySelector(".artifact-item");
+    fragment.querySelector(".artifact-item-title").textContent = artifact.name;
+    fragment.querySelector(".artifact-item-kind").textContent = artifact.kind;
+    fragment.querySelector(".artifact-item-description").textContent = artifact.description;
+    button.classList.toggle("active", artifact.fullPath === state.selectedArtifactPath);
+    button.addEventListener("click", () => {
+      state.selectedArtifactPath = artifact.fullPath;
+      renderArtifacts();
+    });
+    elements.artifactList.append(button);
+  });
+
+  const selected = state.artifacts.find(artifact => artifact.fullPath === state.selectedArtifactPath) || state.artifacts[0];
+  state.selectedArtifactPath = selected.fullPath;
+  elements.artifactSummary.textContent = `${selected.name} • ${selected.kind}`;
+  elements.artifactPreview.textContent = selected.preview || "Artifact previews appear here.";
+}
+
 function handleVisibilityChange() {
   if (document.hidden) {
     clearPendingInteractionPoll();
@@ -952,44 +1054,73 @@ function handleVisibilityChange() {
 }
 
 function attachHandlers() {
-  elements.generateSummary.addEventListener("click", generateSummary);
-  elements.startRun.addEventListener("click", startRun);
-  elements.cancelRun.addEventListener("click", cancelRun);
-  elements.refreshHistory.addEventListener("click", loadRuns);
-  elements.workspacePath.addEventListener("change", loadRuns);
+  elements.newProjectButton.addEventListener("click", () => openModal("new-project-modal"));
+  elements.pickProjectFolder.addEventListener("click", () => {
+    void pickProjectFolder().catch(error => {
+      elements.projectPickerNote.textContent = `Folder selection failed: ${error.message}`;
+    });
+  });
+  elements.settingsButton.addEventListener("click", () => {
+    renderSettingsForm();
+    applySettingsDefaults();
+    openModal("settings-modal");
+  });
+  elements.refreshProjects.addEventListener("click", () => loadProjects());
+
+  elements.streamSections.addEventListener("scroll", () => {
+    const el = elements.streamSections;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    state.streamAutoScroll = atBottom;
+  });
+  elements.startRun.addEventListener("click", () => startRun().catch(error => {
+    console.error("Run submission failed:", error);
+  }));
+  elements.cancelRun.addEventListener("click", () => cancelRun().catch(error => {
+    console.error("Cancel failed:", error);
+  }));
+  elements.taskPrompt.addEventListener("input", () => {
+    saveShellState();
+    renderComposerState();
+  });
+  [elements.runMode, elements.permissionMode, elements.architectureReviewPreset].forEach(control => {
+    control.addEventListener("input", () => {
+      saveShellState();
+      renderComposerState();
+    });
+    control.addEventListener("change", () => {
+      saveShellState();
+      renderComposerState();
+    });
+  });
+
+  document.querySelectorAll("[data-close-modal]").forEach(button => {
+    button.addEventListener("click", closeModal);
+  });
+  elements.modalBackdrop.addEventListener("click", closeModal);
+  elements.newProjectForm.addEventListener("submit", event => {
+    void createProject(event).catch(error => {
+      console.error("Project creation failed:", error);
+    });
+  });
+  elements.settingsForm.addEventListener("submit", event => {
+    void saveSettings(event).catch(error => {
+      console.error("Saving settings failed:", error);
+    });
+  });
+
   document.addEventListener("visibilitychange", handleVisibilityChange);
-  elements.architectureLoopMode.addEventListener("change", () => {
-    if (elements.architectureLoopMode.checked) {
-      elements.workflow.value = "architecture-loop";
-    }
-
-    saveFormState();
-  });
-
-  [
-    elements.taskPrompt,
-    elements.workspacePath,
-    elements.workspaceMode,
-    elements.workflow,
-    elements.projectName,
-    elements.buildCommand,
-    elements.modelOverrides,
-    elements.permissionMode,
-    elements.architectureLoopPrompt,
-    elements.reviewCodingStyle,
-    elements.reviewSecurity,
-    elements.reviewArchitecture
-  ].forEach(control => {
-    control.addEventListener("input", saveFormState);
-    control.addEventListener("change", saveFormState);
-  });
 }
 
 async function init() {
   attachHandlers();
-  await Promise.all([loadBootstrap(), loadPreflight()]);
-  await loadRuns();
+  restoreShellState();
+  clearLegacyAutofillPrompt();
+  await Promise.all([loadBootstrap(), warmModelDiscovery()]);
+  await loadSettings();
+  await loadProjects();
   await refreshActiveRun();
+  renderStream();
+  renderInlineInteraction();
   connectEventStream();
   await pollPendingInteraction();
 }
@@ -997,11 +1128,10 @@ async function init() {
 window.addEventListener("beforeunload", () => {
   state.isUnloading = true;
   closeEventStream();
-  clearAgentTranscriptRender();
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
 });
 
 init().catch(error => {
-  setSetupMessage(`Initialization failed: ${error.message}`, "danger");
+  console.error("Initialization failed:", error);
 });

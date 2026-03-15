@@ -32,6 +32,7 @@ builder.Services.AddSingleton<WebInteractionCoordinator>();
 builder.Services.AddSingleton<ICopilotUserInputBridge, WebCopilotUserInputBridge>();
 builder.Services.AddSingleton<ICopilotPermissionPromptHandler, WebPermissionPromptHandler>();
 builder.Services.AddSingleton<IWebRunSessionManager, WebRunSessionManager>();
+builder.Services.AddSingleton<IModelMetadataProvider, ModelMetadataProvider>();
 
 WebApplication app = builder.Build();
 
@@ -45,25 +46,139 @@ app.MapGet("/api", () => Results.Ok(new
 	status = "ready"
 }));
 
-app.MapGet("/api/bootstrap", (IOptions<AgentsOptions> agentsOptions, IWebRunSessionManager sessionManager) =>
+app.MapGet("/api/bootstrap", (IOptions<AgentsOptions> agentsOptions, IGlobalSettingsCatalog settingsCatalog, IWebRunSessionManager sessionManager) =>
 {
 	AgentsOptions config = agentsOptions.Value;
+	PersistedGlobalSettings settings = settingsCatalog.GetSettings();
 	ReviewLoopAgentSelection reviewLoopSelection = config.GetReviewLoopAgentSelection();
 	return Results.Ok(new
 	{
 		workspacePath = Environment.CurrentDirectory,
-		defaultTaskPrompt = config.Architecture.ArchitectureLoopMode ? DEFAULT_ARCH_LOOP_TASK_PROMPT : DEFAULT_TASK_PROMPT,
+		defaultTaskPrompt = settings.DefaultArchitectureReviewMode ? DEFAULT_ARCH_LOOP_TASK_PROMPT : DEFAULT_TASK_PROMPT,
 		workspaceModes = new[] { "existing-folder", "new-project", "existing-git" },
 		permissionModes = new[] { "approve-all", "prompt" },
-		workflow = config.Architecture.ArchitectureLoopMode ? "architecture-loop" : "auto",
-		architectureLoopMode = config.Architecture.ArchitectureLoopMode,
-		architectureLoopPrompt = config.Architecture.ArchitectureLoopPrompt,
+		workflow = settings.DefaultArchitectureReviewMode ? "architecture-loop" : "auto",
+		architectureLoopMode = settings.DefaultArchitectureReviewMode,
+		architectureLoopPrompt = settings.DefaultArchitectureReviewPrompt,
+		defaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,
 		reviewLoopAgents = reviewLoopSelection,
 		activeRun = sessionManager.GetSnapshot()
 	});
 });
 
 app.MapGet("/api/health", () => Results.Ok(new { healthy = true }));
+
+app.MapGet("/api/projects", (IProjectWorkspaceCatalog projectCatalog, IRunHistoryCatalog runHistoryCatalog, int? maxRunsPerProject) =>
+{
+	IReadOnlyList<PersistedProjectWorkspace> projects = projectCatalog.GetProjects();
+	int runLimit = Math.Max(1, maxRunsPerProject ?? 20);
+	return Results.Ok(projects.Select(project => new
+	{
+		projectId = project.ProjectId,
+		displayName = project.DisplayName,
+		workspacePath = project.WorkspacePath,
+		workspaceMode = project.WorkspaceMode,
+		permissionHandlerMode = project.PermissionHandlerMode,
+		architectureReviewMode = project.ArchitectureReviewMode,
+		architectureReviewPrompt = project.ArchitectureReviewPrompt,
+		createdAtUtc = project.CreatedAtUtc,
+		updatedAtUtc = project.UpdatedAtUtc,
+		runs = runHistoryCatalog.GetRecentRuns(project.WorkspacePath, runLimit)
+	}).ToArray());
+});
+
+app.MapPost("/api/projects", (CreateProjectRequest request, IProjectWorkspaceCatalog projectCatalog) =>
+{
+	PersistedProjectWorkspace project = projectCatalog.CreateProject(
+		request.DisplayName,
+		request.WorkspacePath,
+		request.WorkspaceMode,
+		request.PermissionHandlerMode,
+		request.ArchitectureReviewMode,
+		request.ArchitectureReviewPrompt);
+
+	return Results.Created($"/api/projects/{project.ProjectId}", project);
+});
+
+app.MapGet("/api/settings", (IGlobalSettingsCatalog settingsCatalog) =>
+{
+	PersistedGlobalSettings settings = settingsCatalog.GetSettings();
+	return Results.Ok(new
+	{
+		agentModels = new
+		{
+			conversation = settings.ConversationModel,
+			orchestration = settings.OrchestrationModel,
+			frontendDeveloper = settings.FrontendDeveloperModel,
+			backendDeveloper = settings.BackendDeveloperModel,
+			build = settings.BuildModel,
+			codingStyle = settings.CodingStyleModel,
+			security = settings.SecurityModel,
+			architecture = settings.ArchitectureModel
+		},
+		defaults = new
+		{
+			permissionHandlerMode = settings.DefaultPermissionHandlerMode,
+			architectureReviewMode = settings.DefaultArchitectureReviewMode,
+			architectureReviewPrompt = settings.DefaultArchitectureReviewPrompt
+		},
+		updatedAtUtc = settings.UpdatedAtUtc
+	});
+});
+
+app.MapPut("/api/settings", (UpdateGlobalSettingsRequest request, IGlobalSettingsCatalog settingsCatalog, IModelMetadataProvider modelMetadataProvider) =>
+{
+	UpdatePersistedGlobalSettings update = new UpdatePersistedGlobalSettings(
+		request.AgentModels.Conversation,
+		request.AgentModels.Orchestration,
+		request.AgentModels.FrontendDeveloper,
+		request.AgentModels.BackendDeveloper,
+		request.AgentModels.Build,
+		request.AgentModels.CodingStyle,
+		request.AgentModels.Security,
+		request.AgentModels.Architecture,
+		request.Defaults.PermissionHandlerMode,
+		request.Defaults.ArchitectureReviewMode,
+		request.Defaults.ArchitectureReviewPrompt);
+
+	string? unknownModel = update
+		.GetConfiguredModels()
+		.Where(model => !string.IsNullOrWhiteSpace(model))
+		.FirstOrDefault(model => !modelMetadataProvider.IsKnownModel(model));
+	if (!string.IsNullOrWhiteSpace(unknownModel))
+	{
+		return Results.BadRequest(new { error = $"Unknown model '{unknownModel}'." });
+	}
+
+	PersistedGlobalSettings settings = settingsCatalog.UpdateSettings(update);
+	return Results.Ok(new
+	{
+		agentModels = new
+		{
+			conversation = settings.ConversationModel,
+			orchestration = settings.OrchestrationModel,
+			frontendDeveloper = settings.FrontendDeveloperModel,
+			backendDeveloper = settings.BackendDeveloperModel,
+			build = settings.BuildModel,
+			codingStyle = settings.CodingStyleModel,
+			security = settings.SecurityModel,
+			architecture = settings.ArchitectureModel
+		},
+		defaults = new
+		{
+			permissionHandlerMode = settings.DefaultPermissionHandlerMode,
+			architectureReviewMode = settings.DefaultArchitectureReviewMode,
+			architectureReviewPrompt = settings.DefaultArchitectureReviewPrompt
+		},
+		updatedAtUtc = settings.UpdatedAtUtc
+	});
+});
+
+app.MapGet("/api/models", (IModelMetadataProvider modelMetadataProvider) =>
+	Results.Ok(new
+	{
+		models = modelMetadataProvider.GetAvailableModels()
+	}));
 
 app.MapGet("/api/preflight", async (IStartupPreflightValidator validator, CancellationToken cancellationToken) =>
 {
@@ -109,9 +224,51 @@ app.MapGet("/api/runs/{runId}/artifacts", (string runId, string workspacePath, i
 	return Results.Ok(catalog.GetArtifacts(runDirectory, Math.Max(32, previewLength ?? 2400)));
 });
 
-app.MapPost("/api/runs", async (RunRequest request, IWebRunSessionManager sessionManager, CancellationToken cancellationToken) =>
+app.MapPost("/api/runs", async (RunRequest request, IWebRunSessionManager sessionManager, IProjectWorkspaceCatalog projectCatalog, SetupSummaryGenerator summaryGenerator, CancellationToken cancellationToken) =>
 {
-	WebRunSnapshot snapshot = await sessionManager.StartRunAsync(request, cancellationToken);
+	PersistedProjectWorkspace project = string.IsNullOrWhiteSpace(request.ProjectId)
+		? projectCatalog.EnsureProject(
+			request.WorkspacePath,
+			request.ProjectName,
+			request.WorkspaceMode,
+			request.PermissionHandlerMode,
+			request.ArchitectureLoopMode,
+			request.ArchitectureLoopPrompt)
+		: projectCatalog.GetProject(request.ProjectId!)
+			?? projectCatalog.EnsureProject(
+				request.WorkspacePath,
+				request.ProjectName,
+				request.WorkspaceMode,
+				request.PermissionHandlerMode,
+				request.ArchitectureLoopMode,
+				request.ArchitectureLoopPrompt);
+
+	bool projectWasNew = string.Equals(project.WorkspaceMode, "new-project", StringComparison.OrdinalIgnoreCase);
+	string fallbackWorkspaceMode = string.IsNullOrWhiteSpace(request.WorkspaceMode)
+		? project.WorkspaceMode
+		: request.WorkspaceMode;
+	string effectiveWorkspaceMode = projectWasNew ? "new-project" : fallbackWorkspaceMode;
+
+	RunRequest preparedRequest = request with
+	{
+		ProjectId = project.ProjectId,
+		ProjectName = string.IsNullOrWhiteSpace(request.ProjectName) ? project.DisplayName : request.ProjectName,
+		WorkspaceMode = effectiveWorkspaceMode
+	};
+	preparedRequest = await summaryGenerator.PopulateRunTitleAsync(preparedRequest, cancellationToken);
+	WebRunSnapshot snapshot = await sessionManager.StartRunAsync(preparedRequest, cancellationToken);
+
+	if (projectWasNew)
+	{
+		projectCatalog.EnsureProject(
+			project.WorkspacePath,
+			project.DisplayName,
+			"existing-folder",
+			preparedRequest.PermissionHandlerMode,
+			preparedRequest.ArchitectureLoopMode,
+			preparedRequest.ArchitectureLoopPrompt);
+	}
+
 	return Results.Accepted("/api/runs/active", snapshot);
 });
 

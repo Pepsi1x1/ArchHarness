@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -16,6 +16,20 @@ let webHostProcess = null;
 let ownsWebHostProcess = false;
 let shuttingDown = false;
 let shutdownComplete = false;
+
+ipcMain.handle("archharness:pick-folder", async () => {
+  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const result = await dialog.showOpenDialog(owner, {
+    properties: ["openDirectory", "createDirectory"],
+    title: "Select Project Folder"
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
 
 function canLaunchLocalWebHost() {
   return fs.existsSync(WEB_PROJECT_PATH);

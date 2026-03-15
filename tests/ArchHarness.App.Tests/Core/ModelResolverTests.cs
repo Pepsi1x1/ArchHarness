@@ -1,5 +1,6 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using ArchHarness.App.Storage;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Tests.Core;
@@ -11,11 +12,11 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            "gpt-5-mini",
-            "claude-opus-4.6",
-            "claude-sonnet-4.6",
-            "gpt-5.4",
-            "gpt-4.1"
+            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
+            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
+            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4"),
+            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
         });
 
         Exception? exception = Record.Exception(() => resolver.ValidateConfiguredModelsOrThrow());
@@ -28,10 +29,10 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            "gpt-5-mini",
-            "claude-opus-4.6",
-            "claude-sonnet-4.6",
-            "gpt-4.1"
+            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
+            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
+            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
         });
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => resolver.ValidateConfiguredModelsOrThrow());
@@ -45,11 +46,11 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            "gpt-5-mini",
-            "claude-opus-4.6",
-            "claude-sonnet-4.6",
-            "gpt-5.4",
-            "gpt-4.1"
+            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
+            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
+            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4"),
+            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
         });
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => resolver.ValidateConfiguredModelsOrThrow(
@@ -65,14 +66,14 @@ public sealed class ModelResolverTests
     [Fact]
     public void ValidateConfiguredModelsOrThrow_NoDiscoveredModels_DoesNotThrow()
     {
-        ModelResolver resolver = CreateResolver(Array.Empty<string>());
+        ModelResolver resolver = CreateResolver(Array.Empty<DiscoveredModel>());
 
         Exception? exception = Record.Exception(() => resolver.ValidateConfiguredModelsOrThrow());
 
         Assert.Null(exception);
     }
 
-    private static ModelResolver CreateResolver(IEnumerable<string> discoveredModels)
+    private static ModelResolver CreateResolver(IEnumerable<DiscoveredModel> discoveredModels)
     {
         AgentsOptions agentsOptions = new AgentsOptions
         {
@@ -96,9 +97,15 @@ public sealed class ModelResolverTests
             catalog.ReplaceModels(discoveredModels);
         }
 
+        FileSystemGlobalSettingsCatalog settingsCatalog = new FileSystemGlobalSettingsCatalog(
+            Path.Combine(Path.GetTempPath(), "ArchHarnessModelResolverTests", Guid.NewGuid().ToString("N"), "settings.json"),
+            agentsOptions,
+            copilotOptions);
+
         return new ModelResolver(
             Options.Create(agentsOptions),
             Options.Create(copilotOptions),
-            catalog);
+            catalog,
+            settingsCatalog);
     }
 }

@@ -36,6 +36,7 @@ public sealed class ConversationController
         RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
+            cliRequest = await this._summaryGenerator.PopulateRunTitleAsync(cliRequest, cancellationToken);
             this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode));
             this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(ResolveReviewLoopAgents(cliRequest, this._agentsOptions));
             this._stateAccessors.WorkspaceRoot.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
@@ -65,6 +66,8 @@ public sealed class ConversationController
         {
             // Non-fatal: intent extraction is advisory only for setup UX.
         }
+
+        requestInteractive = await this._summaryGenerator.PopulateRunTitleAsync(requestInteractive, cancellationToken);
 
         string summary;
         try

@@ -20,6 +20,8 @@ public static class ArchHarnessServiceCollectionExtensions
 		services.Configure<AgentsOptions>(configuration.GetSection("agents"));
 		services.Configure<CopilotOptions>(configuration.GetSection("copilot"));
 		services.AddHttpClient();
+		services.AddSingleton<IGlobalSettingsCatalog, FileSystemGlobalSettingsCatalog>();
+		services.AddSingleton<IProjectWorkspaceCatalog, FileSystemProjectWorkspaceCatalog>();
 		services.AddSingleton<IRunHistoryCatalog, FileSystemRunHistoryCatalog>();
 		services.AddSingleton<IDiscoveredModelCatalog, DiscoveredModelCatalog>();
 		services.AddSingleton<ICopilotGovernancePolicy, CopilotGovernancePolicy>();

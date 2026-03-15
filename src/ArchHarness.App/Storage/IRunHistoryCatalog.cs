@@ -14,6 +14,14 @@ public interface IRunHistoryCatalog
 	IReadOnlyList<PersistedRunSummary> GetRecentRuns(string workspacePath, int maxCount = 20);
 
 	/// <summary>
+	/// Returns recent run summaries for the specified absolute runs root directory, ordered most-recent first.
+	/// </summary>
+	/// <param name="runsRootDirectory">The absolute path to a `.agent-harness/runs` directory.</param>
+	/// <param name="maxCount">The maximum number of runs to return.</param>
+	/// <returns>An ordered list of persisted runs.</returns>
+	IReadOnlyList<PersistedRunSummary> GetRecentRunsFromRoot(string runsRootDirectory, int maxCount = 20);
+
+	/// <summary>
 	/// Returns preview metadata for all top-level files in the specified run directory.
 	/// </summary>
 	/// <param name="runDirectory">The full path to the run directory.</param>
