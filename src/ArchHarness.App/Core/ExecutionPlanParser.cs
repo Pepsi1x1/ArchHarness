@@ -64,13 +64,13 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 return false;
             }
 
-            if (!TryParseAndNormalizeSteps(root, workspaceRoot, reviewLoopAgents, out List<ExecutionPlanStep> steps, out string? stepError))
+            if (!this.TryParseAndNormalizeSteps(root, workspaceRoot, reviewLoopAgents, out List<ExecutionPlanStep> steps, out string? stepError))
             {
                 validationError = stepError;
                 return false;
             }
 
-            IterationStrategy iteration = ParseIterationStrategy(root, reviewLoopAgents);
+            IterationStrategy iteration = this.ParseIterationStrategy(root, reviewLoopAgents);
             List<string> criteria = ParseCompletionCriteria(root, reviewLoopAgents);
             plan = new ExecutionPlan(steps, iteration, criteria);
             return true;

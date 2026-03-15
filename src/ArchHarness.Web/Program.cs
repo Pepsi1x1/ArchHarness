@@ -42,6 +42,7 @@ app.Use(async (context, next) =>
 	context.Response.Headers["X-Frame-Options"] = "DENY";
 	context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
 	context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+	context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'; script-src 'self'; frame-ancestors 'none'";
 	await next();
 });
 
@@ -336,7 +337,8 @@ await app.RunAsync();
 
 static bool IsSafeRunId(string runId)
 	=> !string.IsNullOrWhiteSpace(runId)
-		&& runId.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }) < 0;
+		&& runId.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }) < 0
+		&& !runId.Contains("..");
 
 public partial class Program
 {

@@ -102,14 +102,14 @@ public sealed record ReviewLoopAgentSelection(bool CodingStyleEnabled, bool Secu
     /// <summary>Builds a human-readable label describing enabled review-loop agents.</summary>
     public string DescribeEnabledAgents()
     {
-        string[] enabled = GetEnabledAgentNames().ToArray();
+        string[] enabled = this.GetEnabledAgentNames().ToArray();
         return enabled.Length == 0 ? "none" : string.Join(", ", enabled);
     }
 
     /// <summary>Builds a human-readable label describing disabled review-loop agents.</summary>
     public string DescribeDisabledAgents()
     {
-        string[] disabled = GetDisabledAgentNames().ToArray();
+        string[] disabled = this.GetDisabledAgentNames().ToArray();
         return disabled.Length == 0 ? "none" : string.Join(", ", disabled);
     }
 

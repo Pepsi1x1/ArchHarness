@@ -37,7 +37,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
     {
         lock (this._sync)
         {
-            return LoadProjects()
+            return this.LoadProjects()
                 .OrderByDescending(project => project.UpdatedAtUtc)
                 .ToList();
         }
@@ -53,7 +53,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
 
         lock (this._sync)
         {
-            return LoadProjects().FirstOrDefault(project => string.Equals(project.ProjectId, projectId, StringComparison.Ordinal));
+            return this.LoadProjects().FirstOrDefault(project => string.Equals(project.ProjectId, projectId, StringComparison.Ordinal));
         }
     }
 
@@ -68,7 +68,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
     {
         lock (this._sync)
         {
-            List<PersistedProjectWorkspace> projects = LoadProjects();
+            List<PersistedProjectWorkspace> projects = this.LoadProjects();
             string normalizedWorkspacePath = NormalizeWorkspacePath(workspacePath);
             if (projects.Any(project => string.Equals(project.WorkspacePath, normalizedWorkspacePath, StringComparison.OrdinalIgnoreCase)))
             {
@@ -87,7 +87,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
                 now,
                 now);
             projects.Add(created);
-            SaveProjects(projects);
+            this.SaveProjects(projects);
             return created;
         }
     }
@@ -103,7 +103,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
     {
         lock (this._sync)
         {
-            List<PersistedProjectWorkspace> projects = LoadProjects();
+            List<PersistedProjectWorkspace> projects = this.LoadProjects();
             string normalizedWorkspacePath = NormalizeWorkspacePath(workspacePath);
             PersistedProjectWorkspace? existing = projects.FirstOrDefault(project => string.Equals(project.WorkspacePath, normalizedWorkspacePath, StringComparison.OrdinalIgnoreCase));
             if (existing is null)
@@ -120,7 +120,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
                     now,
                     now);
                 projects.Add(created);
-                SaveProjects(projects);
+                this.SaveProjects(projects);
                 return created;
             }
 
@@ -136,7 +136,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
 
             int existingIndex = projects.FindIndex(project => string.Equals(project.ProjectId, existing.ProjectId, StringComparison.Ordinal));
             projects[existingIndex] = updated;
-            SaveProjects(projects);
+            this.SaveProjects(projects);
             return updated;
         }
     }

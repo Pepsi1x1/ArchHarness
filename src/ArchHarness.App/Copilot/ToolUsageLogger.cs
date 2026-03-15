@@ -76,7 +76,7 @@ public sealed class ToolUsageLogger : IToolUsageLogger
 
     /// <inheritdoc />
     public Task LogPreToolUseAsync(PreToolUseHookInput input, string decision, bool deniedByName, bool deniedByArgs)
-        => WriteAsync(new ToolUsageEvent(
+        => this.WriteAsync(new ToolUsageEvent(
             Stage: "pre",
             ToolName: input.ToolName,
             Decision: decision,
@@ -87,7 +87,7 @@ public sealed class ToolUsageLogger : IToolUsageLogger
 
     /// <inheritdoc />
     public Task LogPostToolUseAsync(PostToolUseHookInput input)
-        => WriteAsync(new ToolUsageEvent(
+        => this.WriteAsync(new ToolUsageEvent(
             Stage: "post",
             ToolName: input.ToolName,
             Decision: null,

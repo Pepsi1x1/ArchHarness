@@ -177,7 +177,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
             await using GitHub.Copilot.SDK.CopilotClient client = new GitHub.Copilot.SDK.CopilotClient(clientOptions);
             await client.StartAsync();
             await client.PingAsync("archharness-preflight");
-            await RefreshDiscoveredModelsWithAuthGuardAsync(client);
+            await this.RefreshDiscoveredModelsWithAuthGuardAsync(client);
             return new PreflightValidationResult(true, "Copilot SDK ping succeeded.", Array.Empty<string>());
         }
         catch (Exception ex)

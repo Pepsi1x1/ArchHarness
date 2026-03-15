@@ -1,60 +1,32 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, dialog } = require("electron");
 const path = require("node:path");
 const { WebHostManager } = require("./web-host-manager");
+const { WindowManager } = require("./window-manager");
+const ipcHandlers = require("./ipc-handlers");
 
-const webHost = new WebHostManager();
+// Disable the HTTP cache in dev mode so static asset changes are picked up immediately.
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch("disable-http-cache");
+}
 
-let mainWindow = null;
-let shutdownComplete = false;
+// --- Composition root: wires abstractions to concrete implementations ---
 
-ipcMain.handle("archharness:pick-folder", async () => {
-  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-  const result = await dialog.showOpenDialog(owner, {
-    properties: ["openDirectory", "createDirectory"],
-    title: "Select Project Folder"
-  });
+const publishedWebHostDirectory = app.isPackaged
+  ? path.join(process.resourcesPath, "web-host")
+  : undefined;
 
-  if (result.canceled || result.filePaths.length === 0) {
-    return null;
-  }
+const webHost = new WebHostManager({ publishedWebHostDirectory });
+const windowManager = new WindowManager({ preloadPath: path.join(__dirname, "preload.js") });
 
-  return result.filePaths[0];
+webHost.on("host-error", message => {
+  dialog.showErrorBox("ArchHarness Web Host Stopped", message);
 });
 
-function createMainWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1600,
-    height: 1040,
-    minWidth: 1200,
-    minHeight: 800,
-    autoHideMenuBar: true,
-    backgroundColor: "#08121c",
-    title: "ArchHarness",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: path.join(__dirname, "preload.js")
-    }
-  });
+ipcHandlers.registerAll({
+  windowProvider: () => windowManager.mainWindow
+});
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-        void shell.openExternal(url);
-      }
-    } catch {
-      // Ignore malformed URLs
-    }
-    return { action: "deny" };
-  });
-
-  void mainWindow.loadURL(webHost.hostUrl);
-
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
-}
+let shutdownComplete = false;
 
 app.on("window-all-closed", () => {
   app.quit();
@@ -74,15 +46,15 @@ app.on("before-quit", event => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createMainWindow();
+  if (!windowManager.hasWindows()) {
+    windowManager.createMainWindow(webHost.hostUrl);
   }
 });
 
 app.whenReady().then(async () => {
   try {
     await webHost.ensure();
-    createMainWindow();
+    windowManager.createMainWindow(webHost.hostUrl);
   } catch (error) {
     dialog.showErrorBox("ArchHarness failed to start", error instanceof Error ? error.message : String(error));
     app.quit();

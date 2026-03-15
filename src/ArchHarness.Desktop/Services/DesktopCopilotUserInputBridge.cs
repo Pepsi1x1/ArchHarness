@@ -32,7 +32,7 @@ public sealed class DesktopCopilotUserInputBridge : ICopilotUserInputBridge
         {
             this._state.SetAwaiting(request.Question);
             TaskCompletionSource<string?> responseSource = new TaskCompletionSource<string?>();
-            await Dispatcher.UIThread.InvokeAsync(() => ShowDialog(request, responseSource));
+            await Dispatcher.UIThread.InvokeAsync(() => this.ShowDialog(request, responseSource));
 
             string? answer = await responseSource.Task;
             if (string.IsNullOrWhiteSpace(answer) && request.Choices is { Count: > 0 })

@@ -65,7 +65,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
                 string.IsNullOrWhiteSpace(update.DefaultArchitectureReviewPrompt) ? null : update.DefaultArchitectureReviewPrompt.Trim(),
                 DateTimeOffset.UtcNow);
 
-            SaveSettings(settings);
+            this.SaveSettings(settings);
             return settings;
         }
     }

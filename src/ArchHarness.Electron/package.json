@@ -25,6 +25,8 @@
       "main.js",
       "preload.js",
       "web-host-manager.js",
+      "window-manager.js",
+      "ipc-handlers.js",
       "package.json"
     ],
     "extraResources": [

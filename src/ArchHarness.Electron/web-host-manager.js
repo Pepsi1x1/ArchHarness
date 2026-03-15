@@ -1,20 +1,27 @@
 const { spawn } = require("node:child_process");
-const { dialog } = require("electron");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const path = require("node:path");
 
+// Loopback address: plaintext HTTP is safe here because the web host binds exclusively
+// to 127.0.0.1, never exposed beyond the local machine boundary.
 const HOST_URL = process.env.ARCHHARNESS_WEB_URL || "http://127.0.0.1:5057";
 const HEALTH_URL = `${HOST_URL}/api/health`;
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 const WEB_PROJECT_PATH = path.join(REPO_ROOT, "src", "ArchHarness.Web", "ArchHarness.Web.csproj");
-const DEV_PUBLISHED_WEB_HOST_DIRECTORY = path.join(__dirname, "build", "web-host");
 const STARTUP_TIMEOUT_MS = 45000;
 const HEALTH_POLL_MS = 500;
 
-class WebHostManager {
+class WebHostManager extends EventEmitter {
   #process = null;
   #ownsProcess = false;
   #shuttingDown = false;
+  #publishedWebHostDirectory;
+
+  constructor({ publishedWebHostDirectory } = {}) {
+    super();
+    this.#publishedWebHostDirectory = publishedWebHostDirectory ?? path.join(__dirname, "build", "web-host");
+  }
 
   get hostUrl() {
     return HOST_URL;
@@ -28,16 +35,9 @@ class WebHostManager {
     return fs.existsSync(WEB_PROJECT_PATH);
   }
 
-  #getPublishedWebHostDirectory() {
-    const { app } = require("electron");
-    return app.isPackaged
-      ? path.join(process.resourcesPath, "web-host")
-      : DEV_PUBLISHED_WEB_HOST_DIRECTORY;
-  }
-
   #getPublishedWebHostExecutablePath() {
     const fileName = process.platform === "win32" ? "ArchHarness.Web.exe" : "ArchHarness.Web";
-    const candidate = path.join(this.#getPublishedWebHostDirectory(), fileName);
+    const candidate = path.join(this.#publishedWebHostDirectory, fileName);
     return fs.existsSync(candidate) ? candidate : null;
   }
 
@@ -115,7 +115,7 @@ class WebHostManager {
 
     this.#process.once("exit", code => {
       if (!this.#shuttingDown && code !== 0) {
-        dialog.showErrorBox("ArchHarness Web Host Stopped", `The local web host exited with code ${code}.`);
+        this.emit("host-error", `The local web host exited with code ${code}.`);
       }
 
       this.#process = null;

@@ -164,7 +164,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             {
                 Model = model,
                 Streaming = this._options.StreamingResponses,
-                OnPermissionRequest = ResolvePermissionHandler(permissionHandlerMode),
+                OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
                 OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
                 Hooks = new SessionHooks
                 {

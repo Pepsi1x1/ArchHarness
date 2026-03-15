@@ -141,7 +141,7 @@ function clearLegacyAutofillPrompt() {
 }
 
 function populateSelect(select, values) {
-  select.innerHTML = "";
+  select.replaceChildren();
   values.forEach(value => {
     const option = document.createElement("option");
     option.value = value;
@@ -250,6 +250,21 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+// Sanitizes server-rendered HTML by stripping script elements and inline event handlers
+// to defend against XSS even when the source is a trusted local backend.
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(html || "", "text/html");
+  doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,link[rel=import]").forEach(el => el.remove());
+  doc.querySelectorAll("*").forEach(el => {
+    for (const attr of [...el.attributes]) {
+      if (attr.name.startsWith("on") || (attr.name === "href" && attr.value.trimStart().startsWith("javascript:"))) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return doc.body.innerHTML;
 }
 
 function closeEventStream(status = "idle") {
@@ -417,7 +432,7 @@ function renderComposerState() {
 }
 
 function renderProjects() {
-  elements.projectList.innerHTML = "";
+  elements.projectList.replaceChildren();
   if (state.projects.length === 0) {
     elements.projectList.className = "project-list empty-state";
     elements.projectList.textContent = "No projects yet.";
@@ -541,7 +556,7 @@ function ensureStreamSection(agentId, agentRole, title) {
 }
 
 function renderStream() {
-  elements.streamSections.innerHTML = "";
+  elements.streamSections.replaceChildren();
   const sections = state.streamOrder.map(agentId => state.streamSections[agentId]).filter(Boolean);
   const hasSections = sections.length > 0;
   elements.streamEmpty.classList.toggle("hidden", hasSections);
@@ -554,20 +569,26 @@ function renderStream() {
 
     const summary = document.createElement("summary");
     summary.className = "stream-section-summary";
-    summary.innerHTML = `
-      <div>
-        <strong>${escapeHtml(section.title || section.agentRole)}</strong>
-        <span>${escapeHtml(section.agentRole || "agent")}</span>
-      </div>
-      <div class="stream-section-meta">
-        <span>${escapeHtml(formatTimestamp(section.updatedAt))}</span>
-      </div>
-    `;
+
+    const summaryLeft = document.createElement("div");
+    const summaryTitle = document.createElement("strong");
+    summaryTitle.textContent = section.title || section.agentRole;
+    const summaryRole = document.createElement("span");
+    summaryRole.textContent = section.agentRole || "agent";
+    summaryLeft.append(summaryTitle, summaryRole);
+
+    const summaryMeta = document.createElement("div");
+    summaryMeta.className = "stream-section-meta";
+    const summaryTime = document.createElement("span");
+    summaryTime.textContent = formatTimestamp(section.updatedAt);
+    summaryMeta.append(summaryTime);
+
+    summary.append(summaryLeft, summaryMeta);
 
     const body = document.createElement("div");
     body.className = "markdown-surface stream-markdown";
     body.dataset.agentId = section.agentId;
-    body.innerHTML = section.html || `<pre>${escapeHtml(section.content || "Waiting for rendered markdown...")}</pre>`;
+    body.innerHTML = sanitizeHtml(section.html || `<pre>${escapeHtml(section.content || "Waiting for rendered markdown...")}</pre>`);
 
     details.append(summary, body);
     elements.streamSections.append(details);
@@ -653,7 +674,7 @@ async function renderStreamSectionMarkdown(agentId) {
 
   const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
   if (container) {
-    container.innerHTML = section.html;
+    container.innerHTML = sanitizeHtml(section.html);
     scrollStreamToBottom();
   } else {
     renderStream();
@@ -751,7 +772,7 @@ function renderSettingsForm() {
     return;
   }
 
-  elements.settingsGrid.innerHTML = "";
+  elements.settingsGrid.replaceChildren();
   Object.entries(ROLE_LABELS).forEach(([key, label]) => {
     const wrapper = document.createElement("label");
     wrapper.className = "field settings-field";
@@ -894,20 +915,21 @@ function renderInlineInteraction() {
   const pending = state.pendingInteraction;
   if (!pending) {
     elements.inlineInteraction.classList.add("hidden");
-    elements.inlineInteraction.innerHTML = "";
+    elements.inlineInteraction.replaceChildren();
     renderTopbar();
     return;
   }
 
   elements.inlineInteraction.classList.remove("hidden");
-  elements.inlineInteraction.innerHTML = "";
+  elements.inlineInteraction.replaceChildren();
 
   const label = document.createElement("div");
   label.className = "inline-interaction-copy";
-  label.innerHTML = `
-    <strong>${pending.kind === "permission" ? "Permission" : "Input"}</strong>
-    <p>${escapeHtml(pending.question || "")}</p>
-  `;
+  const labelTitle = document.createElement("strong");
+  labelTitle.textContent = pending.kind === "permission" ? "Permission" : "Input";
+  const labelQuestion = document.createElement("p");
+  labelQuestion.textContent = pending.question || "";
+  label.append(labelTitle, labelQuestion);
   elements.inlineInteraction.append(label);
 
   if (pending.choices?.length) {
@@ -1049,7 +1071,7 @@ async function openRunDetails(project, run) {
 }
 
 function renderArtifacts() {
-  elements.artifactList.innerHTML = "";
+  elements.artifactList.replaceChildren();
   if (state.artifacts.length === 0) {
     elements.artifactList.className = "artifact-list empty-state";
     elements.artifactList.textContent = "No artifacts found for this run.";
