@@ -401,10 +401,6 @@ button {
 }
 
 /* Sidebar – flat list, no card chrome */
-.sidebar-head-actions {
-  display: flex;
-  gap: 6px;
-}
 
 .project-card {
   background: none !important;

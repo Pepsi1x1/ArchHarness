@@ -46,7 +46,6 @@ const ROLE_LABELS = {
 
 const elements = {
   sidebar: document.getElementById("sidebar"),
-  refreshProjects: document.getElementById("refresh-projects"),
   newProjectButton: document.getElementById("new-project-button"),
   settingsButton: document.getElementById("settings-button"),
   projectList: document.getElementById("project-list"),
@@ -1253,8 +1252,6 @@ function attachHandlers() {
     applySettingsDefaults();
     openModal("settings-modal");
   });
-  elements.refreshProjects.addEventListener("click", () => loadProjects());
-
   elements.streamSections.addEventListener("scroll", () => {
     const el = elements.streamSections;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
