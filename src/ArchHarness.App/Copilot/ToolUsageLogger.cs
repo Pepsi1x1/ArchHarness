@@ -118,6 +118,66 @@ public sealed class ToolUsageLogger : IToolUsageLogger
         }, CancellationToken.None);
 
         this.PublishSubagentTranscriptIfAvailable(toolEvent);
+        this.EmitToolCallEvent(toolEvent);
+    }
+
+    private void EmitToolCallEvent(ToolUsageEvent toolEvent)
+    {
+        if (!string.Equals(toolEvent.Stage, "post", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(toolEvent.RawInput)
+            || this._agentExecutionContextAccessor.Current is not AgentExecutionContext agentContext)
+        {
+            return;
+        }
+
+        // The subagent-report handler already represents "task" calls in a richer way.
+        if (string.Equals(toolEvent.ToolName, "task", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        string toolName = toolEvent.ToolName ?? "tool";
+        string displayLine = BuildToolCallLine(toolName, toolEvent.RawInput);
+
+        this._agentStreamEventStream.Publish(new AgentStreamDeltaEvent(
+            DateTimeOffset.UtcNow,
+            agentContext.AgentId,
+            agentContext.AgentRole,
+            displayLine,
+            ContentFormat: "text",
+            StreamKind: "tool-call",
+            Title: toolName));
+    }
+
+    private static string BuildToolCallLine(string toolName, string rawInput)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(rawInput);
+            JsonElement root = document.RootElement;
+            if (root.TryGetProperty("toolArgs", out JsonElement args)
+                && args.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty prop in args.EnumerateObject())
+                {
+                    if (prop.Value.ValueKind == JsonValueKind.String)
+                    {
+                        string? val = prop.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(val))
+                        {
+                            string trimmed = val.Trim();
+                            return toolName + ": " + (trimmed.Length > 80 ? trimmed[..80] + "…" : trimmed);
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fall through to tool name only
+        }
+
+        return toolName;
     }
 
     private void PublishSubagentTranscriptIfAvailable(ToolUsageEvent toolEvent)

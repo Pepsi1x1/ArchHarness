@@ -539,8 +539,7 @@ function ensureStreamSection(agentId, agentRole, title) {
       agentId,
       agentRole,
       title: title || agentRole,
-      content: "",
-      html: "",
+      segments: [],
       updatedAt: null,
       segmentCount: 0,
       streamKind: "assistant",
@@ -554,6 +553,40 @@ function ensureStreamSection(agentId, agentRole, title) {
   section.agentRole = agentRole || section.agentRole;
   section.title = title || section.title || section.agentRole;
   return section;
+}
+
+function getOrCreateTextSegment(section) {
+  const last = section.segments[section.segments.length - 1];
+  if (last && last.type === "text") return last;
+  const seg = { type: "text", content: "", html: "" };
+  section.segments.push(seg);
+  return seg;
+}
+
+function getOrCreateToolGroup(section) {
+  const last = section.segments[section.segments.length - 1];
+  if (last && last.type === "tool-group") return last;
+  const seg = { type: "tool-group", calls: [] };
+  section.segments.push(seg);
+  return seg;
+}
+
+function renderToolGroupHtml(seg) {
+  const count = seg.calls.length;
+  const label = count === 1 ? "Tool call" : "Tool calls";
+  const items = seg.calls.map(call =>
+    `<li class="stream-tool-call-item">${escapeHtml(call)}</li>`).join("");
+  return `<details class="stream-tool-calls"><summary class="stream-tool-calls-header">${label} (${count})</summary><ul class="stream-tool-calls-list">${items}</ul></details>`;
+}
+
+function buildSectionBodyHtml(section) {
+  if (section.segments.length === 0) {
+    return `<pre>Waiting for rendered markdown...</pre>`;
+  }
+  return section.segments.map(seg => {
+    if (seg.type === "tool-group") return renderToolGroupHtml(seg);
+    return seg.html || (seg.content ? `<pre>${escapeHtml(seg.content)}</pre>` : "");
+  }).join("");
 }
 
 function renderStream() {
@@ -589,8 +622,7 @@ function renderStream() {
     const body = document.createElement("div");
     body.className = "markdown-surface stream-markdown";
     body.dataset.agentId = section.agentId;
-    body.innerHTML = sanitizeHtml(section.html || `<pre>${escapeHtml(section.content || "Waiting for rendered markdown...")}</pre>`);
-
+    body.innerHTML = sanitizeHtml(buildSectionBodyHtml(section));
     details.append(summary, body);
     elements.streamSections.append(details);
   });
@@ -699,29 +731,26 @@ async function renderStreamSectionMarkdown(agentId) {
   }
 
   const version = ++section.renderVersion;
-  try {
-    const response = await requestJson("/api/markdown/render", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markdown: section.content })
-    });
+  const textSegments = section.segments.filter(s => s.type === "text" && s.content);
 
-    if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) {
-      return;
+  for (const seg of textSegments) {
+    try {
+      const response = await requestJson("/api/markdown/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown: seg.content })
+      });
+      if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) return;
+      seg.html = response.html || `<pre>${escapeHtml(seg.content)}</pre>`;
+    } catch {
+      if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) return;
+      seg.html = `<pre>${escapeHtml(seg.content)}</pre>`;
     }
-
-    section.html = response.html || "<p>No output yet.</p>";
-  } catch {
-    if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) {
-      return;
-    }
-
-    section.html = `<pre>${escapeHtml(section.content)}</pre>`;
   }
 
   const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
   if (container) {
-    container.innerHTML = sanitizeHtml(section.html);
+    container.innerHTML = sanitizeHtml(buildSectionBodyHtml(section));
     scrollStreamToBottom();
   } else {
     renderStream();
@@ -746,7 +775,18 @@ function recordStreamEvent(entry) {
   if (section.segmentCount === 0) {
     hideAgentSpinningUp(agentRole);
   }
-  section.content += message;
+
+  if (streamKind === "tool-call") {
+    const group = getOrCreateToolGroup(section);
+    group.calls.push(message);
+    section.segmentCount += 1;
+    section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
+    renderStream();
+    return;
+  }
+
+  const seg = getOrCreateTextSegment(section);
+  seg.content += message;
   section.segmentCount += 1;
   section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
   section.streamKind = streamKind;
