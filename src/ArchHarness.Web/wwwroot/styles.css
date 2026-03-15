@@ -110,11 +110,10 @@ body {
   position: sticky;
   top: 12px;
   display: grid;
-  align-content: start;
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr);
   max-height: calc(100vh - 24px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  padding: 0;
+  overflow: hidden;
   border-right: 1px solid var(--border);
 }
 
@@ -135,8 +134,10 @@ body {
   padding-left: 84px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
+  -webkit-user-select: none;
 }
 
+.workspace-topbar h2,
 .workspace-topbar button,
 .workspace-topbar input,
 .workspace-topbar select,
@@ -146,6 +147,19 @@ body {
 
 .sidebar-head {
   -webkit-app-region: drag;
+  -webkit-user-select: none;
+  padding: 0 16px 6px 84px;
+  flex-shrink: 0;
+}
+
+.sidebar-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 22px 16px 16px;
+  min-height: 0;
 }
 
 .sidebar-head button,
@@ -1031,7 +1045,6 @@ textarea {
     gap: 10px;
   }
 
-  .sidebar,
   .workspace-topbar,
   .composer-panel,
   .modal-card {
@@ -1039,8 +1052,11 @@ textarea {
     border-radius: 20px;
   }
 
+  .sidebar-body {
+    padding: 0 14px 14px;
+  }
+
   .workspace-topbar,
-  .sidebar-head,
   .run-row,
   .stream-section-summary {
     align-items: flex-start;
