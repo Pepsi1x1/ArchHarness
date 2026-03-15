@@ -257,6 +257,9 @@ function closeEventStream(status = "idle") {
     state.eventSource.close();
     state.eventSource = null;
   }
+  if (status === "idle" && state.streamOrder.length > 0) {
+    showStreamCompleted();
+  }
 }
 
 function isArchitectureModeEnabled() {
@@ -592,6 +595,17 @@ function showStreamStarting() {
 function hideStreamStarting() {
   const el = elements.streamSections.querySelector("#stream-starting");
   if (el) el.remove();
+}
+
+function showStreamCompleted() {
+  const existing = elements.streamSections.querySelector("#stream-completed");
+  if (existing) return;
+  const el = document.createElement("div");
+  el.id = "stream-completed";
+  el.className = "stream-completed";
+  el.textContent = "Completed";
+  elements.streamSections.append(el);
+  scrollStreamToBottom();
 }
 
 function scheduleStreamRender(agentId) {

@@ -306,6 +306,14 @@ button {
   border-color: var(--border-strong);
 }
 
+.primary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+
 .project-card,
 .stream-section,
 .inline-interaction,
@@ -559,7 +567,8 @@ button {
   align-content: center;
 }
 
-.stream-starting {
+.stream-starting,
+.stream-completed {
   padding: 16px 2px;
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.76rem;
@@ -577,7 +586,14 @@ button {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+.stream-starting {
   animation: stream-shine 1.6s linear infinite;
+}
+
+.stream-completed {
+  background-position: 50% center;
 }
 
 @keyframes stream-shine {
