@@ -175,7 +175,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 await this._artefactStore.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = WellKnownSources.Orchestrator,
+                    source = WellKnownSources.ORCHESTRATOR,
                     message = $"Dependency deadlock detected; force-executing step {step.Id}."
                 }, cancellationToken);
             }

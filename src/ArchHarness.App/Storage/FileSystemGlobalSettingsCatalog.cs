@@ -102,7 +102,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             NormalizeModel(this._agentsOptions.CodingStyle.Model, "claude-opus-4.6"),
             NormalizeModel(this._agentsOptions.Security.Model, "claude-opus-4.6"),
             NormalizeModel(this._agentsOptions.Architecture.Model, "claude-opus-4.6"),
-            PermissionHandlerModes.ApproveAll,
+            PermissionHandlerModes.APPROVE_ALL,
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             string.IsNullOrWhiteSpace(this._agentsOptions.Architecture.ArchitectureLoopPrompt)
                 ? null

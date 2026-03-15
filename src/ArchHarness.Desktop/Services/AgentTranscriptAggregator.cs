@@ -8,8 +8,8 @@ namespace ArchHarness.Desktop;
 /// </summary>
 public sealed class AgentTranscriptAggregator
 {
-    private readonly Dictionary<string, StringBuilder> _transcripts = new(StringComparer.Ordinal);
-    private readonly object _sync = new();
+    private readonly Dictionary<string, StringBuilder> _transcripts = new Dictionary<string, StringBuilder>(StringComparer.Ordinal);
+    private readonly object _sync = new object();
 
     /// <summary>
     /// Appends a content delta to the transcript for the specified agent.

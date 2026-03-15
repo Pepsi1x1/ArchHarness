@@ -27,7 +27,7 @@ internal sealed class SetupDraft
     public string? BuildCommand { get; set; }
 
     /// <summary>Gets or sets the permission handler mode for Copilot tool approvals.</summary>
-    public string PermissionHandlerMode { get; set; } = PermissionHandlerModes.ApproveAll;
+    public string PermissionHandlerMode { get; set; } = PermissionHandlerModes.APPROVE_ALL;
 
     /// <summary>Gets or sets whether coding style participates in the review loop.</summary>
     public bool ReviewLoopCodingStyleEnabled { get; set; } = true;

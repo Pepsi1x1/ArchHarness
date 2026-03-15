@@ -5,17 +5,17 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class PermissionHandlerModes
 {
-    public const string ApproveAll = "approve-all";
-    public const string Prompt = "prompt";
+    public const string APPROVE_ALL = "approve-all";
+    public const string PROMPT = "prompt";
 
     public static string Normalize(string? mode)
-        => string.Equals(mode, Prompt, StringComparison.OrdinalIgnoreCase)
-            ? Prompt
-            : ApproveAll;
+        => string.Equals(mode, PROMPT, StringComparison.OrdinalIgnoreCase)
+            ? PROMPT
+            : APPROVE_ALL;
 
     public static string Next(string? currentMode, int delta)
     {
-        string[] modes = new[] { ApproveAll, Prompt };
+        string[] modes = new[] { APPROVE_ALL, PROMPT };
         string normalizedCurrentMode = Normalize(currentMode);
         int currentIndex = Array.FindIndex(modes, mode => string.Equals(mode, normalizedCurrentMode, StringComparison.OrdinalIgnoreCase));
         if (currentIndex < 0)

@@ -71,7 +71,7 @@ public sealed class OrchestratorRuntime
 
         try
         {
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Run started" }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Run started" }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
@@ -98,7 +98,7 @@ public sealed class OrchestratorRuntime
                 inferred = initialBuildSelection.Inferred,
                 reason = initialBuildSelection.Reason
             }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.Orchestrator, "Run started"));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Run started"));
 
             PlanExecutionResult planResult;
             try
@@ -116,7 +116,7 @@ public sealed class OrchestratorRuntime
                 await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = WellKnownSources.Orchestrator,
+                    source = WellKnownSources.ORCHESTRATOR,
                     status = "failed",
                     failureType = "parse_error",
                     stage = "planning",
@@ -199,8 +199,8 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Run completed" }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.Orchestrator, "Run completed"));
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Run completed" }, cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Run completed"));
 
             await sessionEventCts.CancelAsync();
             await sessionEventPump;

@@ -34,7 +34,7 @@ public interface IDiscoveredModelCatalog
 /// </summary>
 public sealed class DiscoveredModelCatalog : IDiscoveredModelCatalog
 {
-    private readonly ConcurrentDictionary<string, DiscoveredModel> _models = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, DiscoveredModel> _models = new ConcurrentDictionary<string, DiscoveredModel>(StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public bool HasModels => !this._models.IsEmpty;

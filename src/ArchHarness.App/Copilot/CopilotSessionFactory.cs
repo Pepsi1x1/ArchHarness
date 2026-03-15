@@ -226,7 +226,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     }
 
     private PermissionRequestHandler ResolvePermissionHandler(string permissionHandlerMode)
-        => string.Equals(permissionHandlerMode, PermissionHandlerModes.Prompt, StringComparison.OrdinalIgnoreCase)
+        => string.Equals(permissionHandlerMode, PermissionHandlerModes.PROMPT, StringComparison.OrdinalIgnoreCase)
             ? this._hooks.PermissionPromptHandler.HandleAsync
             : PermissionHandler.ApproveAll;
 

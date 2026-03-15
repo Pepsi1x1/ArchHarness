@@ -8,7 +8,7 @@ internal static class WellKnownSources
     /// <summary>
     /// The event source identifier for the orchestrator.
     /// </summary>
-    public const string Orchestrator = "orchestrator";
+    public const string ORCHESTRATOR = "orchestrator";
 }
 
 /// <summary>
@@ -35,7 +35,7 @@ public sealed record RunRequest(
     string? ProjectName,
     IDictionary<string, string>? ModelOverrides,
     string? BuildCommand,
-    string PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
+    string PermissionHandlerMode = PermissionHandlerModes.APPROVE_ALL,
     ReviewLoopAgentSelection? ReviewLoopAgents = null,
     bool ArchitectureLoopMode = false,
     string? ArchitectureLoopPrompt = null,

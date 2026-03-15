@@ -98,7 +98,7 @@ public sealed class ConversationController
             TaskPrompt = architectureLoopMode ? string.Empty : "Implement requested change",
             WorkspacePath = Directory.GetCurrentDirectory(),
             WorkspaceMode = EXISTING_FOLDER_MODE,
-            PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
+            PermissionHandlerMode = PermissionHandlerModes.APPROVE_ALL,
             ReviewLoopCodingStyleEnabled = reviewLoopAgents.CodingStyleEnabled,
             ReviewLoopSecurityEnabled = reviewLoopAgents.SecurityEnabled,
             ReviewLoopArchitectureEnabled = reviewLoopAgents.ArchitectureEnabled,
