@@ -36,6 +36,15 @@ builder.Services.AddSingleton<IModelMetadataProvider, ModelMetadataProvider>();
 
 WebApplication app = builder.Build();
 
+app.Use(async (context, next) =>
+{
+	context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+	context.Response.Headers["X-Frame-Options"] = "DENY";
+	context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+	context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+	await next();
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

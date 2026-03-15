@@ -24,6 +24,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "web-host-manager.js",
       "package.json"
     ],
     "extraResources": [
