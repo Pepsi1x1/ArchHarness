@@ -2,7 +2,7 @@
 
 ArchHarness is a .NET application suite that runs a multi-agent software workflow on top of GitHub Copilot SDK sessions.
 
-It now ships with a shared runtime library, a console host for the existing terminal workflow, and a cross-platform desktop host. The console host preserves the existing terminal-first workflow, while the desktop host provides a reference-inspired shell for configuring runs, streaming live progress, inspecting agent output, and reviewing persisted artefacts.
+It ships with a shared runtime library plus three supported hosts: a console host for the terminal-first workflow, a local ASP.NET Core web host for the browser control room, and an Electron wrapper that presents that same web UI in a native window.
 
 ## What It Does
 
@@ -22,7 +22,6 @@ It now ships with a shared runtime library, a console host for the existing term
 
 - `src/ArchHarness.App/`: shared runtime, agents, Copilot integration, storage, and TUI components
 - `src/ArchHarness.Console/`: console entry point for the existing interactive and scriptable workflow
-- `src/ArchHarness.Desktop/`: Avalonia desktop shell and host-specific UI services
 - `src/ArchHarness.Web/`: local ASP.NET Core host and browser-first control-room UI
 - `src/ArchHarness.Electron/`: Electron desktop wrapper that hosts the local web UI in a native window
 - `src/ArchHarness.App/Agents/`: agent implementations
@@ -98,13 +97,13 @@ dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj -- \
 
 If `BuildCommand` is omitted, ArchHarness infers a suitable `dotnet build` target (`.sln`/`.csproj`) when possible.
 
-Desktop shell:
+Browser host:
 
 ```bash
-dotnet run --project src/ArchHarness.Desktop/ArchHarness.Desktop.csproj
+dotnet run --project src/ArchHarness.Web/ArchHarness.Web.csproj
 ```
 
-The desktop host boots the same runtime service graph, runs startup preflight, allows you to configure and launch orchestrated runs, streams runtime progress and agent output, and lets you inspect prior runs stored under `.agent-harness/runs` for a chosen workspace.
+The web host boots the same runtime service graph, runs startup preflight, serves the browser-first control room, and exposes the local APIs used to configure runs, stream agent output, and inspect prior runs stored under `.agent-harness/runs` for a chosen workspace. In development it listens on `http://127.0.0.1:5057`.
 
 Electron wrapper:
 
@@ -114,7 +113,7 @@ npm install
 npm start
 ```
 
-The Electron wrapper starts the local `ArchHarness.Web` host if it is not already running, waits for `/api/health`, and then opens the control-room UI in a native window.
+The Electron wrapper starts the local `ArchHarness.Web` host if it is not already running, waits for `/api/health`, and then opens the same control-room UI in a native window.
 
 To build the wrapper with a published local web host bundled into the app:
 
@@ -203,5 +202,6 @@ If build validation fails:
 - Target framework: `net10.0`
 - Shared DI registration: `src/ArchHarness.App/Program.cs`
 - Console entry point: `src/ArchHarness.Console/Program.cs`
-- Desktop entry point: `src/ArchHarness.Desktop/Program.cs`
+- Web entry point: `src/ArchHarness.Web/Program.cs`
+- Electron entry point: `src/ArchHarness.Electron/main.js`
 - Main terminal flow: `src/ArchHarness.App/Tui/ChatTerminal.cs`
