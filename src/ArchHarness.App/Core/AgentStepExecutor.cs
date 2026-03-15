@@ -105,9 +105,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             ["CodingStyle"] = async (ExecutionPlanStep s) =>
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken);
+                string delegatedPrompt = request.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
+                    : s.Objective;
                 await this._agents.CodingStyle.EnforceAsync(
                     new StyleEnforcementRequest(
-                        DelegatedPrompt: s.Objective,
+                        DelegatedPrompt: delegatedPrompt,
                         Diff: latestDiff,
                         WorkspaceRoot: adapter.RootPath,
                         FilesTouched: filesTouched,

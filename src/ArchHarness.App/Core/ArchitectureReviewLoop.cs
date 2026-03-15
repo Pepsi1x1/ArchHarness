@@ -86,9 +86,12 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             if (reviewLoopAgents.CodingStyleEnabled)
             {
                 progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "CodingStyle", "Coding style enforcement prompt started", remediationPrompt));
+                string codingStyleDelegatedPrompt = request.RunRequest.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
+                    : remediationPrompt;
                 await this._agents.CodingStyle.EnforceAsync(
                     new StyleEnforcementRequest(
-                        DelegatedPrompt: remediationPrompt,
+                        DelegatedPrompt: codingStyleDelegatedPrompt,
                         Diff: latestDiff,
                         WorkspaceRoot: adapter.RootPath,
                         FilesTouched: currentFiles,
