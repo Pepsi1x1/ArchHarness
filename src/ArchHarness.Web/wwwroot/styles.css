@@ -132,7 +132,27 @@ body {
   justify-content: space-between;
   gap: 16px;
   padding: 10px 16px;
+  padding-left: 84px;
   border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+.workspace-topbar button,
+.workspace-topbar input,
+.workspace-topbar select,
+.workspace-topbar a {
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-head {
+  -webkit-app-region: drag;
+}
+
+.sidebar-head button,
+.sidebar-head input,
+.sidebar-head select,
+.sidebar-head a {
+  -webkit-app-region: no-drag;
 }
 
 .topbar-copy,

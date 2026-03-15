@@ -25,6 +25,8 @@ class WindowManager {
       minHeight: 800,
       autoHideMenuBar: true,
       backgroundColor: "#08121c",
+      titleBarStyle: "hiddenInset",
+      trafficLightPosition: { x: 14, y: 13 },
       title: "ArchHarness",
       webPreferences: {
         contextIsolation: true,
