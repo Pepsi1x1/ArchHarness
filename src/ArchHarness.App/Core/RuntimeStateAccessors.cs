@@ -11,14 +11,17 @@ public sealed class RuntimeStateAccessors
     /// </summary>
     /// <param name="permissionHandlerMode">Accessor for the current permission handler mode.</param>
     /// <param name="reviewLoopAgentSelection">Accessor for the current review-loop agent selection.</param>
+    /// <param name="agentExecutionContext">Accessor for the current parent agent execution context.</param>
     /// <param name="workspaceRoot">Accessor for the current workspace root path.</param>
     public RuntimeStateAccessors(
         IPermissionHandlerModeAccessor permissionHandlerMode,
         IReviewLoopAgentSelectionAccessor reviewLoopAgentSelection,
+        IAgentExecutionContextAccessor agentExecutionContext,
         IWorkspaceRootAccessor workspaceRoot)
     {
         this.PermissionHandlerMode = permissionHandlerMode;
         this.ReviewLoopAgentSelection = reviewLoopAgentSelection;
+        this.AgentExecutionContext = agentExecutionContext;
         this.WorkspaceRoot = workspaceRoot;
     }
 
@@ -27,6 +30,9 @@ public sealed class RuntimeStateAccessors
 
     /// <summary>Gets the review-loop agent selection accessor.</summary>
     public IReviewLoopAgentSelectionAccessor ReviewLoopAgentSelection { get; }
+
+    /// <summary>Gets the parent agent execution context accessor.</summary>
+    public IAgentExecutionContextAccessor AgentExecutionContext { get; }
 
     /// <summary>Gets the workspace root accessor.</summary>
     public IWorkspaceRootAccessor WorkspaceRoot { get; }

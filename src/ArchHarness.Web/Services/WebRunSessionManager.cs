@@ -254,7 +254,16 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
 	{
 		await foreach (AgentStreamDeltaEvent evt in this._agentStreamEventStream.ReadAllAsync(cancellationToken).ConfigureAwait(false))
 		{
-			this.Publish(new WebRunEvent(evt.TimestampUtc, "agent-delta", evt.AgentRole, evt.DeltaContent, evt.AgentId, evt.AgentRole));
+			this.Publish(new WebRunEvent(
+				evt.TimestampUtc,
+				"agent-delta",
+				evt.AgentRole,
+				evt.DeltaContent,
+				evt.AgentId,
+				evt.AgentRole,
+				ContentFormat: evt.ContentFormat,
+				StreamKind: evt.StreamKind,
+				Title: evt.Title));
 		}
 	}
 

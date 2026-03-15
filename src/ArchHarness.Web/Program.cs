@@ -5,6 +5,7 @@ using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Storage;
 using ArchHarness.Web.Services;
+using Markdig;
 using Microsoft.Extensions.Options;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,10 @@ JsonSerializerOptions eventJsonOptions = new JsonSerializerOptions(JsonSerialize
 };
 const string DEFAULT_TASK_PROMPT = "Implement requested change";
 const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
+MarkdownPipeline markdownPipeline = new MarkdownPipelineBuilder()
+	.UseAdvancedExtensions()
+	.DisableHtml()
+	.Build();
 
 string? webHostUrl = builder.Configuration["webHost:url"];
 if (!string.IsNullOrWhiteSpace(webHostUrl))
@@ -70,6 +75,12 @@ app.MapPost("/api/setup-summary", async (RunRequest request, SetupSummaryGenerat
 {
 	string summary = await generator.GenerateSetupSummaryAsync(request, cancellationToken);
 	return Results.Ok(new { summary });
+});
+
+app.MapPost("/api/markdown/render", (MarkdownRenderRequest request) =>
+{
+	string html = Markdown.ToHtml(request.Markdown ?? string.Empty, markdownPipeline);
+	return Results.Ok(new { html });
 });
 
 app.MapGet("/api/runs", (string workspacePath, int? maxCount, IRunHistoryCatalog catalog) =>

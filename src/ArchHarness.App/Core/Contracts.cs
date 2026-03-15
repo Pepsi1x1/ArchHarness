@@ -223,8 +223,14 @@ public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string So
 /// <param name="AgentId">The unique identifier of the agent that produced this delta.</param>
 /// <param name="AgentRole">The role of the agent (e.g., "backend-developer", "architecture").</param>
 /// <param name="DeltaContent">The incremental content fragment.</param>
+/// <param name="ContentFormat">The content format, typically <c>text</c> or <c>markdown</c>.</param>
+/// <param name="StreamKind">The stream subtype, such as <c>assistant</c> or <c>subagent-report</c>.</param>
+/// <param name="Title">Optional title associated with the delta payload.</param>
 public sealed record AgentStreamDeltaEvent(
     DateTimeOffset TimestampUtc,
     string AgentId,
     string AgentRole,
-    string DeltaContent);
+    string DeltaContent,
+    string ContentFormat = "text",
+    string StreamKind = "assistant",
+    string? Title = null);

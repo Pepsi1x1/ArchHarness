@@ -11,7 +11,11 @@ const state = {
   pendingInteractionAbortController: null,
   pendingInteractionInFlight: false,
   isUnloading: false,
-  timeline: []
+  timeline: [],
+  agentTranscripts: {},
+  selectedAgentId: null,
+  agentTranscriptRenderHandle: null,
+  agentTranscriptRequestId: 0
 };
 
 const STORAGE_KEY = "archharness.web.form-state";
@@ -23,6 +27,14 @@ const elements = {
   preflightDetail: document.getElementById("preflight-detail"),
   activeRunStatus: document.getElementById("active-run-status"),
   activeRunDetail: document.getElementById("active-run-detail"),
+  workspaceSummary: document.getElementById("workspace-summary"),
+  workspaceModeSummary: document.getElementById("workspace-mode-summary"),
+  runCountSummary: document.getElementById("run-count-summary"),
+  runDetailSummary: document.getElementById("run-detail-summary"),
+  artifactCountSummary: document.getElementById("artifact-count-summary"),
+  selectionSummary: document.getElementById("selection-summary"),
+  queueSummary: document.getElementById("queue-summary"),
+  queueDetailSummary: document.getElementById("queue-detail-summary"),
   recentRuns: document.getElementById("recent-runs"),
   historyHint: document.getElementById("history-hint"),
   refreshHistory: document.getElementById("refresh-history"),
@@ -33,10 +45,16 @@ const elements = {
   setupMessage: document.getElementById("setup-message"),
   timeline: document.getElementById("timeline"),
   eventStreamState: document.getElementById("event-stream-state"),
+  agentList: document.getElementById("agent-list"),
+  agentTranscriptStatus: document.getElementById("agent-transcript-status"),
+  agentTranscriptTitle: document.getElementById("agent-transcript-title"),
+  agentTranscriptMeta: document.getElementById("agent-transcript-meta"),
+  agentTranscriptRendered: document.getElementById("agent-transcript-rendered"),
   interactionCard: document.getElementById("interaction-card"),
   artifactList: document.getElementById("artifact-list"),
   artifactPreview: document.getElementById("artifact-preview"),
   artifactContext: document.getElementById("artifact-context"),
+  artifactSummary: document.getElementById("artifact-summary"),
   runItemTemplate: document.getElementById("run-item-template"),
   artifactItemTemplate: document.getElementById("artifact-item-template"),
   taskPrompt: document.getElementById("task-prompt"),
@@ -77,6 +95,13 @@ function closeEventStream(status = "disconnected") {
   elements.eventStreamState.textContent = status;
 }
 
+function clearAgentTranscriptRender() {
+  if (state.agentTranscriptRenderHandle) {
+    window.clearTimeout(state.agentTranscriptRenderHandle);
+    state.agentTranscriptRenderHandle = null;
+  }
+}
+
 function clearPendingInteractionPoll() {
   if (state.interactionPollHandle) {
     window.clearTimeout(state.interactionPollHandle);
@@ -107,6 +132,16 @@ function schedulePendingInteractionPoll(delayMs) {
 function setSetupMessage(message, tone = "neutral") {
   elements.setupMessage.textContent = message;
   elements.setupMessage.dataset.tone = tone;
+}
+
+function resetLiveAgentState() {
+  clearAgentTranscriptRender();
+  state.timeline = [];
+  state.agentTranscripts = {};
+  state.selectedAgentId = null;
+  renderTimeline();
+  renderAgentList();
+  void renderAgentTranscript();
 }
 
 function populateSelect(select, values) {
@@ -172,6 +207,7 @@ function applyBootstrap(bootstrap) {
   state.activeRun = bootstrap.activeRun;
   restoreFormState();
   renderActiveRun();
+  renderOverview();
 }
 
 function renderActiveRun() {
@@ -183,6 +219,7 @@ function renderActiveRun() {
     if (!state.isUnloading) {
       closeEventStream("idle");
     }
+    renderOverview();
     return;
   }
 
@@ -197,6 +234,8 @@ function renderActiveRun() {
   if (!activeRun.isRunning && !state.isUnloading) {
     closeEventStream("idle");
   }
+
+  renderOverview();
 }
 
 function saveFormState() {
@@ -216,6 +255,7 @@ function saveFormState() {
     reviewArchitecture: elements.reviewArchitecture.checked
   };
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  renderOverview();
 }
 
 function restoreFormState() {
@@ -242,6 +282,8 @@ function restoreFormState() {
   } catch {
     window.localStorage.removeItem(STORAGE_KEY);
   }
+
+  renderOverview();
 }
 
 function setSelectValue(select, value) {
@@ -263,6 +305,232 @@ function formatRunSubtitle(runId) {
   const hour = runId.slice(9, 11);
   const minute = runId.slice(11, 13);
   return `${stem} • ${year}-${month}-${day} ${hour}:${minute}`;
+}
+
+function summarizeWorkspacePath(path) {
+  const trimmed = path.trim();
+  if (!trimmed) {
+    return "No workspace selected";
+  }
+
+  const normalized = trimmed.replace(/\\/g, "/").replace(/\/$/, "");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length <= 2) {
+    return normalized;
+  }
+
+  return `.../${segments.slice(-2).join("/")}`;
+}
+
+function formatCount(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function summarizeText(text, maxLength = 220) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function stripMarkdown(text) {
+  return String(text ?? "")
+    .replace(/```[\s\S]*?```/g, block => block.replace(/```/g, ""))
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/^>\s?/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/\|/g, " ");
+}
+
+function formatTimestamp(value) {
+  return value
+    ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "Pending";
+}
+
+function getAgentTranscript(agentId) {
+  return state.agentTranscripts[agentId] || null;
+}
+
+function renderAgentList() {
+  elements.agentList.innerHTML = "";
+  const transcripts = Object.values(state.agentTranscripts)
+    .sort((left, right) => (right.updatedAt || "").localeCompare(left.updatedAt || ""));
+
+  if (transcripts.length === 0) {
+    elements.agentList.className = "agent-list empty-state";
+    elements.agentList.textContent = "No live agent output yet.";
+    elements.agentTranscriptStatus.textContent = "idle";
+    renderOverview();
+    return;
+  }
+
+  elements.agentList.className = "agent-list";
+  transcripts.forEach(transcript => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "agent-chip";
+    if (transcript.agentId === state.selectedAgentId) {
+      button.classList.add("active");
+    }
+
+    const title = document.createElement("strong");
+    title.textContent = transcript.agentRole;
+    const meta = document.createElement("span");
+    meta.className = "field-hint";
+    meta.textContent = `${formatCount(transcript.segmentCount, "segment")} • ${transcript.lastStreamKind === "subagent-report" ? "subagent report ready" : "live assistant stream"}`;
+    button.append(title, meta);
+    button.addEventListener("click", () => selectAgentTranscript(transcript.agentId));
+    elements.agentList.append(button);
+  });
+
+  elements.agentTranscriptStatus.textContent = transcripts.some(transcript => transcript.lastStreamKind === "subagent-report")
+    ? "reports ready"
+    : "streaming";
+  renderOverview();
+}
+
+function selectAgentTranscript(agentId) {
+  state.selectedAgentId = agentId;
+  renderAgentList();
+  scheduleAgentTranscriptRender();
+}
+
+function scheduleAgentTranscriptRender() {
+  clearAgentTranscriptRender();
+  state.agentTranscriptRenderHandle = window.setTimeout(() => {
+    state.agentTranscriptRenderHandle = null;
+    void renderAgentTranscript();
+  }, 120);
+}
+
+async function renderAgentTranscript() {
+  const transcript = state.selectedAgentId ? getAgentTranscript(state.selectedAgentId) : null;
+  if (!transcript) {
+    elements.agentTranscriptTitle.textContent = "No agent selected";
+    elements.agentTranscriptMeta.textContent = "Start a run to stream agent and subagent output.";
+    elements.agentTranscriptRendered.className = "markdown-surface empty-state";
+    elements.agentTranscriptRendered.textContent = "Markdown-rendered agent and subagent output appears here.";
+    renderOverview();
+    return;
+  }
+
+  elements.agentTranscriptTitle.textContent = transcript.agentRole;
+  elements.agentTranscriptMeta.textContent = `${formatCount(transcript.segmentCount, "segment")} • updated ${formatTimestamp(transcript.updatedAt)}`;
+
+  const requestId = ++state.agentTranscriptRequestId;
+  elements.agentTranscriptRendered.className = "markdown-surface";
+  elements.agentTranscriptRendered.textContent = "Rendering transcript...";
+
+  try {
+    const response = await requestJson("/api/markdown/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ markdown: transcript.content })
+    });
+
+    if (requestId !== state.agentTranscriptRequestId || transcript.agentId !== state.selectedAgentId) {
+      return;
+    }
+
+    elements.agentTranscriptRendered.innerHTML = response.html || "<p>No transcript content yet.</p>";
+  } catch {
+    if (requestId !== state.agentTranscriptRequestId || transcript.agentId !== state.selectedAgentId) {
+      return;
+    }
+
+    elements.agentTranscriptRendered.textContent = transcript.content;
+  }
+
+  renderOverview();
+}
+
+function recordAgentTranscript(entry) {
+  const agentId = readEventField(entry, "agentId");
+  if (!agentId) {
+    return;
+  }
+
+  const agentRole = readEventField(entry, "agentRole") || readEventField(entry, "source") || "unknown";
+  const message = readEventField(entry, "message") || "";
+  if (!message) {
+    return;
+  }
+
+  const existing = state.agentTranscripts[agentId] || {
+    agentId,
+    agentRole,
+    content: "",
+    segmentCount: 0,
+    updatedAt: null,
+    lastStreamKind: "assistant"
+  };
+  existing.agentRole = agentRole;
+  existing.content += message;
+  existing.segmentCount += 1;
+  existing.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
+  existing.lastStreamKind = readEventField(entry, "streamKind") || "assistant";
+  state.agentTranscripts[agentId] = existing;
+
+  if (!state.selectedAgentId) {
+    state.selectedAgentId = agentId;
+  }
+
+  renderAgentList();
+  if (state.selectedAgentId === agentId) {
+    scheduleAgentTranscriptRender();
+  }
+}
+
+function ingestRunEvent(entry) {
+  state.timeline.push(entry);
+  if ((readEventField(entry, "kind") || "") === "agent-delta") {
+    recordAgentTranscript(entry);
+  }
+  renderTimeline();
+}
+
+function findSelectedRun() {
+  return state.recentRuns.find(run => run.runId === state.selectedRunId) || null;
+}
+
+function renderOverview() {
+  const workspacePath = elements.workspacePath.value.trim();
+  const selectedRun = findSelectedRun();
+  const pending = state.pendingInteraction;
+  const activeRun = state.activeRun;
+
+  elements.workspaceSummary.textContent = summarizeWorkspacePath(workspacePath);
+  elements.workspaceModeSummary.textContent = workspacePath
+    ? `${elements.workspaceMode.value || "existing-folder"} • ${elements.architectureLoopMode.checked ? "architecture-loop" : (elements.workflow.value.trim() || "auto")}`
+    : "Choose a workspace path to load history and enable run previews.";
+
+  elements.runCountSummary.textContent = state.recentRuns.length === 0
+    ? "0 archived runs"
+    : formatCount(state.recentRuns.length, "archived run");
+  elements.runDetailSummary.textContent = activeRun?.runId
+    ? `Active focus: Run ${activeRun.runId}`
+    : (workspacePath ? "Recent runs are ready for replay and artifact review." : "Recent run history appears as soon as a workspace is loaded.");
+
+  elements.artifactCountSummary.textContent = selectedRun
+    ? formatCount(state.artifacts.length, "artifact")
+    : "No artifact selection";
+  elements.selectionSummary.textContent = selectedRun
+    ? `Inspecting Run ${selectedRun.runId}`
+    : "Select a run to preview generated artifacts.";
+
+  elements.queueSummary.textContent = pending
+    ? (pending.kind === "permission" ? "Approval required" : "Input required")
+    : "Clear";
+  elements.queueDetailSummary.textContent = pending
+    ? pending.question
+    : (activeRun?.isRunning ? "Run is active and no operator action is blocked." : "No pending approvals or user input prompts.");
 }
 
 function renderRuns() {
@@ -292,6 +560,12 @@ function renderRuns() {
 function renderArtifactPreview() {
   const selectedArtifact = state.artifacts.find(artifact => artifact.fullPath === state.selectedArtifactPath) || null;
   elements.artifactPreview.textContent = selectedArtifact?.preview || "Artifact previews appear here.";
+  elements.artifactSummary.textContent = selectedArtifact
+    ? `${selectedArtifact.name} • ${selectedArtifact.kind}`
+    : (state.selectedRunId
+        ? "Choose an artifact from the left rail to inspect its preview."
+        : "Latest run output appears here automatically once history is loaded.");
+  renderOverview();
 }
 
 function clearSelectedRun() {
@@ -299,8 +573,10 @@ function clearSelectedRun() {
   state.selectedArtifactPath = null;
   state.artifacts = [];
   elements.artifactContext.textContent = "No run selected";
+  elements.artifactSummary.textContent = "Latest run output appears here automatically once history is loaded.";
   renderRuns();
   renderArtifacts();
+  renderOverview();
 }
 
 function renderArtifacts() {
@@ -309,6 +585,10 @@ function renderArtifacts() {
     elements.artifactList.className = "artifact-list empty-state";
     elements.artifactList.textContent = "No artifacts found for the selected run.";
     elements.artifactPreview.textContent = "Artifact previews appear here.";
+    elements.artifactSummary.textContent = state.selectedRunId
+      ? "This run completed without previewable artifacts."
+      : "Latest run output appears here automatically once history is loaded.";
+    renderOverview();
     return;
   }
 
@@ -346,21 +626,25 @@ function renderTimeline() {
     const kind = readEventField(entry, "kind") || "runtime-progress";
     const source = readEventField(entry, "source") || "orchestrator";
     const agentRole = readEventField(entry, "agentRole") || source;
+    const title = readEventField(entry, "title");
+    const streamKind = readEventField(entry, "streamKind") || "default";
     const message = readEventField(entry, "message") || readEventField(entry, "details") || "Event received.";
     const timestampValue = readEventField(entry, "timestampUtc");
-    const timestamp = timestampValue
-      ? new Date(timestampValue).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      : "Pending";
+    const timestamp = formatTimestamp(timestampValue);
     article.className = "timeline-entry";
     article.dataset.kind = kind;
+    article.dataset.streamKind = streamKind;
+    const preview = kind === "agent-delta"
+      ? summarizeText(stripMarkdown(message), streamKind === "subagent-report" ? 260 : 180)
+      : summarizeText(message, 180);
     article.innerHTML = `
       <div class="timeline-meta">
         <span>${timestamp}</span>
         <span>${escapeHtml(kind)}</span>
         <span>${escapeHtml(source)}</span>
       </div>
-      <strong>${escapeHtml(agentRole)}</strong>
-      <div>${escapeHtml(message)}</div>
+      <strong>${escapeHtml(title || agentRole)}</strong>
+      <div class="timeline-preview">${escapeHtml(preview)}</div>
     `;
     elements.timeline.append(article);
   });
@@ -380,6 +664,7 @@ function renderInteraction() {
   if (!pending) {
     elements.interactionCard.className = "empty-state";
     elements.interactionCard.textContent = "No pending user input or permission prompts.";
+    renderOverview();
     return;
   }
 
@@ -425,6 +710,7 @@ function renderInteraction() {
   elements.interactionCard.className = "";
   elements.interactionCard.innerHTML = "";
   elements.interactionCard.append(wrapper);
+  renderOverview();
 }
 
 function interactionAction(label, tone, onClick) {
@@ -465,6 +751,7 @@ async function loadRuns() {
   const workspacePath = elements.workspacePath.value.trim();
   if (!workspacePath) {
     state.recentRuns = [];
+    elements.historyHint.textContent = "Choose a workspace path to load persisted runs.";
     clearSelectedRun();
     return;
   }
@@ -474,6 +761,7 @@ async function loadRuns() {
   elements.historyHint.textContent = `Loaded ${state.recentRuns.length} runs from ${workspacePath}`;
   renderRuns();
   await syncSelectedRun();
+  renderOverview();
 }
 
 async function selectRun(run) {
@@ -485,6 +773,7 @@ async function selectRun(run) {
   renderArtifactPreview();
   renderRuns();
   renderArtifacts();
+  renderOverview();
 }
 
 async function syncSelectedRun() {
@@ -525,6 +814,7 @@ async function generateSummary() {
 async function startRun() {
   try {
     setSetupMessage("Submitting run request...", "neutral");
+    resetLiveAgentState();
     const snapshot = await requestJson("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -568,19 +858,17 @@ function connectEventStream() {
   elements.eventStreamState.textContent = "connected";
 
   eventSource.onmessage = event => {
-    state.timeline.push(JSON.parse(event.data));
-    renderTimeline();
+    ingestRunEvent(JSON.parse(event.data));
   };
 
   ["run-state", "runtime-progress", "agent-delta", "copilot-session"].forEach(kind => {
     eventSource.addEventListener(kind, event => {
-      state.timeline.push(JSON.parse(event.data));
+      ingestRunEvent(JSON.parse(event.data));
       void refreshActiveRun().then(snapshot => {
         if (!snapshot?.isRunning) {
           closeEventStream("idle");
         }
       });
-      renderTimeline();
       if (kind === "run-state") {
         void loadRuns();
       }
@@ -709,6 +997,7 @@ async function init() {
 window.addEventListener("beforeunload", () => {
   state.isUnloading = true;
   closeEventStream();
+  clearAgentTranscriptRender();
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
 });

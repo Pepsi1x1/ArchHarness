@@ -12,4 +12,7 @@ public sealed record WebRunEvent(
 	string? AgentRole = null,
 	string? SessionId = null,
 	string? Model = null,
-	string? Details = null);
+	string? Details = null,
+	string? ContentFormat = null,
+	string? StreamKind = null,
+	string? Title = null);

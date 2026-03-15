@@ -56,7 +56,9 @@ internal sealed class SdkCopilotSession(
                         DateTimeOffset.UtcNow,
                         string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId,
                         string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole,
-                        delta.Data.DeltaContent));
+                        delta.Data.DeltaContent,
+                        ContentFormat: "text",
+                        StreamKind: "assistant"));
                     break;
                 case AssistantMessageEvent msg when !string.IsNullOrWhiteSpace(msg.Data.Content):
                     finalMessage = msg.Data.Content;
