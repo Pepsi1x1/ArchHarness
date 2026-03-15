@@ -41,7 +41,8 @@ public sealed class InteractivePermissionPromptHandler : ICopilotPermissionPromp
             this._userInputState.SetAwaiting(question);
 
             int width = Math.Max(60, Console.WindowWidth - 1);
-            int row = Math.Min(Console.CursorTop + 1, Math.Max(0, Console.WindowHeight - 1));
+            int maxRow = Math.Max(0, Console.WindowHeight - 1);
+            int row = Math.Min(Console.CursorTop + 1, maxRow);
 
             WritePromptLine(row++, "=== Permission Approval Required ===", width, ConsoleColor.Yellow);
             foreach (string line in WrapPromptText(question, width))
@@ -54,7 +55,9 @@ public sealed class InteractivePermissionPromptHandler : ICopilotPermissionPromp
 
             bool restoreCursor = TryGetCursorVisible();
             TrySetCursorVisible(true);
-            Console.SetCursorPosition(Math.Min(PROMPT_LABEL.Length, Math.Max(0, width - 1)), row);
+            int maxColumn = Math.Max(0, width - 1);
+            int column = Math.Min(PROMPT_LABEL.Length, maxColumn);
+            Console.SetCursorPosition(column, row);
 
             string? answer;
             try
@@ -103,7 +106,9 @@ public sealed class InteractivePermissionPromptHandler : ICopilotPermissionPromp
 
     private static void WritePromptLine(int row, string text, int width, ConsoleColor color)
     {
-        Console.SetCursorPosition(0, Math.Min(row, Math.Max(0, Console.WindowHeight - 1)));
+        int maxWriteRow = Math.Max(0, Console.WindowHeight - 1);
+        int writeRow = Math.Min(row, maxWriteRow);
+        Console.SetCursorPosition(0, writeRow);
         Console.ForegroundColor = color;
         string output = text.Length > width ? text[..width] : text;
         Console.Write(output.PadRight(width));

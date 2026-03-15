@@ -103,7 +103,8 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
         {
             this._state.SetAwaiting(request.Question);
             int width = Math.Max(60, Console.WindowWidth - 1);
-            int startRow = Math.Min(Console.CursorTop + 1, Math.Max(0, Console.WindowHeight - 1));
+            int maxRow = Math.Max(0, Console.WindowHeight - 1);
+            int startRow = Math.Min(Console.CursorTop + 1, maxRow);
 
             WriteLineAt(startRow++, "=== Agent Clarification Required ===", width, ConsoleColor.Yellow);
             WriteLineAt(startRow++, request.Question ?? string.Empty, width, ConsoleColor.White);
@@ -122,7 +123,9 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
 
             bool restoreCursor = TryGetCursorVisible();
             TrySetCursorVisible(true);
-            Console.SetCursorPosition(Math.Min(promptLabel.Length, Math.Max(0, width - 1)), promptRow);
+            int maxColumn = Math.Max(0, width - 1);
+            int cursorColumn = Math.Min(promptLabel.Length, maxColumn);
+            Console.SetCursorPosition(cursorColumn, promptRow);
             string? answer;
             try
             {

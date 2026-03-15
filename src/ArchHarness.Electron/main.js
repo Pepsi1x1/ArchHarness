@@ -13,9 +13,12 @@ if (!app.isPackaged) {
 
 const publishedWebHostDirectory = app.isPackaged
   ? path.join(process.resourcesPath, "web-host")
-  : undefined;
+  : null;
 
-const webHost = new WebHostManager({ publishedWebHostDirectory });
+const webHost = new WebHostManager({
+  publishedWebHostDirectory,
+  preferProjectSource: !app.isPackaged
+});
 const windowManager = new WindowManager({ preloadPath: path.join(__dirname, "preload.js") });
 
 webHost.on("host-error", message => {

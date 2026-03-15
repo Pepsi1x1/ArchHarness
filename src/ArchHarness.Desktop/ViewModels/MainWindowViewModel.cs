@@ -532,7 +532,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
         try
         {
-            RunArtefacts artefacts = await this._runtime.RunAsync(request, progress, this._runCts.Token);
+            RunArtefacts artefacts = await this._runtime.RunAsync(request, progress, cancellationToken: this._runCts.Token);
             this.RunStatus = "Run completed";
             TimelineBuilder.Append(this.TimelineItems, "orchestrator", "Completion", $"Run {artefacts.RunId} completed.", TimelineBuilder.ACCENT_SUCCESS);
 

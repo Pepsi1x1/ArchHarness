@@ -64,13 +64,9 @@ internal sealed class SdkCopilotSession(
                     finalMessage = msg.Data.Content;
                     break;
                 case AssistantTurnEndEvent:
-                    // Resolve as soon as the assistant's turn ends and we have content.
-                    // This is earlier than SessionIdleEvent (which waits for SDK idle detection)
-                    // and avoids premature completion on tool-call-only turns that produce no text.
-                    if (finalMessage != null || completion.Length > 0)
-                    {
-                        done.TrySetResult();
-                    }
+                    // Treat assistant turn end as a lifecycle signal only. The SDK session handle is
+                    // reused across delegated steps, so we must still wait for SessionIdleEvent before
+                    // returning and allowing the next step to send another prompt.
                     break;
                 case SessionErrorEvent err:
                     done.TrySetException(new InvalidOperationException($"Copilot SDK session error: {err.Data.Message}"));
@@ -219,6 +215,8 @@ internal sealed class SdkCopilotSession(
         string normalized = eventType.ToLowerInvariant();
         return normalized.Contains("session.start", StringComparison.Ordinal)
             || normalized.Contains("sessionstart", StringComparison.Ordinal)
+            || normalized.Contains("assistant.turn.end", StringComparison.Ordinal)
+            || normalized.Contains("assistantturnend", StringComparison.Ordinal)
             || normalized.Contains("tool.execution.start", StringComparison.Ordinal)
             || normalized.Contains("toolexecutionstart", StringComparison.Ordinal)
             || normalized.Contains("tool.execution.complete", StringComparison.Ordinal)

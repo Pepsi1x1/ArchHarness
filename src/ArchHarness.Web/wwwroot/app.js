@@ -11,6 +11,7 @@ const state = {
   streamSections: {},
   streamOrder: [],
   streamAutoScroll: true,
+  agentSpinningUp: {},
   eventSource: null,
   pendingInteraction: null,
   interactionPollHandle: null,
@@ -618,6 +619,52 @@ function hideStreamStarting() {
   if (el) el.remove();
 }
 
+function agentDisplayName(source) {
+  const names = {
+    "backendDeveloper": "Backend Developer",
+    "backend-developer": "Backend Developer",
+    "BackendDeveloper": "Backend Developer",
+    "frontendDeveloper": "Frontend Developer",
+    "frontend-developer": "Frontend Developer",
+    "FrontendDeveloper": "Frontend Developer",
+    "codingStyle": "Coding Style",
+    "coding-style": "Coding Style",
+    "CodingStyle": "Coding Style",
+    "security": "Security",
+    "Security": "Security",
+    "architecture": "Architecture",
+    "Architecture": "Architecture",
+    "orchestration": "Orchestration",
+    "Orchestration": "Orchestration",
+    "build": "Build",
+    "Build": "Build"
+  };
+  return names[source] || source;
+}
+
+function showAgentSpinningUp(source) {
+  const key = source.toLowerCase();
+  if (state.agentSpinningUp[key]?.parentNode) {
+    return;
+  }
+  const el = document.createElement("div");
+  el.className = "stream-starting stream-agent-spinning-up";
+  el.dataset.spinningKey = key;
+  el.textContent = `Spinning up ${agentDisplayName(source)}`;
+  state.agentSpinningUp[key] = el;
+  elements.streamSections.append(el);
+  scrollStreamToBottom();
+}
+
+function hideAgentSpinningUp(source) {
+  const key = source.toLowerCase();
+  const el = state.agentSpinningUp[key];
+  if (el) {
+    el.remove();
+    delete state.agentSpinningUp[key];
+  }
+}
+
 function showStreamCompleted() {
   const existing = elements.streamSections.querySelector("#stream-completed");
   if (existing) return;
@@ -696,6 +743,9 @@ function recordStreamEvent(entry) {
   const title = readEventField(entry, "title");
   const streamKind = readEventField(entry, "streamKind") || "assistant";
   const section = ensureStreamSection(agentId, agentRole, title);
+  if (section.segmentCount === 0) {
+    hideAgentSpinningUp(agentRole);
+  }
   section.content += message;
   section.segmentCount += 1;
   section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
@@ -713,6 +763,11 @@ function resetStream() {
   });
   state.streamSections = {};
   state.streamOrder = [];
+  Object.keys(state.agentSpinningUp).forEach(key => {
+    const el = state.agentSpinningUp[key];
+    if (el?.parentNode) el.remove();
+  });
+  state.agentSpinningUp = {};
   renderStream();
 }
 
@@ -880,16 +935,27 @@ function connectEventStream() {
 
   const eventSource = new EventSource("/api/runs/active/events");
   state.eventSource = eventSource;
+  let sidebarRefreshed = false;
 
   const onEvent = async event => {
     const payload = JSON.parse(event.data);
-    if ((readEventField(payload, "kind") || "") === "agent-delta") {
+    const kind = readEventField(payload, "kind") || "";
+    if (kind === "agent-delta") {
       recordStreamEvent(payload);
+    } else if (kind === "runtime-progress") {
+      const message = readEventField(payload, "message") || "";
+      const source = readEventField(payload, "source") || "";
+      if (message.endsWith("prompt started") && source) {
+        showAgentSpinningUp(source);
+      }
     }
 
     const snapshot = await refreshActiveRun();
     if (!snapshot?.isRunning) {
       closeEventStream("idle");
+      await loadProjects();
+    } else if (!sidebarRefreshed && snapshot?.runId) {
+      sidebarRefreshed = true;
       await loadProjects();
     }
   };

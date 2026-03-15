@@ -7,9 +7,9 @@ namespace ArchHarness.App.Tui;
 /// </summary>
 public sealed class ConsoleSetupStatusSink : ISetupStatusSink
 {
-	/// <inheritdoc />
-	public void Clear() => Console.Clear();
+    /// <inheritdoc />
+    public void Clear() => Console.Clear();
 
-	/// <inheritdoc />
-	public void WriteLine(string message) => Console.WriteLine(message);
+    /// <inheritdoc />
+    public void WriteLine(string message) => Console.WriteLine(message);
 }

@@ -17,10 +17,12 @@ class WebHostManager extends EventEmitter {
   #ownsProcess = false;
   #shuttingDown = false;
   #publishedWebHostDirectory;
+  #preferProjectSource;
 
-  constructor({ publishedWebHostDirectory } = {}) {
+  constructor({ publishedWebHostDirectory, preferProjectSource = false } = {}) {
     super();
     this.#publishedWebHostDirectory = publishedWebHostDirectory ?? path.join(__dirname, "build", "web-host");
+    this.#preferProjectSource = preferProjectSource;
   }
 
   get hostUrl() {
@@ -36,6 +38,10 @@ class WebHostManager extends EventEmitter {
   }
 
   #getPublishedWebHostExecutablePath() {
+    if (!this.#publishedWebHostDirectory) {
+      return null;
+    }
+
     const fileName = process.platform === "win32" ? "ArchHarness.Web.exe" : "ArchHarness.Web";
     const candidate = path.join(this.#publishedWebHostDirectory, fileName);
     return fs.existsSync(candidate) ? candidate : null;
@@ -84,8 +90,15 @@ class WebHostManager extends EventEmitter {
     };
 
     const publishedExecutablePath = this.#getPublishedWebHostExecutablePath();
+    const shouldUseProjectSource = this.#preferProjectSource && this.#canLaunchLocalWebHost();
 
-    if (publishedExecutablePath) {
+    if (shouldUseProjectSource) {
+      this.#process = spawn("dotnet", ["run", "--project", WEB_PROJECT_PATH, "--no-launch-profile"], {
+        cwd: REPO_ROOT,
+        env: environment,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+    } else if (publishedExecutablePath) {
       this.#process = spawn(publishedExecutablePath, [], {
         cwd: path.dirname(publishedExecutablePath),
         env: environment,

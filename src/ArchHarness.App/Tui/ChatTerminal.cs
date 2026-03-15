@@ -111,7 +111,7 @@ public sealed class ChatTerminal
         using CancellationTokenSource agentStreamCts = CancellationTokenSource.CreateLinkedTokenSource(runCts.Token);
         Task agentStreamTask = agentStreamState.ConsumeAsync(agentStreamCts.Token);
 
-        Task<RunArtefacts> runTask = this._runtime.RunAsync(request, progress, runCts.Token);
+        Task<RunArtefacts> runTask = this._runtime.RunAsync(request, progress, cancellationToken: runCts.Token);
         char[] spinner = new[] { '|', '/', '-', '\\' };
         int spinnerIndex = 0;
         bool liveScreenInitialized = false;

@@ -43,6 +43,7 @@ public sealed class OrchestratorRuntime
     public async Task<RunArtefacts> RunAsync(
         RunRequest request,
         IProgress<RuntimeProgressEvent>? progress = null,
+        Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
         IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create(request.WorkspaceMode, request.WorkspacePath);
@@ -61,6 +62,7 @@ public sealed class OrchestratorRuntime
 
         string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
+        onRunContextEstablished?.Invoke(runId, runDirectory);
         this._stateAccessors.PermissionHandlerMode.SetCurrent(PermissionHandlerModes.Normalize(request.PermissionHandlerMode));
         ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents ?? this._agentsOptions.GetReviewLoopAgentSelection();
         this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(reviewLoopAgents);

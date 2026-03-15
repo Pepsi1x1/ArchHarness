@@ -9,8 +9,8 @@ namespace ArchHarness.App.Storage;
 /// <param name="ProjectId">The stable project identifier associated with the run, when available.</param>
 /// <param name="ProjectName">The project display name associated with the run, when available.</param>
 public sealed record PersistedRunSummary(
-	string RunId,
-	string RunDirectory,
-	string? RunTitle = null,
-	string? ProjectId = null,
-	string? ProjectName = null);
+    string RunId,
+    string RunDirectory,
+    string? RunTitle = null,
+    string? ProjectId = null,
+    string? ProjectName = null);

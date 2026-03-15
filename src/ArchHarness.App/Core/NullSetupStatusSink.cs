@@ -5,13 +5,13 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class NullSetupStatusSink : ISetupStatusSink
 {
-	/// <inheritdoc />
-	public void Clear()
-	{
-	}
+    /// <inheritdoc />
+    public void Clear()
+    {
+    }
 
-	/// <inheritdoc />
-	public void WriteLine(string message)
-	{
-	}
+    /// <inheritdoc />
+    public void WriteLine(string message)
+    {
+    }
 }
