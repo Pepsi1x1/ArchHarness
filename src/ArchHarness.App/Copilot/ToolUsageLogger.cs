@@ -137,7 +137,7 @@ public sealed class ToolUsageLogger : IToolUsageLogger
             return;
         }
 
-        string markdown = BuildSubagentMarkdown(parsed);
+        string markdown = Redaction.RedactSecrets(BuildSubagentMarkdown(parsed));
         this._agentStreamEventStream.Publish(new AgentStreamDeltaEvent(
             DateTimeOffset.UtcNow,
             agentContext.AgentId,
