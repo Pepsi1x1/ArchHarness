@@ -107,7 +107,12 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
     public async IAsyncEnumerable<WebRunEvent> ReadEventsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         Guid subscriberId = Guid.NewGuid();
-        Channel<WebRunEvent> channel = Channel.CreateUnbounded<WebRunEvent>();
+        Channel<WebRunEvent> channel = Channel.CreateBounded<WebRunEvent>(new BoundedChannelOptions(MAX_BUFFERED_EVENTS)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
 
         lock (this._sync)
         {
