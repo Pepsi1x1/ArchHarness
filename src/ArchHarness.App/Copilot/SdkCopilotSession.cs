@@ -56,11 +56,37 @@ internal sealed class SdkCopilotSession(
                         DateTimeOffset.UtcNow,
                         string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId,
                         string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole,
-                        delta.Data.DeltaContent));
+                        delta.Data.DeltaContent,
+                        ContentFormat: "text",
+                        StreamKind: "assistant"));
                     break;
                 case AssistantMessageEvent msg when !string.IsNullOrWhiteSpace(msg.Data.Content):
                     finalMessage = msg.Data.Content;
                     break;
+                case AssistantTurnEndEvent:
+                    // Treat assistant turn end as a lifecycle signal only. The SDK session handle is
+                    // reused across delegated steps, so we must still wait for SessionIdleEvent before
+                    // returning and allowing the next step to send another prompt.
+                    break;
+                case ToolExecutionStartEvent toolStart:
+                {
+                    string? toolName = TryGetToolName(toolStart.Data);
+                    if (!string.IsNullOrWhiteSpace(toolName))
+                    {
+                        string argsJson = TryGetToolArgs(toolStart.Data) ?? "{}";
+                        string escapedName = System.Text.Json.JsonSerializer.Serialize(toolName);
+                        string message = $"{{\"name\":{escapedName},\"args\":{argsJson}}}";
+                        sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
+                            DateTimeOffset.UtcNow,
+                            string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId,
+                            string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole,
+                            message,
+                            ContentFormat: "text",
+                            StreamKind: "tool-call",
+                            Title: toolName));
+                    }
+                    break;
+                }
                 case SessionErrorEvent err:
                     done.TrySetException(new InvalidOperationException($"Copilot SDK session error: {err.Data.Message}"));
                     break;
@@ -208,6 +234,8 @@ internal sealed class SdkCopilotSession(
         string normalized = eventType.ToLowerInvariant();
         return normalized.Contains("session.start", StringComparison.Ordinal)
             || normalized.Contains("sessionstart", StringComparison.Ordinal)
+            || normalized.Contains("assistant.turn.end", StringComparison.Ordinal)
+            || normalized.Contains("assistantturnend", StringComparison.Ordinal)
             || normalized.Contains("tool.execution.start", StringComparison.Ordinal)
             || normalized.Contains("toolexecutionstart", StringComparison.Ordinal)
             || normalized.Contains("tool.execution.complete", StringComparison.Ordinal)
@@ -220,7 +248,32 @@ internal sealed class SdkCopilotSession(
 
     private static string ResolveEventType(SessionEvent evt)
         => evt.GetType().GetProperty("Type")?.GetValue(evt)?.ToString() ?? evt.GetType().Name;
+    private static string? TryGetToolName(object? data)
+    {
+        if (data is null) return null;
+        try
+        {
+            return data.GetType().GetProperty("ToolName")?.GetValue(data) as string;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
+    private static string? TryGetToolArgs(object? data)
+    {
+        if (data is null) return null;
+        try
+        {
+            object? args = data.GetType().GetProperty("Arguments")?.GetValue(data);
+            return args is null ? null : System.Text.Json.JsonSerializer.Serialize(args);
+        }
+        catch
+        {
+            return null;
+        }
+    }
     private static string? ResolveEventDetails(SessionEvent evt)
     {
         return evt switch

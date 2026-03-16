@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ArchHarness.App.Constants;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
@@ -10,12 +11,12 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ExecutionPlanParser : IExecutionPlanParser
 {
-    private const string FRONTEND_DEVELOPER_AGENT_NAME = "FrontendDeveloper";
-    private const string BACKEND_DEVELOPER_AGENT_NAME = "BackendDeveloper";
-    private const string BUILD_AGENT_NAME = "Build";
-    private const string CODING_STYLE_AGENT_NAME = "CodingStyle";
-    private const string SECURITY_AGENT_NAME = "Security";
-    private const string ARCHITECTURE_AGENT_NAME = "Architecture";
+    private const string FRONTEND_DEVELOPER_AGENT_NAME = AgentNames.FRONTEND_DEVELOPER;
+    private const string BACKEND_DEVELOPER_AGENT_NAME = AgentNames.BACKEND_DEVELOPER;
+    private const string BUILD_AGENT_NAME = AgentNames.BUILD;
+    private const string CODING_STYLE_AGENT_NAME = AgentNames.CODING_STYLE;
+    private const string SECURITY_AGENT_NAME = AgentNames.SECURITY;
+    private const string ARCHITECTURE_AGENT_NAME = AgentNames.ARCHITECTURE;
 
     private readonly IWorkspaceContextAnalyzer _workspaceContext;
     private readonly ReviewLoopAgentSelection _defaultReviewLoopAgents;
@@ -64,13 +65,13 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
                 return false;
             }
 
-            if (!TryParseAndNormalizeSteps(root, workspaceRoot, reviewLoopAgents, out List<ExecutionPlanStep> steps, out string? stepError))
+            if (!this.TryParseAndNormalizeSteps(root, workspaceRoot, reviewLoopAgents, out List<ExecutionPlanStep> steps, out string? stepError))
             {
                 validationError = stepError;
                 return false;
             }
 
-            IterationStrategy iteration = ParseIterationStrategy(root, reviewLoopAgents);
+            IterationStrategy iteration = this.ParseIterationStrategy(root, reviewLoopAgents);
             List<string> criteria = ParseCompletionCriteria(root, reviewLoopAgents);
             plan = new ExecutionPlan(steps, iteration, criteria);
             return true;
@@ -537,7 +538,7 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
         return new IterationStrategy(maxIterations, reviewRequired && reviewLoopAgents.AnyFindingReviewEnabled);
     }
 
-    private List<string> ParseCompletionCriteria(JsonElement root, ReviewLoopAgentSelection reviewLoopAgents)
+    private static List<string> ParseCompletionCriteria(JsonElement root, ReviewLoopAgentSelection reviewLoopAgents)
     {
         List<string> criteria = reviewLoopAgents.BuildCompletionCriteria().ToList();
 

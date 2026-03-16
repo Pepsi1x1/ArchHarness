@@ -1,4 +1,5 @@
 using ArchHarness.App.Agents;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
@@ -11,6 +12,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 {
     private readonly StepAgentDependencies _agents;
     private readonly IArtefactStore _artefactStore;
+    private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentStepExecutor"/> class.
@@ -19,10 +21,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     /// <param name="artefactStore">Store for persisting run events.</param>
     public AgentStepExecutor(
         StepAgentDependencies agents,
-        IArtefactStore artefactStore)
+        IArtefactStore artefactStore,
+        RuntimeStateAccessors stateAccessors)
     {
         this._agents = agents;
         this._artefactStore = artefactStore;
+        this._stateAccessors = stateAccessors;
     }
 
     /// <summary>
@@ -102,9 +106,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             ["CodingStyle"] = async (ExecutionPlanStep s) =>
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken);
+                string delegatedPrompt = request.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
+                    : s.Objective;
                 await this._agents.CodingStyle.EnforceAsync(
                     new StyleEnforcementRequest(
-                        DelegatedPrompt: s.Objective,
+                        DelegatedPrompt: delegatedPrompt,
                         Diff: latestDiff,
                         WorkspaceRoot: adapter.RootPath,
                         FilesTouched: filesTouched,
@@ -172,7 +179,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 await this._artefactStore.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = WellKnownSources.Orchestrator,
+                    source = WellKnownSources.ORCHESTRATOR,
                     message = $"Dependency deadlock detected; force-executing step {step.Id}."
                 }, cancellationToken);
             }
@@ -184,6 +191,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 throw new InvalidOperationException($"Unrecognized agent role: '{step.Agent}'.");
             }
 
+            AgentExecutionContext? previousAgentContext = this._stateAccessors.AgentExecutionContext.Current;
+            this._stateAccessors.AgentExecutionContext.SetCurrent(this.ResolveAgentExecutionContext(step.Agent));
             try
             {
                 await strategy(step);
@@ -218,6 +227,10 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 }, cancellationToken);
                 throw;
             }
+            finally
+            {
+                this._stateAccessors.AgentExecutionContext.SetCurrent(previousAgentContext);
+            }
 
             completedStepIds.Add(step.Id);
             pendingSteps.Remove(step.Id);
@@ -251,6 +264,18 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
         return true;
     }
+
+    private AgentExecutionContext ResolveAgentExecutionContext(string stepAgent)
+        => stepAgent switch
+        {
+            "FrontendDeveloper" => new AgentExecutionContext(this._agents.FrontendDeveloper.Id, this._agents.FrontendDeveloper.Role),
+            "BackendDeveloper" => new AgentExecutionContext(this._agents.BackendDeveloper.Id, this._agents.BackendDeveloper.Role),
+            "Build" => new AgentExecutionContext(this._agents.Build.Id, this._agents.Build.Role),
+            "CodingStyle" => new AgentExecutionContext(this._agents.CodingStyle.Id, this._agents.CodingStyle.Role),
+            "Security" => new AgentExecutionContext(this._agents.Security.Id, this._agents.Security.Role),
+            "Architecture" => new AgentExecutionContext(this._agents.Architecture.Id, this._agents.Architecture.Role),
+            _ => new AgentExecutionContext(stepAgent, stepAgent)
+        };
 
     /// <summary>
     /// Contains the aggregated results from executing all plan steps.

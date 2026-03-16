@@ -38,6 +38,43 @@ public sealed class RunContextAccessor : IRunContextAccessor
 }
 
 /// <summary>
+/// Identifies the currently executing parent agent within the active async flow.
+/// </summary>
+/// <param name="AgentId">The unique identifier of the active agent.</param>
+/// <param name="AgentRole">The role of the active agent.</param>
+public sealed record AgentExecutionContext(string AgentId, string AgentRole);
+
+/// <summary>
+/// Provides access to the active agent execution context for the current async flow.
+/// </summary>
+public interface IAgentExecutionContextAccessor
+{
+    /// <summary>Gets the current agent execution context, or null if no agent is active.</summary>
+    AgentExecutionContext? Current { get; }
+
+    /// <summary>Sets or clears the current agent execution context.</summary>
+    /// <param name="context">The context to set, or null to clear it.</param>
+    void SetCurrent(AgentExecutionContext? context);
+}
+
+/// <summary>
+/// AsyncLocal-backed implementation of <see cref="IAgentExecutionContextAccessor"/>.
+/// </summary>
+public sealed class AgentExecutionContextAccessor : IAgentExecutionContextAccessor
+{
+    private static readonly AsyncLocal<AgentExecutionContext?> CURRENT_AGENT_CONTEXT = new AsyncLocal<AgentExecutionContext?>();
+
+    /// <inheritdoc />
+    public AgentExecutionContext? Current => CURRENT_AGENT_CONTEXT.Value;
+
+    /// <inheritdoc />
+    public void SetCurrent(AgentExecutionContext? context)
+    {
+        CURRENT_AGENT_CONTEXT.Value = context;
+    }
+}
+
+/// <summary>
 /// Provides access to the current workspace root for the executing async flow.
 /// </summary>
 public interface IWorkspaceRootAccessor

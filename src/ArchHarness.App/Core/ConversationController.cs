@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
@@ -8,26 +9,24 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ConversationController
 {
-    private const string EXISTING_FOLDER_MODE = "existing-folder";
+    private const string EXISTING_FOLDER_MODE = WorkspaceModes.EXISTING_FOLDER;
 
     private readonly SetupSummaryGenerator _summaryGenerator;
     private readonly AgentsOptions _agentsOptions;
     private readonly IModelResolver _modelResolver;
-    private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
-    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
-    private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
+    private readonly RuntimeStateAccessors _stateAccessors;
+    private readonly ISetupStatusSink _statusSink;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversationController"/> class.
     /// </summary>
-    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, IPermissionHandlerModeAccessor permissionHandlerModeAccessor, IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor, IWorkspaceRootAccessor workspaceRootAccessor)
+    public ConversationController(SetupSummaryGenerator summaryGenerator, IOptions<AgentsOptions> agentsOptions, IModelResolver modelResolver, RuntimeStateAccessors stateAccessors, ISetupStatusSink statusSink)
     {
         this._summaryGenerator = summaryGenerator;
         this._agentsOptions = agentsOptions.Value;
         this._modelResolver = modelResolver;
-        this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
-        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
-        this._workspaceRootAccessor = workspaceRootAccessor;
+        this._stateAccessors = stateAccessors;
+        this._statusSink = statusSink;
     }
 
     /// <summary>
@@ -38,9 +37,13 @@ public sealed class ConversationController
         RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
-            this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode));
-            this._reviewLoopAgentSelectionAccessor.SetCurrent(ResolveReviewLoopAgents(cliRequest, this._agentsOptions));
-            this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(cliRequest.WorkspacePath));
+            cliRequest = await this._summaryGenerator.PopulateRunTitleAsync(cliRequest, cancellationToken);
+            string normalizedPermissionMode = PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode);
+            this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedPermissionMode);
+            ReviewLoopAgentSelection resolvedAgents = ResolveReviewLoopAgents(cliRequest, this._agentsOptions);
+            this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(resolvedAgents);
+            string resolvedRoot = ResolveWorkspaceRoot(cliRequest.WorkspacePath);
+            this._stateAccessors.WorkspaceRoot.SetCurrent(resolvedRoot);
             this._modelResolver.ValidateConfiguredModelsOrThrow(cliRequest.ModelOverrides);
             string setupSummary = await this._summaryGenerator.GenerateSetupSummaryAsync(cliRequest, cancellationToken);
             return (cliRequest, setupSummary);
@@ -51,13 +54,16 @@ public sealed class ConversationController
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             CliArgumentParser.NormalizeArchitectureLoopPrompt(this._agentsOptions.Architecture.ArchitectureLoopPrompt));
 
-        Console.Clear();
-        Console.WriteLine("Preparing run configuration...");
-        this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode));
-        this._reviewLoopAgentSelectionAccessor.SetCurrent(ResolveReviewLoopAgents(requestInteractive, this._agentsOptions));
-        this._workspaceRootAccessor.SetCurrent(ResolveWorkspaceRoot(requestInteractive.WorkspacePath));
+        this._statusSink.Clear();
+        this._statusSink.WriteLine("Preparing run configuration...");
+        string normalizedInteractivePermissionMode = PermissionHandlerModes.Normalize(requestInteractive.PermissionHandlerMode);
+        this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedInteractivePermissionMode);
+        ReviewLoopAgentSelection resolvedInteractiveAgents = ResolveReviewLoopAgents(requestInteractive, this._agentsOptions);
+        this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(resolvedInteractiveAgents);
+        string resolvedInteractiveRoot = ResolveWorkspaceRoot(requestInteractive.WorkspacePath);
+        this._stateAccessors.WorkspaceRoot.SetCurrent(resolvedInteractiveRoot);
         this._modelResolver.ValidateConfiguredModelsOrThrow(requestInteractive.ModelOverrides);
-        Console.WriteLine("Contacting Copilot for intent extraction and setup summary.");
+        this._statusSink.WriteLine("Contacting Copilot for intent extraction and setup summary.");
 
         try
         {
@@ -68,18 +74,20 @@ public sealed class ConversationController
             // Non-fatal: intent extraction is advisory only for setup UX.
         }
 
+        requestInteractive = await this._summaryGenerator.PopulateRunTitleAsync(requestInteractive, cancellationToken);
+
         string summary;
         try
         {
             summary = await this._summaryGenerator.GenerateSetupSummaryAsync(requestInteractive, cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            summary = $"Copilot summary unavailable ({ex.Message}). Proceeding with provided setup values.";
+            summary = "Copilot summary unavailable. Proceeding with provided setup values.";
         }
 
-        Console.WriteLine("[Chat/Setup Confirmation]");
-        Console.WriteLine(summary);
+        this._statusSink.WriteLine("[Chat/Setup Confirmation]");
+        this._statusSink.WriteLine(summary);
 
         return (requestInteractive, summary);
     }
@@ -94,10 +102,10 @@ public sealed class ConversationController
 
         SetupDraft draft = new SetupDraft
         {
-            TaskPrompt = architectureLoopMode ? string.Empty : "Implement requested change",
+            TaskPrompt = architectureLoopMode ? string.Empty : DefaultPrompts.DEFAULT_TASK,
             WorkspacePath = Directory.GetCurrentDirectory(),
             WorkspaceMode = EXISTING_FOLDER_MODE,
-            PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
+            PermissionHandlerMode = PermissionHandlerModes.APPROVE_ALL,
             ReviewLoopCodingStyleEnabled = reviewLoopAgents.CodingStyleEnabled,
             ReviewLoopSecurityEnabled = reviewLoopAgents.SecurityEnabled,
             ReviewLoopArchitectureEnabled = reviewLoopAgents.ArchitectureEnabled,
@@ -174,7 +182,10 @@ public sealed class ConversationController
     }
 
     private static string ResolveWorkspaceRoot(string workspacePath)
-        => Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath));
+    {
+        string expandedPath = Environment.ExpandEnvironmentVariables(workspacePath);
+        return Path.GetFullPath(expandedPath);
+    }
 
     private static ReviewLoopAgentSelection ResolveReviewLoopAgents(RunRequest request, AgentsOptions agentsOptions)
         => request.ReviewLoopAgents ?? agentsOptions.GetReviewLoopAgentSelection();

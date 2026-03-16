@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Copilot;
 
 namespace ArchHarness.App.Core;
@@ -8,7 +9,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class SetupIntentExtractor
 {
-    private const string NONE_TEXT = "(none)";
+    private const string NONE_TEXT = DisplayConstants.NONE_TEXT;
 
     private readonly ICopilotClient _copilotClient;
     private readonly IModelResolver _modelResolver;

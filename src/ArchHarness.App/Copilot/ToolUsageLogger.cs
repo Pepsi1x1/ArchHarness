@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text;
 using ArchHarness.App.Core;
 using ArchHarness.App.Storage;
 using GitHub.Copilot.SDK;
@@ -53,21 +54,29 @@ public sealed class ToolUsageLogger : IToolUsageLogger
 {
     private readonly IRunContextAccessor _runContextAccessor;
     private readonly IArtefactStore _artefactStore;
+    private readonly IAgentStreamEventStream _agentStreamEventStream;
+    private readonly IAgentExecutionContextAccessor _agentExecutionContextAccessor;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ToolUsageLogger"/>.
     /// </summary>
     /// <param name="runContextAccessor">Accessor for the current run context.</param>
     /// <param name="artefactStore">The artefact store for persisting events.</param>
-    public ToolUsageLogger(IRunContextAccessor runContextAccessor, IArtefactStore artefactStore)
+    public ToolUsageLogger(
+        IRunContextAccessor runContextAccessor,
+        IArtefactStore artefactStore,
+        IAgentStreamEventStream agentStreamEventStream,
+        IAgentExecutionContextAccessor agentExecutionContextAccessor)
     {
         this._runContextAccessor = runContextAccessor;
         this._artefactStore = artefactStore;
+        this._agentStreamEventStream = agentStreamEventStream;
+        this._agentExecutionContextAccessor = agentExecutionContextAccessor;
     }
 
     /// <inheritdoc />
     public Task LogPreToolUseAsync(PreToolUseHookInput input, string decision, bool deniedByName, bool deniedByArgs)
-        => WriteAsync(new ToolUsageEvent(
+        => this.WriteAsync(new ToolUsageEvent(
             Stage: "pre",
             ToolName: input.ToolName,
             Decision: decision,
@@ -78,7 +87,7 @@ public sealed class ToolUsageLogger : IToolUsageLogger
 
     /// <inheritdoc />
     public Task LogPostToolUseAsync(PostToolUseHookInput input)
-        => WriteAsync(new ToolUsageEvent(
+        => this.WriteAsync(new ToolUsageEvent(
             Stage: "post",
             ToolName: input.ToolName,
             Decision: null,
@@ -107,6 +116,95 @@ public sealed class ToolUsageLogger : IToolUsageLogger
             toolArgs = toolEvent.ToolArgs,
             raw = toolEvent.RawInput
         }, CancellationToken.None);
+
+        this.PublishSubagentTranscriptIfAvailable(toolEvent);
+    }
+
+    private void PublishSubagentTranscriptIfAvailable(ToolUsageEvent toolEvent)
+    {
+        if (!string.Equals(toolEvent.Stage, "post", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(toolEvent.RawInput)
+            || this._agentExecutionContextAccessor.Current is not AgentExecutionContext agentContext)
+        {
+            return;
+        }
+
+        ParsedToolResult? parsed = TryParseToolResult(toolEvent.RawInput);
+        if (parsed is null
+            || !string.Equals(parsed.ToolName, "task", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(parsed.TextResultForLlm))
+        {
+            return;
+        }
+
+        string markdown = Redaction.RedactSecrets(BuildSubagentMarkdown(parsed));
+        this._agentStreamEventStream.Publish(new AgentStreamDeltaEvent(
+            DateTimeOffset.UtcNow,
+            agentContext.AgentId,
+            agentContext.AgentRole,
+            markdown,
+            ContentFormat: "markdown",
+            StreamKind: "subagent-report",
+            Title: parsed.Description ?? "Subagent report"));
+    }
+
+    private static ParsedToolResult? TryParseToolResult(string rawInput)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(rawInput);
+            JsonElement root = document.RootElement;
+            string toolName = ReadString(root, "toolName") ?? string.Empty;
+            JsonElement toolArgs = root.TryGetProperty("toolArgs", out JsonElement toolArgsElement)
+                ? toolArgsElement
+                : default;
+            JsonElement toolResult = root.TryGetProperty("toolResult", out JsonElement toolResultElement)
+                ? toolResultElement
+                : default;
+
+            return new ParsedToolResult(
+                toolName,
+                ReadString(toolArgs, "description"),
+                ReadString(toolArgs, "agent_type"),
+                ReadString(toolResult, "textResultForLlm"));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ReadString(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind == JsonValueKind.Undefined
+            || element.ValueKind == JsonValueKind.Null
+            || !element.TryGetProperty(propertyName, out JsonElement property))
+        {
+            return null;
+        }
+
+        return property.ValueKind == JsonValueKind.String ? property.GetString() : property.ToString();
+    }
+
+    private static string BuildSubagentMarkdown(ParsedToolResult parsed)
+    {
+        StringBuilder builder = new StringBuilder();
+        builder.AppendLine();
+        builder.AppendLine();
+        builder.Append("## ");
+        builder.AppendLine(string.IsNullOrWhiteSpace(parsed.Description) ? "Subagent report" : parsed.Description.Trim());
+
+        if (!string.IsNullOrWhiteSpace(parsed.AgentType))
+        {
+            builder.AppendLine();
+            builder.Append("Agent type: `");
+            builder.Append(parsed.AgentType.Trim());
+            builder.AppendLine("`");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(parsed.TextResultForLlm!.Trim());
+        return builder.ToString();
     }
 
     private static string? SafeSerialize(object input)
@@ -121,4 +219,6 @@ public sealed class ToolUsageLogger : IToolUsageLogger
             return null;
         }
     }
+
+    private sealed record ParsedToolResult(string ToolName, string? Description, string? AgentType, string? TextResultForLlm);
 }

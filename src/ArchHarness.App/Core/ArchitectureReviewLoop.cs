@@ -15,17 +15,19 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     public const string NO_PROGRESS_BLOCKED_STATUS = "blocked:no-progress-identical-findings";
     private readonly AgentsOptions _agentsOptions;
     private readonly LoopAgentDependencies _agents;
-    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
+    private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ArchitectureReviewLoop"/> class.
     /// </summary>
     /// <param name="agents">Grouped agent references needed for the review loop.</param>
-    public ArchitectureReviewLoop(LoopAgentDependencies agents, Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions, IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor)
+    /// <param name="agentsOptions">Agent configuration options.</param>
+    /// <param name="stateAccessors">Grouped async-local runtime state accessors.</param>
+    public ArchitectureReviewLoop(LoopAgentDependencies agents, Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions, RuntimeStateAccessors stateAccessors)
     {
         this._agentsOptions = agentsOptions.Value;
         this._agents = agents;
-        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
+        this._stateAccessors = stateAccessors;
     }
 
     /// <summary>
@@ -48,7 +50,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
         CancellationToken cancellationToken)
     {
         ReviewLoopAgentSelection reviewLoopAgents = request.RunRequest.ReviewLoopAgents
-            ?? this._reviewLoopAgentSelectionAccessor.Current
+            ?? this._stateAccessors.ReviewLoopAgentSelection.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
         ArchitectureReview review = request.InitialReview;
         SecurityReview securityReview = request.InitialSecurityReview;
@@ -59,9 +61,9 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
         string previousFindingsFingerprint = BuildFindingsFingerprint(review.Findings);
         string previousSecurityFindingsFingerprint = BuildSecurityFindingsFingerprint(securityReview.Findings);
 
-         while (request.IterationStrategy.ReviewRequired &&
-             (HasEnabledHighArchitectureFindings(reviewLoopAgents, review) || HasEnabledHighSecurityFindings(reviewLoopAgents, securityReview)) &&
-               iteration < request.IterationStrategy.MaxIterations)
+        while (request.IterationStrategy.ReviewRequired &&
+            (HasEnabledHighArchitectureFindings(reviewLoopAgents, review) || HasEnabledHighSecurityFindings(reviewLoopAgents, securityReview)) &&
+            iteration < request.IterationStrategy.MaxIterations)
         {
             iteration++;
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", $"Review iteration {iteration}"));
@@ -84,9 +86,12 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             if (reviewLoopAgents.CodingStyleEnabled)
             {
                 progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "CodingStyle", "Coding style enforcement prompt started", remediationPrompt));
+                string codingStyleDelegatedPrompt = request.RunRequest.ArchitectureLoopMode
+                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
+                    : remediationPrompt;
                 await this._agents.CodingStyle.EnforceAsync(
                     new StyleEnforcementRequest(
-                        DelegatedPrompt: remediationPrompt,
+                        DelegatedPrompt: codingStyleDelegatedPrompt,
                         Diff: latestDiff,
                         WorkspaceRoot: adapter.RootPath,
                         FilesTouched: currentFiles,
@@ -206,30 +211,22 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     }
 
     private static string BuildFindingsFingerprint(IReadOnlyList<ArchitectureFinding> findings)
-    {
-        if (findings.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        return string.Join(
-            "|",
-            findings
-                .Select(f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.Rationale}")
-                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
-    }
+        => BuildFingerprint(findings, f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.Rationale}");
 
     private static string BuildSecurityFindingsFingerprint(IReadOnlyList<SecurityFinding> findings)
+        => BuildFingerprint(findings, f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.OwaspCategory}::{f.Rationale}");
+
+    private static string BuildFingerprint<T>(IReadOnlyList<T> items, Func<T, string> keySelector)
     {
-        if (findings.Count == 0)
+        if (items.Count == 0)
         {
             return string.Empty;
         }
 
         return string.Join(
             "|",
-            findings
-                .Select(f => $"{f.Severity}::{f.Rule}::{f.File}::{f.Symbol}::{f.OwaspCategory}::{f.Rationale}")
+            items
+                .Select(keySelector)
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
     }
 

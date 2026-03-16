@@ -1,4 +1,5 @@
 using ArchHarness.App.Agents;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Workspace;
 
@@ -13,11 +14,9 @@ public sealed class OrchestratorRuntime
     private readonly AgentsOptions _agentsOptions;
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
-    private readonly IPermissionHandlerModeAccessor _permissionHandlerModeAccessor;
-    private readonly IReviewLoopAgentSelectionAccessor _reviewLoopAgentSelectionAccessor;
     private readonly RunInfrastructure _runInfrastructure;
     private readonly RunPhaseDependencies _runPhases;
-    private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
+    private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
@@ -26,20 +25,16 @@ public sealed class OrchestratorRuntime
         OrchestratorAgentDependencies agentDependencies,
         ICopilotClient copilotClient,
         Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions,
-        IPermissionHandlerModeAccessor permissionHandlerModeAccessor,
-        IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor,
         RunInfrastructure runInfrastructure,
         RunPhaseDependencies runPhases,
-        IWorkspaceRootAccessor workspaceRootAccessor)
+        RuntimeStateAccessors stateAccessors)
     {
         this._agentsOptions = agentsOptions.Value;
         this._agentDependencies = agentDependencies;
         this._copilotClient = copilotClient;
-        this._permissionHandlerModeAccessor = permissionHandlerModeAccessor;
-        this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
         this._runInfrastructure = runInfrastructure;
         this._runPhases = runPhases;
-        this._workspaceRootAccessor = workspaceRootAccessor;
+        this._stateAccessors = stateAccessors;
     }
 
     /// <summary>
@@ -49,6 +44,7 @@ public sealed class OrchestratorRuntime
     public async Task<RunArtefacts> RunAsync(
         RunRequest request,
         IProgress<RuntimeProgressEvent>? progress = null,
+        Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
         IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create(request.WorkspaceMode, request.WorkspacePath);
@@ -67,23 +63,27 @@ public sealed class OrchestratorRuntime
 
         string runDirectory = this._runInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
         string runId = Path.GetFileName(runDirectory);
-        this._permissionHandlerModeAccessor.SetCurrent(PermissionHandlerModes.Normalize(request.PermissionHandlerMode));
+        onRunContextEstablished?.Invoke(runId, runDirectory);
+        string normalizedPermissionMode = PermissionHandlerModes.Normalize(request.PermissionHandlerMode);
+        this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedPermissionMode);
         ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents ?? this._agentsOptions.GetReviewLoopAgentSelection();
-        this._reviewLoopAgentSelectionAccessor.SetCurrent(reviewLoopAgents);
-        this._workspaceRootAccessor.SetCurrent(adapter.RootPath);
+        this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(reviewLoopAgents);
+        this._stateAccessors.WorkspaceRoot.SetCurrent(adapter.RootPath);
         this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task sessionEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
 
         try
         {
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Run started" }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Run started" }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
                 source = "request",
                 message = "Run request received",
+                projectId = request.ProjectId,
                 taskPrompt = request.TaskPrompt,
+                runTitle = request.RunTitle,
                 workspacePath = request.WorkspacePath,
                 workspaceMode = request.WorkspaceMode,
                 workflow = request.Workflow,
@@ -102,7 +102,7 @@ public sealed class OrchestratorRuntime
                 inferred = initialBuildSelection.Inferred,
                 reason = initialBuildSelection.Reason
             }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.Orchestrator, "Run started"));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Run started"));
 
             PlanExecutionResult planResult;
             try
@@ -120,7 +120,7 @@ public sealed class OrchestratorRuntime
                 await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
                 {
                     runId,
-                    source = WellKnownSources.Orchestrator,
+                    source = WellKnownSources.ORCHESTRATOR,
                     status = "failed",
                     failureType = "parse_error",
                     stage = "planning",
@@ -175,41 +175,39 @@ public sealed class OrchestratorRuntime
                 this._agentDependencies.OrchestrationAgent.Role,
                 cancellationToken);
 
+            int securityHighCount = securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            int architectureHighCount = review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            string filesTouchedList = string.Join(", ", filesTouched);
             string summary = $"""
                 # Final Summary
                 - Completed: {completed}
                 - FrontendPlan: {frontendPlan}
-                - FilesTouched: {string.Join(", ", filesTouched)}
-                - SecurityHighFindings: {securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
-                - ArchitectureHighFindings: {review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))}
+                - FilesTouched: {filesTouchedList}
+                - SecurityHighFindings: {securityHighCount}
+                - ArchitectureHighFindings: {architectureHighCount}
                 """;
             await this._runInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
 
             string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
             IReadOnlyList<CopilotModelUsage> usage = this._copilotClient.GetUsageSnapshot();
+            object[] agentModelUsage = BuildAgentModelUsage(this._agentDependencies, request.ModelOverrides);
 
             await this._runInfrastructure.ArtifactWriter.WriteRunLogAsync(runDirectory, new
             {
                 status = completed ? "completed" : "incomplete",
+                projectId = request.ProjectId,
+                projectName = request.ProjectName,
+                runTitle = request.RunTitle,
                 request.WorkspaceMode,
                 request.Workflow,
                 request.PermissionHandlerMode,
                 modelOverrides,
-                agents = new[]
-                {
-                    new { role = "orchestration", model = this._agentDependencies.OrchestrationAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "frontend-developer", model = this._agentDependencies.FrontendDeveloperAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "backend-developer", model = this._agentDependencies.BackendDeveloperAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "build", model = this._agentDependencies.BuildAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "coding-style", model = this._agentDependencies.CodingStyleAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "security", model = this._agentDependencies.SecurityAgent.ResolveModel(request.ModelOverrides) },
-                    new { role = "architecture", model = this._agentDependencies.ArchitectureAgent.ResolveModel(request.ModelOverrides) }
-                },
+                agents = agentModelUsage,
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Run completed" }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.Orchestrator, "Run completed"));
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Run completed" }, cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Run completed"));
 
             await sessionEventCts.CancelAsync();
             await sessionEventPump;
@@ -217,12 +215,24 @@ public sealed class OrchestratorRuntime
         }
         finally
         {
-            this._permissionHandlerModeAccessor.SetCurrent(null);
-            this._reviewLoopAgentSelectionAccessor.SetCurrent(null);
+            this._stateAccessors.PermissionHandlerMode.SetCurrent(null);
+            this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(null);
             this._runInfrastructure.RunContextAccessor.SetCurrent(null);
-            this._workspaceRootAccessor.SetCurrent(null);
+            this._stateAccessors.WorkspaceRoot.SetCurrent(null);
         }
     }
+
+    private static object[] BuildAgentModelUsage(OrchestratorAgentDependencies agents, IDictionary<string, string>? overrides)
+        => new object[]
+        {
+            new { role = "orchestration", model = agents.OrchestrationAgent.ResolveModel(overrides) },
+            new { role = "frontend-developer", model = agents.FrontendDeveloperAgent.ResolveModel(overrides) },
+            new { role = "backend-developer", model = agents.BackendDeveloperAgent.ResolveModel(overrides) },
+            new { role = "build", model = agents.BuildAgent.ResolveModel(overrides) },
+            new { role = "coding-style", model = agents.CodingStyleAgent.ResolveModel(overrides) },
+            new { role = "security", model = agents.SecurityAgent.ResolveModel(overrides) },
+            new { role = "architecture", model = agents.ArchitectureAgent.ResolveModel(overrides) }
+        };
 
     /// <summary>
     /// Groups agent references needed by the orchestrator for model resolution in run logs.

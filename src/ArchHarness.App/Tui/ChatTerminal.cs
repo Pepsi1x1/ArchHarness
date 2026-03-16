@@ -8,6 +8,7 @@ namespace ArchHarness.App.Tui;
 /// rendering, and run monitoring to focused collaborators.
 /// </summary>
 public sealed class ChatTerminal
+    : IApplicationHost
 {
     private readonly OrchestratorRuntime _runtime;
     private readonly ConversationController _conversationController;
@@ -110,7 +111,7 @@ public sealed class ChatTerminal
         using CancellationTokenSource agentStreamCts = CancellationTokenSource.CreateLinkedTokenSource(runCts.Token);
         Task agentStreamTask = agentStreamState.ConsumeAsync(agentStreamCts.Token);
 
-        Task<RunArtefacts> runTask = this._runtime.RunAsync(request, progress, runCts.Token);
+        Task<RunArtefacts> runTask = this._runtime.RunAsync(request, progress, cancellationToken: runCts.Token);
         char[] spinner = new[] { '|', '/', '-', '\\' };
         int spinnerIndex = 0;
         bool liveScreenInitialized = false;

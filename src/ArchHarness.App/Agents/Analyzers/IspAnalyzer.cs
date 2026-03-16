@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -8,7 +9,7 @@ namespace ArchHarness.App.Agents.Analyzers;
 /// </summary>
 public sealed class IspAnalyzer : IArchitectureAnalyzer
 {
-    private const string SEVERITY_MEDIUM = "medium";
+    private const string SEVERITY_MEDIUM = Severities.MEDIUM;
     private const int MAX_INTERFACE_MEMBERS = 12;
 
     /// <inheritdoc />

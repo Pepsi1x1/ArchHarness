@@ -102,14 +102,14 @@ public sealed record ReviewLoopAgentSelection(bool CodingStyleEnabled, bool Secu
     /// <summary>Builds a human-readable label describing enabled review-loop agents.</summary>
     public string DescribeEnabledAgents()
     {
-        string[] enabled = GetEnabledAgentNames().ToArray();
+        string[] enabled = this.GetEnabledAgentNames().ToArray();
         return enabled.Length == 0 ? "none" : string.Join(", ", enabled);
     }
 
     /// <summary>Builds a human-readable label describing disabled review-loop agents.</summary>
     public string DescribeDisabledAgents()
     {
-        string[] disabled = GetDisabledAgentNames().ToArray();
+        string[] disabled = this.GetDisabledAgentNames().ToArray();
         return disabled.Length == 0 ? "none" : string.Join(", ", disabled);
     }
 
@@ -204,17 +204,21 @@ public sealed class AgentsOptions
     /// </summary>
     /// <param name="role">The agent role identifier.</param>
     /// <returns>The matching agent model options.</returns>
-    public AgentModelOptions ForRole(string role) => role.ToLowerInvariant() switch
+    public AgentModelOptions ForRole(string role)
     {
-        "frontend-developer" => this.FrontendDeveloper,
-        "backend-developer" => this.BackendDeveloper,
-        "build" => this.Build,
-        "coding-style" => this.CodingStyle,
-        "security" => this.Security,
-        "architecture" => this.Architecture,
-        "orchestration" => this.Orchestration,
-        _ => new AgentModelOptions()
-    };
+        string normalizedRole = role.ToLowerInvariant();
+        return normalizedRole switch
+        {
+            "frontend-developer" => this.FrontendDeveloper,
+            "backend-developer" => this.BackendDeveloper,
+            "build" => this.Build,
+            "coding-style" => this.CodingStyle,
+            "security" => this.Security,
+            "architecture" => this.Architecture,
+            "orchestration" => this.Orchestration,
+            _ => new AgentModelOptions()
+        };
+    }
 
     /// <summary>
     /// Gets the effective review-loop agent enablement derived from per-role configuration.

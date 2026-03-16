@@ -1,0 +1,50 @@
+{
+  "name": "archharness-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron desktop wrapper for the local ArchHarness web host",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "bundle:web-host": "node scripts/publish-web-host.mjs",
+    "pack:dir": "npm run bundle:web-host && electron-builder --dir",
+    "pack:mac": "npm run bundle:web-host && electron-builder --mac zip"
+  },
+  "devDependencies": {
+    "electron": "^35.7.4",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.archharness.desktop",
+    "productName": "ArchHarness",
+    "icon": "assets/icons/icon-1024.png",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "web-host-manager.js",
+      "window-manager.js",
+      "ipc-handlers.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/web-host",
+        "to": "web-host",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "icon": "assets/icons/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "zip"
+      ]
+    }
+  }
+}

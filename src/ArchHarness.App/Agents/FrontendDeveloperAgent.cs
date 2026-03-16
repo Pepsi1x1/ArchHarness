@@ -58,8 +58,8 @@ public sealed class FrontendDeveloperAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         Dictionary<string, (long Length, long LastWriteUtcTicks)> baseline = WorkspaceSnapshotHelper.CaptureSnapshot(workspace.RootPath);
-        string guidelines = IsGuidelinesDisabled ? string.Empty : LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
-        string systemPrompt = BuildSystemPrompt(guidelines, IsGuidelinesDisabled);
+        string guidelines = base.IsGuidelinesDisabled ? string.Empty : LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
+        string systemPrompt = BuildSystemPrompt(guidelines, base.IsGuidelinesDisabled);
         string promptTemplate = PromptLoader.Load("Frontend Developer", "execution.md", FRONTEND_DEVELOPER_EXECUTION_PROMPT_FALLBACK);
         string prompt = PromptLoader.Render(
             promptTemplate,

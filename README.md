@@ -1,8 +1,8 @@
 # ArchHarness
 
-ArchHarness is a .NET console application that runs a multi-agent software workflow on top of GitHub Copilot SDK sessions.
+ArchHarness is a .NET application suite that runs a multi-agent software workflow on top of GitHub Copilot SDK sessions.
 
-It provides a terminal UI for setup and monitoring, delegates work to specialized agents, runs build verification, and writes full run artifacts for review.
+It ships with a shared runtime library plus three supported hosts: a console host for the terminal-first workflow, a local ASP.NET Core web host for the browser control room, and an Electron wrapper that presents that same web UI in a native window.
 
 ## What It Does
 
@@ -20,7 +20,10 @@ It provides a terminal UI for setup and monitoring, delegates work to specialize
 
 ## Repository Layout
 
-- `src/ArchHarness.App/`: main application
+- `src/ArchHarness.App/`: shared runtime, agents, Copilot integration, storage, and TUI components
+- `src/ArchHarness.Console/`: console entry point for the existing interactive and scriptable workflow
+- `src/ArchHarness.Web/`: local ASP.NET Core host and browser-first control-room UI
+- `src/ArchHarness.Electron/`: Electron desktop wrapper that hosts the local web UI in a native window
 - `src/ArchHarness.App/Agents/`: agent implementations
 - `src/ArchHarness.App/Core/`: orchestration/runtime contracts and flow
 - `src/ArchHarness.App/Prompts/`: editable agent and orchestration prompt templates
@@ -58,7 +61,7 @@ dotnet build tests/ArchHarness.App.Tests/ArchHarness.App.Tests.csproj
 Interactive mode (recommended):
 
 ```bash
-dotnet run --project src/ArchHarness.App/ArchHarness.App.csproj
+dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj
 ```
 
 In interactive setup:
@@ -72,7 +75,7 @@ In interactive setup:
 Non-interactive mode (scriptable):
 
 ```bash
-dotnet run --project src/ArchHarness.App/ArchHarness.App.csproj -- \
+dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj -- \
 	run "Add retry logic to Copilot session creation" \
 	"C:\\path\\to\\workspace" \
 	"existing-folder" \
@@ -93,6 +96,34 @@ dotnet run --project src/ArchHarness.App/ArchHarness.App.csproj -- \
 7. `BuildCommand` (optional)
 
 If `BuildCommand` is omitted, ArchHarness infers a suitable `dotnet build` target (`.sln`/`.csproj`) when possible.
+
+Browser host:
+
+```bash
+dotnet run --project src/ArchHarness.Web/ArchHarness.Web.csproj
+```
+
+The web host boots the same runtime service graph, runs startup preflight, serves the browser-first control room, and exposes the local APIs used to configure runs, stream agent output, and inspect prior runs stored under `.agent-harness/runs` for a chosen workspace. In development it listens on `http://127.0.0.1:5057`.
+
+Electron wrapper:
+
+```bash
+cd src/ArchHarness.Electron
+npm install
+npm start
+```
+
+The Electron wrapper starts the local `ArchHarness.Web` host if it is not already running, waits for `/api/health`, and then opens the same control-room UI in a native window.
+
+To build the wrapper with a published local web host bundled into the app:
+
+```bash
+cd src/ArchHarness.Electron
+npm install
+npm run pack:mac
+```
+
+That packaging flow first runs `dotnet publish` for `ArchHarness.Web` into `src/ArchHarness.Electron/build/web-host/`, then uses `electron-builder` to produce a macOS zip bundle under `src/ArchHarness.Electron/dist/`.
 
 ## Configuration
 
@@ -169,5 +200,8 @@ If build validation fails:
 ## Development Notes
 
 - Target framework: `net10.0`
-- DI entry point: `src/ArchHarness.App/Program.cs`
+- Shared DI registration: `src/ArchHarness.App/Program.cs`
+- Console entry point: `src/ArchHarness.Console/Program.cs`
+- Web entry point: `src/ArchHarness.Web/Program.cs`
+- Electron entry point: `src/ArchHarness.Electron/main.js`
 - Main terminal flow: `src/ArchHarness.App/Tui/ChatTerminal.cs`

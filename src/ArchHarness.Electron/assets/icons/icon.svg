@@ -1,0 +1,20 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M196 774C240 564 351 365 512 230C673 365 784 564 828 774" stroke="url(#archStroke)" stroke-width="82" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M420 774V468" stroke="#F4F7FB" stroke-width="56" stroke-linecap="round"/>
+  <path d="M604 774V468" stroke="#F4F7FB" stroke-width="56" stroke-linecap="round"/>
+  <path d="M420 622H604" stroke="#F4F7FB" stroke-width="56" stroke-linecap="round"/>
+  <circle cx="787" cy="276" r="88" fill="url(#signalGlow)" opacity="0.95"/>
+  <path d="M734 276H840" stroke="#090B0F" stroke-width="24" stroke-linecap="round" opacity="0.9"/>
+  <path d="M787 223V329" stroke="#090B0F" stroke-width="24" stroke-linecap="round" opacity="0.9"/>
+  <defs>
+    <linearGradient id="archStroke" x1="233" y1="230" x2="791" y2="774" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38C7FF"/>
+      <stop offset="0.48" stop-color="#4FE08E"/>
+      <stop offset="1" stop-color="#A2FF5E"/>
+    </linearGradient>
+    <radialGradient id="signalGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(787 276) rotate(90) scale(88)">
+      <stop stop-color="#A8FF71"/>
+      <stop offset="1" stop-color="#36D76F"/>
+    </radialGradient>
+  </defs>
+</svg>

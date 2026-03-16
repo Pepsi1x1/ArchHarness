@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ArchHarness Workspace Shell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/styles.css?v=45">
+</head>
+<body>
+  <div class="page-noise"></div>
+  <main class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <h1>ArchHarness</h1>
+
+      </div>
+
+      <div class="sidebar-body">
+        <section class="sidebar-section">
+          <div id="project-list" class="project-list">No projects yet.</div>
+        </section>
+      </div>
+      <div class="sidebar-footer">
+        <button id="new-project-button" class="primary-button" type="button" style="width:100%">New Project</button>
+      </div>
+    </aside>
+
+    <section class="workspace-shell">
+      <header class="workspace-topbar">
+        <div class="topbar-copy">
+          <h2 id="workspace-title">No project selected</h2>
+        </div>
+        <button id="settings-button" class="icon-button" type="button" aria-label="Open settings">⚙</button>
+      </header>
+
+      <section class="stream-panel">
+        <div class="stream-toolbar">
+        </div>
+
+        <div id="stream-empty" class="stream-empty empty-state">
+          Start a run from the composer to stream orchestrator, agent, and subagent output here.
+        </div>
+        <div id="stream-sections" class="stream-sections"></div>
+      </section>
+
+      <section class="composer-panel panel">
+        <div id="inline-interaction" class="inline-interaction hidden"></div>
+
+        <label class="composer-field">
+          <span class="sr-only">Prompt</span>
+          <textarea id="task-prompt" rows="4" placeholder="Describe the change or review you want ArchHarness to run."></textarea>
+        </label>
+
+        <div class="composer-toolbar">
+          <div class="composer-toolbar-options">
+            <span class="toolbar-select-wrap">
+              <select id="run-mode" class="toolbar-select">
+                <option value="standard">Standard</option>
+                <option value="architecture-review">Architecture Review</option>
+              </select>
+              <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+            </span>
+            <span id="architecture-review-chip" class="hidden">
+              <span class="toolbar-select-wrap">
+                <select id="architecture-review-preset" class="toolbar-select">
+                  <option value="focused-review">Focused Review</option>
+                  <option value="full-review">Full Workspace Review</option>
+                </select>
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+              </span>
+            </span>
+            <span class="toolbar-select-wrap">
+              <select id="permission-mode" class="toolbar-select"></select>
+              <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+            </span>
+          </div>
+          <div class="composer-toolbar-actions">
+            <button id="cancel-run" class="ghost-button small-button" type="button">Stop</button>
+            <button id="start-run" class="primary-button small-button" type="button">Send</button>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div id="modal-backdrop" class="modal-backdrop hidden"></div>
+
+  <section id="new-project-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card panel">
+      <div class="section-header modal-header">
+        <h2>Create Project</h2>
+        <button data-close-modal="new-project-modal" class="icon-button" type="button" aria-label="Close new project">✕</button>
+      </div>
+
+      <form id="new-project-form" class="modal-form">
+        <label class="field">
+          <span>Display Name</span>
+          <input id="new-project-name" type="text" placeholder="Project display name">
+        </label>
+
+        <div class="field">
+          <span>Workspace Path</span>
+          <div class="path-row">
+            <input id="new-project-path" type="text" placeholder="/path/to/workspace">
+            <button id="pick-project-folder" class="ghost-button small-button" type="button">Browse</button>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Permission Mode</span>
+          <select id="new-project-permission"></select>
+        </label>
+
+        <label class="chip-toggle modal-toggle">
+          <input id="new-project-architecture" type="checkbox">
+          <span>Default to architecture review mode</span>
+        </label>
+
+        <label class="field">
+          <span>Architecture Prompt</span>
+          <input id="new-project-architecture-prompt" type="text" placeholder="Optional architecture review prompt">
+        </label>
+
+        <p id="project-picker-note" class="modal-note">Browser host uses manual path entry today. Electron-native folder picking is the next wrapper slice.</p>
+        <div class="button-row end-row">
+          <button data-close-modal="new-project-modal" class="ghost-button" type="button">Cancel</button>
+          <button id="create-project-button" class="primary-button" type="submit">Create Project</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="settings-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card panel large-modal">
+      <div class="section-header modal-header">
+        <h2>Settings</h2>
+        <button data-close-modal="settings-modal" class="icon-button" type="button" aria-label="Close settings">✕</button>
+      </div>
+
+      <form id="settings-form" class="modal-form">
+        <div id="settings-grid" class="settings-grid"></div>
+
+        <div class="modal-grid">
+          <label class="field">
+            <span>Default Permission Mode</span>
+            <select id="settings-permission-mode"></select>
+          </label>
+
+          <label class="chip-toggle modal-toggle">
+            <input id="settings-architecture-mode" type="checkbox">
+            <span>Default to architecture review mode</span>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>Default Architecture Prompt</span>
+          <input id="settings-architecture-prompt" type="text" placeholder="Optional default architecture prompt">
+        </label>
+
+        <div class="button-row end-row">
+          <button data-close-modal="settings-modal" class="ghost-button" type="button">Close</button>
+          <button id="save-settings-button" class="primary-button" type="submit">Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="run-details-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card panel large-modal">
+      <div class="section-header modal-header">
+        <h2 id="run-details-title">Run Output</h2>
+        <button data-close-modal="run-details-modal" class="icon-button" type="button" aria-label="Close run details">✕</button>
+      </div>
+
+      <div class="run-details-layout">
+        <aside>
+          <div id="artifact-list" class="artifact-list empty-state">Choose a run to load artifacts.</div>
+        </aside>
+        <section>
+          <p id="artifact-summary" class="modal-note">Artifact previews appear here.</p>
+          <pre id="artifact-preview" class="artifact-preview">Artifact previews appear here.</pre>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <template id="project-template">
+    <article class="project-card">
+      <button class="project-main" type="button">
+        <span class="project-chevron"><i class="fa-solid fa-chevron-right"></i></span>
+        <div class="project-main-copy">
+          <strong class="project-title"></strong>
+          <span class="project-meta"></span>
+        </div>
+      </button>
+      <div class="project-runs"></div>
+    </article>
+  </template>
+
+  <template id="run-template">
+    <div class="run-row">
+      <button class="run-link" type="button">
+        <span class="run-dot hidden"></span>
+        <strong class="run-title"></strong>
+        <span class="run-time"></span>
+      </button>
+      <button class="run-menu-button" type="button" aria-label="Open run details">⋯</button>
+    </div>
+  </template>
+
+  <template id="artifact-template">
+    <button class="artifact-item" type="button">
+      <strong class="artifact-item-title"></strong>
+      <span class="artifact-item-kind"></span>
+      <span class="artifact-item-description"></span>
+    </button>
+  </template>
+
+  <script src="/app.js?v=30" defer></script>
+</body>
+</html>

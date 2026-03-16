@@ -1,17 +1,6 @@
 namespace ArchHarness.App.Core;
 
 /// <summary>
-/// Well-known event source identifiers used across orchestration components.
-/// </summary>
-internal static class WellKnownSources
-{
-    /// <summary>
-    /// The event source identifier for the orchestrator.
-    /// </summary>
-    public const string Orchestrator = "orchestrator";
-}
-
-/// <summary>
 /// Represents an incoming request to execute an orchestrated run.
 /// </summary>
 /// <param name="TaskPrompt">The user-supplied task description that drives planning and execution.</param>
@@ -25,6 +14,8 @@ internal static class WellKnownSources
 /// <param name="ReviewLoopAgents">Optional per-run review-loop agent selection override.</param>
 /// <param name="ArchitectureLoopMode">When true, enables iterative architecture review over the entire workspace.</param>
 /// <param name="ArchitectureLoopPrompt">Optional supplementary prompt applied during architecture loop iterations.</param>
+/// <param name="ProjectId">Optional stable project identifier associated with the run workspace.</param>
+/// <param name="RunTitle">Optional human-friendly title for the run.</param>
 public sealed record RunRequest(
     string TaskPrompt,
     string WorkspacePath,
@@ -33,10 +24,12 @@ public sealed record RunRequest(
     string? ProjectName,
     IDictionary<string, string>? ModelOverrides,
     string? BuildCommand,
-    string PermissionHandlerMode = PermissionHandlerModes.ApproveAll,
+    string PermissionHandlerMode = PermissionHandlerModes.APPROVE_ALL,
     ReviewLoopAgentSelection? ReviewLoopAgents = null,
     bool ArchitectureLoopMode = false,
-    string? ArchitectureLoopPrompt = null
+    string? ArchitectureLoopPrompt = null,
+    string? ProjectId = null,
+    string? RunTitle = null
 );
 
 /// <summary>
@@ -223,8 +216,14 @@ public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string So
 /// <param name="AgentId">The unique identifier of the agent that produced this delta.</param>
 /// <param name="AgentRole">The role of the agent (e.g., "backend-developer", "architecture").</param>
 /// <param name="DeltaContent">The incremental content fragment.</param>
+/// <param name="ContentFormat">The content format, typically <c>text</c> or <c>markdown</c>.</param>
+/// <param name="StreamKind">The stream subtype, such as <c>assistant</c> or <c>subagent-report</c>.</param>
+/// <param name="Title">Optional title associated with the delta payload.</param>
 public sealed record AgentStreamDeltaEvent(
     DateTimeOffset TimestampUtc,
     string AgentId,
     string AgentRole,
-    string DeltaContent);
+    string DeltaContent,
+    string ContentFormat = "text",
+    string StreamKind = "assistant",
+    string? Title = null);

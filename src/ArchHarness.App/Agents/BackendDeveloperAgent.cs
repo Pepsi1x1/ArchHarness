@@ -70,7 +70,7 @@ public sealed class BackendDeveloperAgent : AgentBase
         }
 
         string generationPrompt = BuildGenerationPrompt(workspace, objective, requiredActions);
-        string systemPrompt = BuildSystemPrompt(IsGuidelinesDisabled);
+        string systemPrompt = BuildSystemPrompt(base.IsGuidelinesDisabled);
         CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,

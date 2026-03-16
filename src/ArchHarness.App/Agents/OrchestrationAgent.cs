@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
 using Microsoft.Extensions.Options;
@@ -10,7 +11,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class OrchestrationAgent : AgentBase
 {
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
 
     private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK = """
         You are the orchestration planner.

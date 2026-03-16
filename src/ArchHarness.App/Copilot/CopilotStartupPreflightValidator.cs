@@ -177,7 +177,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
             await using GitHub.Copilot.SDK.CopilotClient client = new GitHub.Copilot.SDK.CopilotClient(clientOptions);
             await client.StartAsync();
             await client.PingAsync("archharness-preflight");
-            await RefreshDiscoveredModelsWithAuthGuardAsync(client);
+            await this.RefreshDiscoveredModelsWithAuthGuardAsync(client);
             return new PreflightValidationResult(true, "Copilot SDK ping succeeded.", Array.Empty<string>());
         }
         catch (Exception ex)
@@ -217,18 +217,26 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
         try
         {
             List<ModelInfo> discovered = await client.ListModelsAsync();
-            string?[] names = discovered
-                .Select(m =>
-                    m.GetType().GetProperty("Id")?.GetValue(m)?.ToString()
-                    ?? m.GetType().GetProperty("Name")?.GetValue(m)?.ToString()
-                    ?? m.ToString())
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+            DiscoveredModel[] models = discovered
+                .Select(model =>
+                {
+                    string? id = model.Id
+                        ?? model.Name
+                        ?? model.ToString();
+
+                    if (string.IsNullOrWhiteSpace(id))
+                    {
+                        return null;
+                    }
+
+                    return new DiscoveredModel(id, model.Billing?.Multiplier, model.Name);
+                })
+                .OfType<DiscoveredModel>()
                 .ToArray();
 
-            if (names.Length > 0)
+            if (models.Length > 0)
             {
-                this._catalog.ReplaceModels(names!);
+                this._catalog.ReplaceModels(models);
             }
         }
         catch (Exception ex)

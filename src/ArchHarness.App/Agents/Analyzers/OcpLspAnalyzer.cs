@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -10,7 +11,7 @@ namespace ArchHarness.App.Agents.Analyzers;
 /// </summary>
 public sealed class OcpLspAnalyzer : IArchitectureAnalyzer
 {
-    private const string SEVERITY_MEDIUM = "medium";
+    private const string SEVERITY_MEDIUM = Severities.MEDIUM;
     private const int MAX_SWITCH_SECTIONS = 6;
 
     /// <inheritdoc />

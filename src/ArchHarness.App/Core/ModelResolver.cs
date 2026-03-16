@@ -1,4 +1,5 @@
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Storage;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Core;
@@ -37,10 +38,9 @@ public interface IModelResolver
 /// </summary>
 public sealed class ModelResolver : IModelResolver
 {
-    private readonly AgentsOptions _agents;
-    private readonly string _conversationModel;
     private readonly string _cliPath;
     private readonly IDiscoveredModelCatalog _catalog;
+    private readonly IGlobalSettingsCatalog _settingsCatalog;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ModelResolver"/>.
@@ -51,19 +51,21 @@ public sealed class ModelResolver : IModelResolver
     public ModelResolver(
         IOptions<AgentsOptions> agentOptions,
         IOptions<CopilotOptions> copilotOptions,
-        IDiscoveredModelCatalog catalog)
+        IDiscoveredModelCatalog catalog,
+        IGlobalSettingsCatalog settingsCatalog)
     {
-        this._agents = agentOptions.Value;
-        this._conversationModel = copilotOptions.Value.ConversationModel;
         this._cliPath = string.IsNullOrWhiteSpace(copilotOptions.Value.CliPath)
             ? "copilot"
             : copilotOptions.Value.CliPath;
         this._catalog = catalog;
+        this._settingsCatalog = settingsCatalog;
     }
 
     /// <inheritdoc />
     public IReadOnlyCollection<string> SupportedModels
-        => this._catalog.HasModels ? this._catalog.GetModels() : Array.Empty<string>();
+        => this._catalog.HasModels
+            ? this._catalog.GetModels().Select(model => model.Id).ToArray()
+            : Array.Empty<string>();
 
     /// <inheritdoc />
     public string Resolve(string role, IDictionary<string, string>? overrides)
@@ -74,16 +76,18 @@ public sealed class ModelResolver : IModelResolver
             return overrideModel;
         }
 
+        PersistedGlobalSettings settings = this._settingsCatalog.GetSettings();
+
         string model = role.ToLowerInvariant() switch
         {
-            "orchestration" => this._agents.Orchestration.Model,
-            "frontend-developer" => this._agents.FrontendDeveloper.Model,
-            "backend-developer" => this._agents.BackendDeveloper.Model,
-            "build" => this._agents.Build.Model,
-            "coding-style" => this._agents.CodingStyle.Model,
-            "security" => this._agents.Security.Model,
-            "architecture" => this._agents.Architecture.Model,
-            "conversation" => this._conversationModel,
+            "orchestration" => settings.OrchestrationModel,
+            "frontend-developer" => settings.FrontendDeveloperModel,
+            "backend-developer" => settings.BackendDeveloperModel,
+            "build" => settings.BuildModel,
+            "coding-style" => settings.CodingStyleModel,
+            "security" => settings.SecurityModel,
+            "architecture" => settings.ArchitectureModel,
+            "conversation" => settings.ConversationModel,
             _ => throw new ArgumentOutOfRangeException(nameof(role), $"Unsupported role: {role}")
         };
 
@@ -141,14 +145,22 @@ public sealed class ModelResolver : IModelResolver
 
     private IEnumerable<(string Label, string Model)> GetConfiguredModels(IDictionary<string, string>? overrides)
     {
-        yield return ("conversation", this._conversationModel);
-        yield return ("orchestration", this._agents.Orchestration.Model);
-        yield return ("frontend-developer", this._agents.FrontendDeveloper.Model);
-        yield return ("backend-developer", this._agents.BackendDeveloper.Model);
-        yield return ("build", this._agents.Build.Model);
-        yield return ("coding-style", this._agents.CodingStyle.Model);
-        yield return ("security", this._agents.Security.Model);
-        yield return ("architecture", this._agents.Architecture.Model);
+        PersistedGlobalSettings settings = this._settingsCatalog.GetSettings();
+        foreach (string role in new[] { "conversation", "orchestration", "frontend-developer", "backend-developer", "build", "coding-style", "security", "architecture" })
+        {
+            yield return (role, role switch
+            {
+                "conversation" => settings.ConversationModel,
+                "orchestration" => settings.OrchestrationModel,
+                "frontend-developer" => settings.FrontendDeveloperModel,
+                "backend-developer" => settings.BackendDeveloperModel,
+                "build" => settings.BuildModel,
+                "coding-style" => settings.CodingStyleModel,
+                "security" => settings.SecurityModel,
+                "architecture" => settings.ArchitectureModel,
+                _ => string.Empty
+            });
+        }
 
         if (overrides is null)
         {

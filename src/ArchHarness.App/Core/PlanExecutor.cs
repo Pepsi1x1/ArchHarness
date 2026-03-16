@@ -1,4 +1,5 @@
 using ArchHarness.App.Agents;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Workspace;
 
 namespace ArchHarness.App.Core;
@@ -66,7 +67,7 @@ public sealed class PlanExecutor : IPlanExecutor
             this._orchestrationAgent.Role,
             cancellationToken);
 
-        await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.Orchestrator, message = "Execution plan built" }, cancellationToken);
+        await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Execution plan built" }, cancellationToken);
         await this._artifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
 
         AgentStepExecutor.StepExecutionResult stepResult = await this._agentStepExecutor.ExecuteAsync(

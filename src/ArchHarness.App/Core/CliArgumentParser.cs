@@ -1,11 +1,13 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
 /// Parses CLI arguments and override strings into RunRequest components.
 /// </summary>
-internal static class CliArgumentParser
+public static class CliArgumentParser
 {
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation.";
+    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
 
     /// <summary>
     /// Attempts to parse CLI arguments into a RunRequest. Returns null when arguments
@@ -74,7 +76,7 @@ internal static class CliArgumentParser
             ProjectName: args.Length >= 5 ? args[4] : null,
             ModelOverrides: args.Length >= 6 ? ParseOverrides(args[5]) : null,
             BuildCommand: args.Length >= 7 ? args[6] : null,
-            PermissionHandlerMode: PermissionHandlerModes.ApproveAll,
+            PermissionHandlerMode: PermissionHandlerModes.APPROVE_ALL,
             ArchitectureLoopMode: true,
             ArchitectureLoopPrompt: architectureLoopPrompt);
 
@@ -111,7 +113,7 @@ internal static class CliArgumentParser
             ProjectName: args.Length >= 6 ? args[5] : null,
             ModelOverrides: args.Length >= 7 ? ParseOverrides(args[6]) : null,
             BuildCommand: args.Length >= 8 ? args[7] : null,
-            PermissionHandlerMode: PermissionHandlerModes.ApproveAll,
+            PermissionHandlerMode: PermissionHandlerModes.APPROVE_ALL,
             ArchitectureLoopMode: forceLoopWorkflow,
             ArchitectureLoopPrompt: architectureLoopPrompt);
 
@@ -141,7 +143,13 @@ internal static class CliArgumentParser
     /// </summary>
     /// <param name="overrideText">The override text to parse.</param>
     /// <returns>A dictionary of overrides, or null if empty.</returns>
-    internal static IDictionary<string, string>? ParseOverrides(string? overrideText)
+    /// <summary>
+    /// Parses a comma-separated "role=model" override string into a dictionary.
+    /// Shared by CLI argument parsing and Desktop setup form building.
+    /// </summary>
+    /// <param name="overrideText">The override text to parse.</param>
+    /// <returns>A dictionary of overrides, or null if empty.</returns>
+    public static IDictionary<string, string>? ParseOverrides(string? overrideText)
     {
         if (string.IsNullOrWhiteSpace(overrideText))
         {

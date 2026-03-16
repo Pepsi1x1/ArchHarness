@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -5,9 +7,9 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class SetupNavigator
 {
-    private const string EXISTING_FOLDER_MODE = "existing-folder";
-    private const string NEW_PROJECT_MODE = "new-project";
-    private const string EXISTING_GIT_MODE = "existing-git";
+    private const string EXISTING_FOLDER_MODE = WorkspaceModes.EXISTING_FOLDER;
+    private const string NEW_PROJECT_MODE = WorkspaceModes.NEW_PROJECT;
+    private const string EXISTING_GIT_MODE = WorkspaceModes.EXISTING_GIT;
 
     /// <summary>
     /// Attempts to handle an up/down arrow navigation key, skipping non-interactive fields.
