@@ -43,6 +43,8 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         await this._runGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (this._snapshot.IsRunning)
             {
                 throw new InvalidOperationException("A run is already active in the local web host.");
