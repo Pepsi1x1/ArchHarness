@@ -1122,7 +1122,7 @@ function formatRunTimestamp(runId) {
 }
 
 function summarizeWorkspacePath(path) {
-  const normalized = String(path || "").replaceAll("\\", "/").replaceAll(/\/$/, "");
+  const normalized = String(path || "").replaceAll("\\", "/").replace(/\/$/, "");
   if (!normalized) {
     return "No workspace path";
   }
