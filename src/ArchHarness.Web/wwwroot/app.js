@@ -3350,7 +3350,6 @@ function prSummaryLabel(pr) {
 function renderProviderPicker() {
   const list = document.getElementById("review-pr-provider-list");
   list.replaceChildren();
-  const nextBtn = document.getElementById("review-pr-next-button");
 
   reviewPrState.providers.forEach(provider => {
     const btn = document.createElement("button");
@@ -3362,10 +3361,15 @@ function renderProviderPicker() {
     btn.classList.toggle("selected", provider === reviewPrState.selectedProvider);
 
     btn.addEventListener("click", () => {
+      if (reviewPrState.selectedProvider === provider && reviewPrState.step !== 0) {
+        return;
+      }
+
       reviewPrState.selectedProvider = provider;
       list.querySelectorAll(".provider-picker-item").forEach(b => b.classList.remove("selected"));
       btn.classList.add("selected");
-      if (nextBtn) nextBtn.disabled = false;
+      showReviewPrStep(1);
+      void loadPullRequests();
     });
 
     list.append(btn);
