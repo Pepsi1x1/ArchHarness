@@ -1,7 +1,12 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Text;
 using System.Text.Json;
+using System.Security.Cryptography;
+using ArchHarness.App;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Tests.TestHelpers;
 using ArchHarness.Web.Services;
@@ -15,12 +20,53 @@ namespace ArchHarness.App.Tests.Web;
 public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _tempRoot = TempWorkspaceHelper.CreateTempWorkspace();
+    private readonly TestPersonalAccessTokenProtector _personalAccessTokenProtector = new TestPersonalAccessTokenProtector();
+    private Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> _azureDevOpsResponseFactory = static (_, _) => new HttpResponseMessage(HttpStatusCode.NotImplemented)
+    {
+        Content = new StringContent("Azure DevOps test response not configured.", Encoding.UTF8, "text/plain")
+    };
+    private Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> _gitHubResponseFactory = static (_, _) => new HttpResponseMessage(HttpStatusCode.NotImplemented)
+    {
+        Content = new StringContent("GitHub test response not configured.", Encoding.UTF8, "text/plain")
+    };
 
     public string CreateWorkspace(string directoryName)
     {
         string path = Path.Combine(this._tempRoot, directoryName);
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    public void ConfigureAzureDevOpsResponse(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responseFactory)
+    {
+        this._azureDevOpsResponseFactory = responseFactory;
+    }
+
+    public void ConfigureGitHubResponse(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responseFactory)
+    {
+        this._gitHubResponseFactory = responseFactory;
+    }
+
+    public void SeedGlobalSettings(PersistedGlobalSettings settings)
+    {
+        File.WriteAllText(Path.Combine(this._tempRoot, "settings.json"), JsonSerializer.Serialize(settings, JsonDefaults.WEB_INDENTED));
+    }
+
+    public void SeedProviderConnections(params ProviderConnectionSettings[] providers)
+    {
+        FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
+            Path.Combine(this._tempRoot, "providers.json"),
+            this._personalAccessTokenProtector);
+
+        foreach (ProviderConnectionSettings provider in providers)
+        {
+            catalog.SaveProvider(provider);
+        }
+    }
+
+    public void SetSecureTokenStorageAvailable(bool canProtect)
+    {
+        this._personalAccessTokenProtector.CanProtectTokens = canProtect;
     }
 
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
@@ -30,8 +76,14 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<IProjectWorkspaceCatalog>();
             services.RemoveAll<IGlobalSettingsCatalog>();
+            services.RemoveAll<IProviderConnectionCatalog>();
+            services.RemoveAll<IPersonalAccessTokenProtector>();
+            services.RemoveAll<ISourceControlProviderService>();
             services.RemoveAll<IDiscoveredModelCatalog>();
             services.RemoveAll<IWebRunSessionManager>();
+            services.RemoveAll<AzureDevOpsSourceControlService>();
+            services.RemoveAll<GitHubSourceControlService>();
+            services.RemoveAll<SourceControlProviderFactory>();
 
             AgentsOptions agentsOptions = new AgentsOptions
             {
@@ -48,7 +100,12 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<IGlobalSettingsCatalog>(_ => new FileSystemGlobalSettingsCatalog(
                 Path.Combine(this._tempRoot, "settings.json"),
                 agentsOptions,
-                copilotOptions));
+                copilotOptions,
+                this._personalAccessTokenProtector));
+            services.AddSingleton<IPersonalAccessTokenProtector>(this._personalAccessTokenProtector);
+            services.AddSingleton<IProviderConnectionCatalog>(_ => new FileSystemProviderConnectionCatalog(
+                Path.Combine(this._tempRoot, "providers.json"),
+                this._personalAccessTokenProtector));
             services.AddSingleton<IProjectWorkspaceCatalog>(_ => new FileSystemProjectWorkspaceCatalog(
                 Path.Combine(this._tempRoot, "projects.json")));
             services.AddSingleton<IDiscoveredModelCatalog>(_ =>
@@ -62,10 +119,16 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
                     new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
                     new DiscoveredModel("gpt-4.1", 1, "GPT-4.1"),
                     new DiscoveredModel("gpt-5.3-codex", 1, "GPT-5.3 Codex")
-                });
+            });
                 return catalog;
             });
             services.AddSingleton<IWebRunSessionManager, FakeWebRunSessionManager>();
+            services.AddHttpClient<AzureDevOpsSourceControlService>()
+                .ConfigurePrimaryHttpMessageHandler(() => new StubHttpMessageHandler(this._azureDevOpsResponseFactory));
+            services.AddHttpClient<GitHubSourceControlService>()
+                .ConfigurePrimaryHttpMessageHandler(() => new StubHttpMessageHandler(this._gitHubResponseFactory));
+            services.AddSingleton<SourceControlProviderFactory>();
+            services.AddSingleton<ISourceControlProviderService, SourceControlProviderService>();
         });
     }
 
@@ -113,6 +176,38 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             }
 
             await Task.CompletedTask;
+        }
+    }
+
+    private sealed class TestPersonalAccessTokenProtector : IPersonalAccessTokenProtector
+    {
+        public bool CanProtectTokens { get; set; } = true;
+
+        public bool CanProtect => this.CanProtectTokens;
+
+        public string? UnavailableReason => this.CanProtectTokens
+            ? null
+            : "Secure token storage is not available in this test instance. Storing the token will write it to disk in plain text.";
+
+        public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+        {
+            if (!this.CanProtectTokens)
+            {
+                throw new PlatformNotSupportedException(this.UnavailableReason);
+            }
+
+            return Convert.ToBase64String(Encoding.UTF8.GetBytes($"protected::{personalAccessToken}"));
+        }
+
+        public string Unprotect(string protectedPersonalAccessToken)
+        {
+            string value = Encoding.UTF8.GetString(Convert.FromBase64String(protectedPersonalAccessToken));
+            if (!value.StartsWith("protected::", StringComparison.Ordinal))
+            {
+                throw new CryptographicException("Invalid protected token.");
+            }
+
+            return value["protected::".Length..];
         }
     }
 }

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/styles.css?v=45">
+  <link rel="stylesheet" href="/styles.css?v=46">
 </head>
 <body>
   <div class="page-noise"></div>
@@ -25,7 +25,8 @@
         </section>
       </div>
       <div class="sidebar-footer">
-        <button id="new-project-button" class="primary-button" type="button" style="width:100%">New Project</button>
+        <button id="new-project-button" class="primary-button" type="button">New Project</button>
+        <button id="review-pr-button" class="secondary-button" type="button">Review PR</button>
       </div>
     </aside>
 
@@ -141,25 +142,106 @@
         <button data-close-modal="settings-modal" class="icon-button" type="button" aria-label="Close settings">✕</button>
       </div>
 
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab active" data-tab="agent-settings" type="button" role="tab" aria-selected="true">Agent Settings</button>
+        <button class="settings-tab" data-tab="source-control-providers" type="button" role="tab" aria-selected="false">Source Control Providers</button>
+      </div>
+
       <form id="settings-form" class="modal-form">
-        <div id="settings-grid" class="settings-grid"></div>
+        <div id="settings-tab-agent" class="settings-tab-panel">
+          <div id="settings-grid" class="settings-grid"></div>
 
-        <div class="modal-grid">
+          <div class="modal-grid">
+            <label class="field">
+              <span>Default Permission Mode</span>
+              <select id="settings-permission-mode"></select>
+            </label>
+
+            <label class="chip-toggle modal-toggle">
+              <input id="settings-architecture-mode" type="checkbox">
+              <span>Default to architecture review mode</span>
+            </label>
+          </div>
+
           <label class="field">
-            <span>Default Permission Mode</span>
-            <select id="settings-permission-mode"></select>
-          </label>
-
-          <label class="chip-toggle modal-toggle">
-            <input id="settings-architecture-mode" type="checkbox">
-            <span>Default to architecture review mode</span>
+            <span>Default Architecture Prompt</span>
+            <input id="settings-architecture-prompt" type="text" placeholder="Optional default architecture prompt">
           </label>
         </div>
 
-        <label class="field">
-          <span>Default Architecture Prompt</span>
-          <input id="settings-architecture-prompt" type="text" placeholder="Optional default architecture prompt">
-        </label>
+        <div id="settings-tab-providers" class="settings-tab-panel hidden">
+          <div class="settings-section-header">
+            <h3 class="settings-section-heading">Source Control Providers</h3>
+            <button id="btn-add-provider" class="ghost-button small-button" type="button">Add Provider</button>
+          </div>
+
+          <div id="provider-list" class="provider-list">
+            <p class="provider-list-empty">No providers configured.</p>
+          </div>
+
+          <div id="provider-setup" class="provider-setup hidden">
+            <div class="source-control-provider-cards">
+              <label class="provider-card">
+                <input type="radio" name="pf-type" value="ado-server" class="sr-only">
+                <strong>Azure DevOps Server</strong>
+                <small class="provider-card-sub">(On-Premises)</small>
+                <span class="provider-card-desc">Connect to a self-hosted Azure DevOps Server instance.</span>
+              </label>
+              <label class="provider-card">
+                <input type="radio" name="pf-type" value="ado-services" class="sr-only">
+                <strong>Azure DevOps Services</strong>
+                <small class="provider-card-sub">(Cloud)</small>
+                <span class="provider-card-desc">Connect to Azure DevOps at dev.azure.com.</span>
+              </label>
+              <label class="provider-card">
+                <input type="radio" name="pf-type" value="github" class="sr-only">
+                <strong>GitHub</strong>
+                <small class="provider-card-sub">&nbsp;</small>
+                <span class="provider-card-desc">Connect to a GitHub repository.</span>
+              </label>
+            </div>
+
+            <div class="provider-setup-fields">
+              <label class="field">
+                <span>Display Name</span>
+                <input id="pf-display-name" type="text" placeholder="e.g. My ADO Server" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false">
+              </label>
+
+              <label id="pf-server-url-wrap" class="field hidden">
+                <span>Server URL</span>
+                <input id="pf-server-url" type="url" placeholder="https://tfs.mycompany.com" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false">
+              </label>
+
+              <label id="pf-org-wrap" class="field hidden">
+                <span id="pf-org-label">Organization</span>
+                <input id="pf-org" type="text" placeholder="" maxlength="128" autocomplete="off" autocapitalize="off" spellcheck="false">
+              </label>
+
+              <div id="pf-pat-wrap" class="field hidden">
+                <span>Personal Access Token</span>
+                <div class="pat-input-row">
+                  <input id="pf-pat" type="password" placeholder="" autocomplete="off" autocapitalize="off" spellcheck="false">
+                  <button id="pf-pat-toggle" class="icon-button small-button" type="button" aria-label="Show token" aria-pressed="false">
+                    <i class="fa-solid fa-eye" id="pf-pat-toggle-icon" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <span id="pf-pat-hint" class="field-hint"></span>
+              </div>
+            </div>
+
+            <div class="button-row sc-action-row">
+              <button id="btn-test-provider" class="ghost-button small-button" type="button">Test Connection</button>
+              <div id="provider-test-status" class="sc-status" aria-live="polite"></div>
+            </div>
+
+            <div class="button-row end-row">
+              <button id="btn-cancel-provider" class="ghost-button small-button" type="button">Cancel</button>
+              <button id="btn-save-provider" class="primary-button small-button" type="button">Save Provider</button>
+            </div>
+          </div>
+        </div>
+
+        <hr class="settings-divider">
 
         <div class="button-row end-row">
           <button data-close-modal="settings-modal" class="ghost-button" type="button">Close</button>
@@ -220,6 +302,76 @@
     </button>
   </template>
 
-  <script src="/app.js?v=30" defer></script>
+  <div id="review-pr-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content panel">
+      <div class="section-header modal-header">
+        <h2 id="review-pr-modal-title">Review PR</h2>
+        <button id="review-pr-close-button" class="icon-button" type="button" aria-label="Close review PR">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="review-pr-step-provider" class="review-pr-step hidden">
+          <p class="form-hint">Select a source control provider to browse pull requests.</p>
+          <div id="review-pr-provider-list" class="provider-picker-list"></div>
+        </div>
+
+        <div id="review-pr-step-list" class="review-pr-step hidden">
+          <div class="filter-row">
+            <div class="filter-group">
+              <div class="filter-group-header">
+                <span id="pr-filter-project-label">Projects</span>
+                <button id="pr-filter-project-clear" class="filter-clear-button" type="button">Clear</button>
+              </div>
+              <div id="pr-filter-project" class="filter-chip-list" aria-labelledby="pr-filter-project-label"></div>
+            </div>
+            <div class="filter-group">
+              <div class="filter-group-header">
+                <span id="pr-filter-repo-label">Repositories</span>
+                <button id="pr-filter-repo-clear" class="filter-clear-button" type="button">Clear</button>
+              </div>
+              <div id="pr-filter-repo" class="filter-chip-list" aria-labelledby="pr-filter-repo-label"></div>
+            </div>
+            <div class="filter-group">
+              <div class="filter-group-header">
+                <span id="pr-filter-author-label">Authors</span>
+                <button id="pr-filter-author-clear" class="filter-clear-button" type="button">Clear</button>
+              </div>
+              <div id="pr-filter-author" class="filter-chip-list" aria-labelledby="pr-filter-author-label"></div>
+            </div>
+          </div>
+          <p class="form-hint">Options appear as pull requests load. Click a value to toggle it on or off.</p>
+          <div id="review-pr-list-container" class="pr-list-container">
+            <div id="review-pr-list-loading" class="hidden">Loading…</div>
+            <div id="review-pr-list-error" class="hidden"></div>
+            <div id="review-pr-list-empty" class="hidden">No pull requests found.</div>
+            <ul id="review-pr-list" class="pr-list"></ul>
+          </div>
+        </div>
+
+        <div id="review-pr-step-folder" class="review-pr-step hidden">
+          <div id="review-pr-selected-pr-summary" class="pr-selected-summary"></div>
+          <div class="form-group">
+            <label for="review-pr-folder-path">Local Working Folder</label>
+            <p class="form-hint">Enter the path to the local folder where the PR branch is checked out.</p>
+            <input type="text" id="review-pr-folder-path" class="form-input" placeholder="/path/to/folder" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+        </div>
+
+        <div id="review-pr-step-confirm" class="review-pr-step hidden">
+          <div id="review-pr-confirm-summary" class="pr-confirm-summary"></div>
+          <p>Files changed in this pull request:</p>
+          <ul id="review-pr-file-list" class="pr-file-list"></ul>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="review-pr-back-button" class="secondary-button hidden" type="button">Back</button>
+        <button id="review-pr-next-button" class="primary-button" type="button">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js?v=31" defer></script>
 </body>
 </html>

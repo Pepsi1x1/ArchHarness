@@ -20,6 +20,9 @@ class WindowManager {
   }
 
   createMainWindow(loadUrl) {
+    const isMac = process.platform === "darwin";
+    const isWindows = process.platform === "win32";
+
     this.#mainWindow = new BrowserWindow({
       width: 1600,
       height: 1040,
@@ -27,8 +30,22 @@ class WindowManager {
       minHeight: 800,
       autoHideMenuBar: true,
       backgroundColor: "#08121c",
-      titleBarStyle: "hiddenInset",
-      trafficLightPosition: { x: 14, y: 13 },
+      ...(isMac
+        ? {
+            titleBarStyle: "hiddenInset",
+            trafficLightPosition: { x: 14, y: 13 }
+          }
+        : {}),
+      ...(isWindows
+        ? {
+            titleBarStyle: "hidden",
+            titleBarOverlay: {
+              color: "#08121c",
+              symbolColor: "#f4f5f7",
+              height: 46
+            }
+          }
+        : {}),
       title: "ArchHarness",
       icon: this.#windowIconPath,
       webPreferences: {
@@ -51,7 +68,7 @@ class WindowManager {
       return { action: "deny" };
     });
 
-    void this.#mainWindow.loadURL(loadUrl);
+    this.#mainWindow.loadURL(loadUrl);
 
     this.#mainWindow.on("closed", () => {
       this.#mainWindow = null;

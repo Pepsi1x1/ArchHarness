@@ -1,6 +1,7 @@
 using ArchHarness.App.Agents;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,7 +21,15 @@ public static class ArchHarnessServiceCollectionExtensions
         services.Configure<AgentsOptions>(configuration.GetSection("agents"));
         services.Configure<CopilotOptions>(configuration.GetSection("copilot"));
         services.AddHttpClient();
+        services.AddHttpClient<AzureDevOpsSourceControlService>();
+        services.AddHttpClient<GitHubSourceControlService>();
+        services.AddSingleton<IRuntimePlatform, RuntimePlatform>();
+        services.AddSingleton<ILocalCommandRunner, ProcessLocalCommandRunner>();
+        services.AddSingleton<IPersonalAccessTokenProtector, PlatformPersonalAccessTokenProtector>();
         services.AddSingleton<IGlobalSettingsCatalog, FileSystemGlobalSettingsCatalog>();
+        services.AddSingleton<IProviderConnectionCatalog, FileSystemProviderConnectionCatalog>();
+        services.AddSingleton<SourceControlProviderFactory>();
+        services.AddSingleton<ISourceControlProviderService, SourceControlProviderService>();
         services.AddSingleton<IProjectWorkspaceCatalog, FileSystemProjectWorkspaceCatalog>();
         services.AddSingleton<IRunHistoryCatalog, FileSystemRunHistoryCatalog>();
         services.AddSingleton<IDiscoveredModelCatalog, DiscoveredModelCatalog>();

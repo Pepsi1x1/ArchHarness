@@ -3,9 +3,10 @@ using ArchHarness.App.Storage;
 
 namespace ArchHarness.App.Tests.Core;
 
-public sealed class FileSystemGlobalSettingsCatalogTests : IDisposable
+public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "ArchHarnessGlobalSettingsTests", Guid.NewGuid().ToString("N"));
+    private readonly TestPersonalAccessTokenProtector _protector = new TestPersonalAccessTokenProtector(canProtect: true);
 
     [Fact]
     public void GetSettings_WithoutFile_ReturnsDefaultsFromConfiguredOptions()
@@ -64,7 +65,7 @@ public sealed class FileSystemGlobalSettingsCatalogTests : IDisposable
         {
             ConversationModel = "gpt-5-mini"
         };
-        return new FileSystemGlobalSettingsCatalog(Path.Combine(this._root, "settings.json"), agentsOptions, copilotOptions);
+        return new FileSystemGlobalSettingsCatalog(Path.Combine(this._root, "settings.json"), agentsOptions, copilotOptions, this._protector);
     }
 
     public void Dispose()

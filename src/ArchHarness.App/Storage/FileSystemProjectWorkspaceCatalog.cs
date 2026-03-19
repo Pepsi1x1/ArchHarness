@@ -137,6 +137,44 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
         }
     }
 
+    /// <inheritdoc />
+    public PersistedProjectWorkspace? UpdateProjectSourceControl(
+        string projectId,
+        string? providerName,
+        string? projectName,
+        string? repositoryName)
+    {
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            return null;
+        }
+
+        lock (this._sync)
+        {
+            List<PersistedProjectWorkspace> projects = this.LoadProjects();
+            PersistedProjectWorkspace? existing = projects.FirstOrDefault(project =>
+                string.Equals(project.ProjectId, projectId, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                return null;
+            }
+
+            PersistedProjectWorkspace updated = existing with
+            {
+                SourceControlProviderName = string.IsNullOrWhiteSpace(providerName) ? null : providerName.Trim(),
+                SourceControlProjectName = string.IsNullOrWhiteSpace(projectName) ? null : projectName.Trim(),
+                SourceControlRepositoryName = string.IsNullOrWhiteSpace(repositoryName) ? null : repositoryName.Trim(),
+                UpdatedAtUtc = DateTimeOffset.UtcNow
+            };
+
+            int existingIndex = projects.FindIndex(project =>
+                string.Equals(project.ProjectId, existing.ProjectId, StringComparison.Ordinal));
+            projects[existingIndex] = updated;
+            this.SaveProjects(projects);
+            return updated;
+        }
+    }
+
     private List<PersistedProjectWorkspace> LoadProjects()
     {
         if (!File.Exists(this._storageFilePath))

@@ -12,6 +12,9 @@ namespace ArchHarness.App.Storage;
 /// <param name="ArchitectureReviewPrompt">Optional project-specific architecture review prompt.</param>
 /// <param name="CreatedAtUtc">UTC timestamp when the project was first tracked.</param>
 /// <param name="UpdatedAtUtc">UTC timestamp when the project was last updated.</param>
+/// <param name="SourceControlProviderName">Display name of the source control provider connection used by this project.</param>
+/// <param name="SourceControlProjectName">Project name within the source control system (used by ADO providers).</param>
+/// <param name="SourceControlRepositoryName">Repository name within the source control system.</param>
 public sealed record PersistedProjectWorkspace(
     string ProjectId,
     string DisplayName,
@@ -21,4 +24,7 @@ public sealed record PersistedProjectWorkspace(
     bool ArchitectureReviewMode,
     string? ArchitectureReviewPrompt,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? SourceControlProviderName = null,
+    string? SourceControlProjectName = null,
+    string? SourceControlRepositoryName = null);

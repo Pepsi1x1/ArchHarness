@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ArchHarness.App.Core;
+using ArchHarness.App.SourceControl;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Storage;
@@ -9,7 +10,6 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 {
-
     private readonly object _sync = new object();
     private readonly string _storageFilePath;
     private readonly AgentsOptions _agentsOptions;
@@ -18,7 +18,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     /// <summary>
     /// Initializes a new instance of the <see cref="FileSystemGlobalSettingsCatalog"/> class.
     /// </summary>
-    public FileSystemGlobalSettingsCatalog(IOptions<AgentsOptions> agentsOptions, IOptions<CopilotOptions> copilotOptions)
+    public FileSystemGlobalSettingsCatalog(IOptions<AgentsOptions> agentsOptions, IOptions<CopilotOptions> copilotOptions, IPersonalAccessTokenProtector _)
         : this(GetDefaultStorageFilePath(), agentsOptions.Value, copilotOptions.Value)
     {
     }
@@ -26,7 +26,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     /// <summary>
     /// Initializes a new instance of the <see cref="FileSystemGlobalSettingsCatalog"/> class using explicit defaults and storage path.
     /// </summary>
-    public FileSystemGlobalSettingsCatalog(string storageFilePath, AgentsOptions agentsOptions, CopilotOptions copilotOptions)
+    public FileSystemGlobalSettingsCatalog(string storageFilePath, AgentsOptions agentsOptions, CopilotOptions copilotOptions, IPersonalAccessTokenProtector? _ = null)
     {
         this._storageFilePath = storageFilePath;
         this._agentsOptions = agentsOptions;
@@ -38,7 +38,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     {
         lock (this._sync)
         {
-            return this.LoadSettings() ?? this.BuildDefaultSettings();
+            PersistedGlobalSettingsDocument? persisted = this.LoadPersistedDocument();
+            return persisted is null ? this.BuildDefaultSettings() : this.MapFromPersisted(persisted);
         }
     }
 
@@ -66,7 +67,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         }
     }
 
-    private PersistedGlobalSettings? LoadSettings()
+    private PersistedGlobalSettingsDocument? LoadPersistedDocument()
     {
         if (!File.Exists(this._storageFilePath))
         {
@@ -76,7 +77,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         try
         {
             string json = File.ReadAllText(this._storageFilePath);
-            return JsonSerializer.Deserialize<PersistedGlobalSettings>(json, JsonDefaults.WEB_INDENTED);
+            return JsonSerializer.Deserialize<PersistedGlobalSettingsDocument>(json, JsonDefaults.WEB_INDENTED);
         }
         catch (IOException)
         {
@@ -113,9 +114,42 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             Directory.CreateDirectory(directory);
         }
 
-        string json = JsonSerializer.Serialize(settings, JsonDefaults.WEB_INDENTED);
+        PersistedGlobalSettingsDocument persisted = MapToPersisted(settings);
+        string json = JsonSerializer.Serialize(persisted, JsonDefaults.WEB_INDENTED);
         File.WriteAllText(this._storageFilePath, json);
     }
+
+    private PersistedGlobalSettings MapFromPersisted(PersistedGlobalSettingsDocument persisted)
+        => new PersistedGlobalSettings(
+            NormalizeModel(persisted.ConversationModel, this._copilotOptions.ConversationModel),
+            NormalizeModel(persisted.OrchestrationModel, this._agentsOptions.Orchestration.Model),
+            NormalizeModel(persisted.FrontendDeveloperModel, this._agentsOptions.FrontendDeveloper.Model),
+            NormalizeModel(persisted.BackendDeveloperModel, this._agentsOptions.BackendDeveloper.Model),
+            NormalizeModel(persisted.BuildModel, this._agentsOptions.Build.Model),
+            NormalizeModel(persisted.CodingStyleModel, this._agentsOptions.CodingStyle.Model),
+            NormalizeModel(persisted.SecurityModel, this._agentsOptions.Security.Model),
+            NormalizeModel(persisted.ArchitectureModel, this._agentsOptions.Architecture.Model),
+            PermissionHandlerModes.Normalize(persisted.DefaultPermissionHandlerMode),
+            persisted.DefaultArchitectureReviewMode,
+            string.IsNullOrWhiteSpace(persisted.DefaultArchitectureReviewPrompt) ? null : persisted.DefaultArchitectureReviewPrompt.Trim(),
+            persisted.UpdatedAtUtc);
+
+    private static PersistedGlobalSettingsDocument MapToPersisted(PersistedGlobalSettings settings)
+        => new PersistedGlobalSettingsDocument
+        {
+            ConversationModel = settings.ConversationModel,
+            OrchestrationModel = settings.OrchestrationModel,
+            FrontendDeveloperModel = settings.FrontendDeveloperModel,
+            BackendDeveloperModel = settings.BackendDeveloperModel,
+            BuildModel = settings.BuildModel,
+            CodingStyleModel = settings.CodingStyleModel,
+            SecurityModel = settings.SecurityModel,
+            ArchitectureModel = settings.ArchitectureModel,
+            DefaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,
+            DefaultArchitectureReviewMode = settings.DefaultArchitectureReviewMode,
+            DefaultArchitectureReviewPrompt = settings.DefaultArchitectureReviewPrompt,
+            UpdatedAtUtc = settings.UpdatedAtUtc
+        };
 
     private static string GetDefaultStorageFilePath()
     {
@@ -125,4 +159,31 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 
     private static string NormalizeModel(string? model, string fallback)
         => string.IsNullOrWhiteSpace(model) ? fallback : model.Trim();
+
+    private sealed class PersistedGlobalSettingsDocument
+    {
+        public string? ConversationModel { get; init; }
+
+        public string? OrchestrationModel { get; init; }
+
+        public string? FrontendDeveloperModel { get; init; }
+
+        public string? BackendDeveloperModel { get; init; }
+
+        public string? BuildModel { get; init; }
+
+        public string? CodingStyleModel { get; init; }
+
+        public string? SecurityModel { get; init; }
+
+        public string? ArchitectureModel { get; init; }
+
+        public string? DefaultPermissionHandlerMode { get; init; }
+
+        public bool DefaultArchitectureReviewMode { get; init; }
+
+        public string? DefaultArchitectureReviewPrompt { get; init; }
+
+        public DateTimeOffset UpdatedAtUtc { get; init; }
+    }
 }

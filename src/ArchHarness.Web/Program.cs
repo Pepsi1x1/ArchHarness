@@ -1,12 +1,15 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ArchHarness.App;
 using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 using ArchHarness.Web.Services;
 using Markdig;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.Options;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -31,6 +34,8 @@ if (!string.IsNullOrWhiteSpace(webHostUrl))
     builder.WebHost.UseUrls(webHostUrl);
 }
 
+// All application state is persisted as JSON files on the local file system.
+// There is no SQL database or query surface in this application.
 builder.Services.AddArchHarnessRuntimeServices(builder.Configuration);
 builder.Services.AddArchHarnessInteractiveServices();
 builder.Services.AddSingleton<WebInteractionCoordinator>();
@@ -40,6 +45,31 @@ builder.Services.AddSingleton<IWebRunSessionManager, WebRunSessionManager>();
 builder.Services.AddSingleton<IModelMetadataProvider, ModelMetadataProvider>();
 
 WebApplication app = builder.Build();
+
+app.UseExceptionHandler(exceptionApp =>
+{
+    exceptionApp.Run(async context =>
+    {
+        ILogger logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("ArchHarness.Web.UnhandledException");
+        IExceptionHandlerPathFeature? feature = context.Features.Get<IExceptionHandlerPathFeature>();
+        if (feature?.Error is not null)
+        {
+            logger.LogError(feature.Error, "Unhandled exception while processing {Path}.", context.Request.Path);
+        }
+
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await Results.Problem(
+            title: "An unexpected error occurred.",
+            detail: "The request could not be completed.",
+            statusCode: StatusCodes.Status500InternalServerError,
+            extensions: new Dictionary<string, object?>
+            {
+                ["traceId"] = context.TraceIdentifier
+            }).ExecuteAsync(context);
+    });
+});
 
 app.Use(async (context, next) =>
 {
@@ -186,6 +216,327 @@ app.MapPut("/api/settings", (UpdateGlobalSettingsRequest request, IGlobalSetting
             architectureReviewPrompt = settings.DefaultArchitectureReviewPrompt
         },
         updatedAtUtc = settings.UpdatedAtUtc
+    });
+});
+
+app.MapGet("/api/providers", async (ISourceControlProviderService providerService) =>
+{
+    IReadOnlyList<ProviderConnectionSettings> providers = await providerService.GetConfiguredProvidersAsync();
+    return Results.Ok(providers);
+});
+
+app.MapPost("/api/providers", async (ProviderConnectionSettings settings, ISourceControlProviderService providerService) =>
+{
+    Dictionary<string, string[]> validationErrors = ValidateProviderConnectionSettings(settings, requirePersonalAccessToken: false);
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    try
+    {
+        await providerService.SaveProviderAsync(settings);
+        ProviderConnectionSettings? savedProvider = (await providerService.GetConfiguredProvidersAsync())
+            .FirstOrDefault(provider => string.Equals(provider.DisplayName, NormalizeText(settings.DisplayName), StringComparison.OrdinalIgnoreCase));
+        return Results.Ok(savedProvider);
+    }
+    catch (PlainTextPersonalAccessTokenConfirmationRequiredException ex)
+    {
+        return Results.Conflict(CreatePersonalAccessTokenStorageConflict(ex.WarningMessage));
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapDelete("/api/providers/{displayName}", async (string displayName, ISourceControlProviderService providerService) =>
+{
+    if (string.IsNullOrWhiteSpace(displayName))
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["displayName"] = new[] { "DisplayName is required." }
+        });
+    }
+
+    try
+    {
+        await providerService.DeleteProviderAsync(displayName);
+        return Results.NoContent();
+    }
+    catch (KeyNotFoundException ex)
+    {
+        return Results.NotFound(new { error = ex.Message });
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapPost("/api/providers/test", async (ProviderConnectionSettings settings, ISourceControlProviderService providerService) =>
+{
+    Dictionary<string, string[]> validationErrors = ValidateProviderConnectionSettings(settings, requirePersonalAccessToken: true);
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    ConnectionTestResult result = await providerService.TestConnectionAsync(settings);
+    return Results.Ok(result);
+});
+
+app.MapGet("/api/providers/{providerName}/pullrequests", async (string providerName, string? project, string? repository, string? author, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory, CancellationToken cancellationToken) =>
+{
+    Dictionary<string, string[]> validationErrors = ValidatePullRequestLookupRequest(providerName, null, project, repository, author);
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    string normalizedProviderName = NormalizeRouteValue(providerName)!;
+    string? normalizedProject = NormalizeFilterValue(project);
+    string? normalizedRepository = NormalizeFilterValue(repository);
+    string? normalizedAuthor = NormalizeFilterValue(author);
+    ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, normalizedProviderName);
+    if (providerSettings is null)
+    {
+        return Results.NotFound(new { error = $"Source control provider '{normalizedProviderName}' was not found." });
+    }
+
+    if (!providerSettings.IsEnabled)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{providerSettings.DisplayName}' is not enabled." });
+    }
+
+    try
+    {
+        ISourceControlReviewProviderService provider = providerFactory.GetProvider(providerSettings.Provider);
+        IReadOnlyList<PullRequestSummary> pullRequests = await provider.GetPullRequestsAsync(
+            providerSettings,
+            null,
+            null,
+            cancellationToken,
+            normalizedProject,
+            normalizedRepository,
+            normalizedAuthor);
+        return Results.Ok(pullRequests);
+    }
+    catch (SourceControlRequestFailedException ex)
+    {
+        return CreateSourceControlErrorResult(ex);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapGet("/api/providers/{providerName}/pullrequests/stream", async Task<IResult> (string providerName, string? project, string? repository, string? author, HttpContext context, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory) =>
+{
+    CancellationToken cancellationToken = context.RequestAborted;
+    Dictionary<string, string[]> validationErrors = ValidatePullRequestLookupRequest(providerName, null, project, repository, author);
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    string normalizedProviderName = NormalizeRouteValue(providerName)!;
+    string? normalizedProject = NormalizeFilterValue(project);
+    string? normalizedRepository = NormalizeFilterValue(repository);
+    string? normalizedAuthor = NormalizeFilterValue(author);
+    ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, normalizedProviderName);
+    if (providerSettings is null)
+    {
+        return Results.NotFound(new { error = $"Source control provider '{normalizedProviderName}' was not found." });
+    }
+
+    if (!providerSettings.IsEnabled)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{providerSettings.DisplayName}' is not enabled." });
+    }
+
+    try
+    {
+        ISourceControlReviewProviderService provider = providerFactory.GetProvider(providerSettings.Provider);
+        context.Response.Headers.CacheControl = "no-cache";
+        context.Response.Headers.Connection = "keep-alive";
+        context.Response.ContentType = "text/event-stream";
+
+        await foreach (IReadOnlyList<PullRequestSummary> batch in provider.StreamPullRequestBatchesAsync(
+            providerSettings,
+            null,
+            null,
+            cancellationToken,
+            normalizedProject,
+            normalizedRepository,
+            normalizedAuthor))
+        {
+            await WriteServerSentEventAsync(
+                context.Response,
+                "batch",
+                new { pullRequests = batch },
+                eventJsonOptions,
+                cancellationToken);
+        }
+
+        await WriteServerSentEventAsync(
+            context.Response,
+            "completed",
+            new { completed = true },
+            eventJsonOptions,
+            cancellationToken);
+        return Results.Empty;
+    }
+    catch (SourceControlRequestFailedException ex)
+    {
+        if (!context.Response.HasStarted)
+        {
+            return CreateSourceControlErrorResult(ex);
+        }
+
+        await WriteServerSentEventAsync(
+            context.Response,
+            "error",
+            new { error = ex.Message },
+            eventJsonOptions,
+            cancellationToken);
+        return Results.Empty;
+    }
+    catch (InvalidOperationException ex)
+    {
+        if (!context.Response.HasStarted)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+
+        await WriteServerSentEventAsync(
+            context.Response,
+            "error",
+            new { error = ex.Message },
+            eventJsonOptions,
+            cancellationToken);
+        return Results.Empty;
+    }
+});
+
+app.MapGet("/api/providers/{providerName}/pullrequests/{pullRequestId}/files", async (string providerName, string pullRequestId, string? project, string? repository, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory, CancellationToken cancellationToken) =>
+{
+    Dictionary<string, string[]> validationErrors = ValidatePullRequestLookupRequest(providerName, pullRequestId, project, repository, null);
+    if (validationErrors.Count > 0)
+    {
+        return Results.ValidationProblem(validationErrors);
+    }
+
+    string normalizedProviderName = NormalizeRouteValue(providerName)!;
+    string normalizedPullRequestId = NormalizePullRequestId(pullRequestId)!;
+    string? normalizedProject = NormalizeFilterValue(project);
+    string? normalizedRepository = NormalizeFilterValue(repository);
+    ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, normalizedProviderName);
+    if (providerSettings is null)
+    {
+        return Results.NotFound(new { error = $"Source control provider '{normalizedProviderName}' was not found." });
+    }
+
+    if (!providerSettings.IsEnabled)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{providerSettings.DisplayName}' is not enabled." });
+    }
+
+    try
+    {
+        ISourceControlReviewProviderService provider = providerFactory.GetProvider(providerSettings.Provider);
+        IReadOnlyList<PullRequestFile> files = await provider.GetPullRequestFilesAsync(
+            providerSettings,
+            normalizedProject,
+            normalizedRepository,
+            normalizedPullRequestId,
+            cancellationToken);
+        return Results.Ok(files);
+    }
+    catch (SourceControlRequestFailedException ex)
+    {
+        return CreateSourceControlErrorResult(ex);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapGet("/api/projects/{projectId}/pullrequests", async (string projectId, IProjectWorkspaceCatalog projectCatalog, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory, CancellationToken cancellationToken) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    if (string.IsNullOrWhiteSpace(project.SourceControlProviderName))
+    {
+        return Results.BadRequest(new { error = "Source control is not configured for this project." });
+    }
+
+    if (string.IsNullOrWhiteSpace(project.SourceControlRepositoryName))
+    {
+        return Results.BadRequest(new { error = "Repository name is not configured for this project." });
+    }
+
+    ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, project.SourceControlProviderName);
+    if (providerSettings is null)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{project.SourceControlProviderName}' was not found." });
+    }
+
+    if (!providerSettings.IsEnabled)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{project.SourceControlProviderName}' is not enabled." });
+    }
+
+    try
+    {
+        ISourceControlReviewProviderService provider = providerFactory.GetProvider(providerSettings.Provider);
+        IReadOnlyList<PullRequestSummary> pullRequests = await provider.GetPullRequestsAsync(
+            providerSettings,
+            project.SourceControlProjectName,
+            project.SourceControlRepositoryName,
+            cancellationToken,
+            null,
+            null,
+            null);
+        return Results.Ok(pullRequests);
+    }
+    catch (SourceControlRequestFailedException ex)
+    {
+        return CreateSourceControlErrorResult(ex);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapPut("/api/projects/{projectId}/source-control", (string projectId, UpdateProjectSourceControlRequest request, IProjectWorkspaceCatalog projectCatalog) =>
+{
+    PersistedProjectWorkspace? updated = projectCatalog.UpdateProjectSourceControl(
+        projectId,
+        NormalizeText(request.ProviderName),
+        NormalizeText(request.ProjectName),
+        NormalizeText(request.RepositoryName));
+
+    if (updated is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    return Results.Ok(new
+    {
+        projectId = updated.ProjectId,
+        sourceControlProviderName = updated.SourceControlProviderName,
+        sourceControlProjectName = updated.SourceControlProjectName,
+        sourceControlRepositoryName = updated.SourceControlRepositoryName,
+        updatedAtUtc = updated.UpdatedAtUtc
     });
 });
 
@@ -350,6 +701,24 @@ app.MapPost("/api/interactions/permission", (PermissionSubmission submission, We
 
 await app.RunAsync();
 
+static IResult CreateSourceControlErrorResult(SourceControlRequestFailedException ex)
+    => ex.StatusCode switch
+    {
+        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => Results.Json(
+            new { error = ex.Message },
+            statusCode: StatusCodes.Status401Unauthorized),
+        HttpStatusCode.NotFound => Results.NotFound(new { error = ex.Message }),
+        _ => Results.BadRequest(new { error = ex.Message })
+    };
+
+static async Task WriteServerSentEventAsync(HttpResponse response, string eventName, object payload, JsonSerializerOptions serializerOptions, CancellationToken cancellationToken)
+{
+    string json = JsonSerializer.Serialize(payload, serializerOptions);
+    await response.WriteAsync($"event: {eventName}\n", cancellationToken);
+    await response.WriteAsync($"data: {json}\n\n", cancellationToken);
+    await response.Body.FlushAsync(cancellationToken);
+}
+
 static bool IsSafeRunId(string runId)
     => !string.IsNullOrWhiteSpace(runId)
         && runId.IndexOfAny(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }) < 0
@@ -362,6 +731,212 @@ static bool IsKnownWorkspacePath(string workspacePath, IProjectWorkspaceCatalog 
     return projectCatalog.GetProjects()
         .Any(p => string.Equals(p.WorkspacePath, normalized, StringComparison.OrdinalIgnoreCase));
 }
+
+static Dictionary<string, string[]> ValidateProviderConnectionSettings(ProviderConnectionSettings settings, bool requirePersonalAccessToken)
+{
+    Dictionary<string, List<string>> errors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+    static void AddError(IDictionary<string, List<string>> target, string key, string message)
+    {
+        if (!target.TryGetValue(key, out List<string>? messages))
+        {
+            messages = new List<string>();
+            target[key] = messages;
+        }
+
+        messages.Add(message);
+    }
+
+    if (!Enum.IsDefined(settings.Provider))
+    {
+        AddError(errors, "provider", "Provider is required.");
+    }
+
+    string? displayName = NormalizeText(settings.DisplayName);
+    if (string.IsNullOrWhiteSpace(displayName))
+    {
+        AddError(errors, "displayName", "DisplayName is required.");
+    }
+    else if (displayName.IndexOfAny(new[] { '/', '\\' }) >= 0)
+    {
+        AddError(errors, "displayName", "DisplayName cannot contain path separator characters.");
+    }
+
+    if (string.IsNullOrWhiteSpace(NormalizeText(settings.Organization)))
+    {
+        AddError(errors, "organization", "Organization is required.");
+    }
+
+    if (settings.Provider == SourceControlProvider.AzureDevOpsServer)
+    {
+        string? serverUrl = NormalizeText(settings.ServerUrl);
+        if (string.IsNullOrWhiteSpace(serverUrl))
+        {
+            AddError(errors, "serverUrl", "ServerUrl is required for Azure DevOps Server.");
+        }
+        else if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out Uri? parsedServerUrl))
+        {
+            AddError(errors, "serverUrl", "ServerUrl must be an absolute URL.");
+        }
+        else if (!string.Equals(parsedServerUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            AddError(errors, "serverUrl", "ServerUrl must use HTTPS.");
+        }
+        else if (!string.IsNullOrEmpty(parsedServerUrl.UserInfo))
+        {
+            AddError(errors, "serverUrl", "ServerUrl cannot include embedded credentials.");
+        }
+    }
+
+    if (requirePersonalAccessToken && string.IsNullOrWhiteSpace(NormalizeText(settings.PersonalAccessToken)))
+    {
+        AddError(errors, "personalAccessToken", "PersonalAccessToken is required.");
+    }
+
+    string? personalAccessToken = NormalizeText(settings.PersonalAccessToken);
+    if (!string.IsNullOrWhiteSpace(personalAccessToken)
+        && Uri.TryCreate(personalAccessToken, UriKind.Absolute, out Uri? parsedPat)
+        && (string.Equals(parsedPat.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(parsedPat.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+    {
+        AddError(errors, "personalAccessToken", "PersonalAccessToken looks like a URL. Check browser autofill and re-enter the token.");
+    }
+
+    return errors.ToDictionary(entry => entry.Key, entry => entry.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
+}
+
+static string? NormalizeText(string? value)
+    => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+static Dictionary<string, string[]> ValidatePullRequestLookupRequest(string providerName, string? pullRequestId, string? project, string? repository, string? author)
+{
+    Dictionary<string, List<string>> errors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+    ValidateRequiredRouteValue(errors, "providerName", providerName, 128, allowPathSeparators: false);
+    ValidateOptionalLookupValue(errors, "project", project, 200, allowPathSeparators: true);
+    ValidateOptionalLookupValue(errors, "repository", repository, 200, allowPathSeparators: true);
+    ValidateOptionalLookupValue(errors, "author", author, 200, allowPathSeparators: true);
+
+    if (pullRequestId is not null)
+    {
+        string? normalizedPullRequestId = NormalizePullRequestId(pullRequestId);
+        if (string.IsNullOrWhiteSpace(normalizedPullRequestId))
+        {
+            AddLookupValidationError(errors, "pullRequestId", "pullRequestId is required.");
+        }
+        else
+        {
+            if (normalizedPullRequestId.Length > 20)
+            {
+                AddLookupValidationError(errors, "pullRequestId", "pullRequestId must be 20 characters or fewer.");
+            }
+
+            if (!normalizedPullRequestId.All(char.IsDigit))
+            {
+                AddLookupValidationError(errors, "pullRequestId", "pullRequestId must be numeric.");
+            }
+        }
+    }
+
+    return errors.ToDictionary(entry => entry.Key, entry => entry.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
+}
+
+static void ValidateRequiredRouteValue(
+    IDictionary<string, List<string>> errors,
+    string key,
+    string? value,
+    int maxLength,
+    bool allowPathSeparators)
+{
+    string? normalized = NormalizeRouteValue(value);
+    if (string.IsNullOrWhiteSpace(normalized))
+    {
+        AddLookupValidationError(errors, key, $"{key} is required.");
+        return;
+    }
+
+    ValidateNormalizedLookupValue(errors, key, normalized, maxLength, allowPathSeparators);
+}
+
+static void ValidateOptionalLookupValue(
+    IDictionary<string, List<string>> errors,
+    string key,
+    string? value,
+    int maxLength,
+    bool allowPathSeparators)
+{
+    string? normalized = NormalizeFilterValue(value);
+    if (string.IsNullOrWhiteSpace(normalized))
+    {
+        return;
+    }
+
+    ValidateNormalizedLookupValue(errors, key, normalized, maxLength, allowPathSeparators);
+}
+
+static void ValidateNormalizedLookupValue(
+    IDictionary<string, List<string>> errors,
+    string key,
+    string value,
+    int maxLength,
+    bool allowPathSeparators)
+{
+    if (value.Length > maxLength)
+    {
+        AddLookupValidationError(errors, key, $"{key} must be {maxLength} characters or fewer.");
+    }
+
+    if (ContainsControlCharacters(value))
+    {
+        AddLookupValidationError(errors, key, $"{key} contains unsupported control characters.");
+    }
+
+    if (!allowPathSeparators && value.IndexOfAny(new[] { '/', '\\' }) >= 0)
+    {
+        AddLookupValidationError(errors, key, $"{key} cannot contain path separator characters.");
+    }
+}
+
+static void AddLookupValidationError(IDictionary<string, List<string>> errors, string key, string message)
+{
+    if (!errors.TryGetValue(key, out List<string>? messages))
+    {
+        messages = new List<string>();
+        errors[key] = messages;
+    }
+
+    messages.Add(message);
+}
+
+static bool ContainsControlCharacters(string value)
+    => value.Any(char.IsControl);
+
+static string? NormalizeRouteValue(string? value)
+    => NormalizeText(value);
+
+static string? NormalizeFilterValue(string? value)
+    => NormalizeText(value);
+
+static string? NormalizePullRequestId(string? value)
+    => NormalizeText(value);
+
+static ProviderConnectionSettings? FindProviderByDisplayName(IProviderConnectionCatalog providerCatalog, string? providerName)
+{
+    string? normalizedProviderName = NormalizeText(providerName);
+    return string.IsNullOrWhiteSpace(normalizedProviderName)
+        ? null
+        : providerCatalog.GetProviders()
+            .FirstOrDefault(provider => string.Equals(provider.DisplayName, normalizedProviderName, StringComparison.OrdinalIgnoreCase));
+}
+
+static object CreatePersonalAccessTokenStorageConflict(string warningMessage)
+    => new
+    {
+        code = "pat-protection-unavailable",
+        error = warningMessage,
+        warning = warningMessage,
+        suggestedStorageMode = PersonalAccessTokenStorageMode.PlainText
+    };
 
 public partial class Program
 {

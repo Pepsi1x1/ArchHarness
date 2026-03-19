@@ -1,5 +1,6 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 using ArchHarness.Web.Services;
 
@@ -22,7 +23,8 @@ public sealed class ModelMetadataProviderTests : IDisposable
         FileSystemGlobalSettingsCatalog settingsCatalog = new FileSystemGlobalSettingsCatalog(
             Path.Combine(this._root, "settings.json"),
             new AgentsOptions(),
-            new CopilotOptions());
+            new CopilotOptions(),
+            new TestPersonalAccessTokenProtector());
         settingsCatalog.UpdateSettings(new UpdatePersistedGlobalSettings(
             "gpt-5-mini",
             "claude-sonnet-4.6",
@@ -51,5 +53,16 @@ public sealed class ModelMetadataProviderTests : IDisposable
         {
             Directory.Delete(this._root, recursive: true);
         }
+    }
+
+    private sealed class TestPersonalAccessTokenProtector : IPersonalAccessTokenProtector
+    {
+        public bool CanProtect => true;
+
+        public string? UnavailableReason => null;
+
+        public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null) => personalAccessToken;
+
+        public string Unprotect(string protectedPersonalAccessToken) => protectedPersonalAccessToken;
     }
 }

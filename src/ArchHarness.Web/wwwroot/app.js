@@ -20,15 +20,88 @@ const state = {
   isUnloading: false,
   openModalId: null,
   expandedProjectIds: new Set(),
-  seenRunIds: new Set()
+  seenRunIds: new Set(),
+  providers: [],
+  providerConnectionTested: false,
+  editingProviderName: null,
+  editingProviderStorageMode: 0
 };
 
-const desktopBridge = window.archHarnessDesktop || null;
+let reviewPrState = {
+  step: 0,
+  providers: [],
+  selectedProvider: null,
+  autoSelectedProvider: false,
+  allPullRequests: [],
+  pullRequests: [],
+  selectedProjects: [],
+  selectedRepositories: [],
+  selectedAuthors: [],
+  pullRequestStreamController: null,
+  isPullRequestStreamLoading: false,
+  isPullRequestStreamComplete: false,
+  pullRequestError: "",
+  selectedPr: null,
+  folderPath: '',
+  prFiles: []
+};
+
+const desktopBridge = globalThis.archHarnessDesktop || null;
+
+function setDesktopInset(name, value) {
+  document.documentElement.style.setProperty(name, `${Math.max(0, Math.ceil(value))}px`);
+}
+
+function applyDesktopChrome() {
+  const root = document.documentElement;
+  const chrome = desktopBridge?.chrome || null;
+  if (!chrome) {
+    return;
+  }
+
+  root.dataset.desktopPlatform = chrome.platform;
+
+  if (!chrome.titleBarOverlay) {
+    delete root.dataset.titleBarOverlay;
+    return;
+  }
+
+  root.dataset.titleBarOverlay = "true";
+
+  const overlay = navigator.windowControlsOverlay;
+  const syncOverlayInsets = () => {
+    let rightInset = 150;
+    let topbarHeight = 46;
+
+    if (overlay?.visible && typeof overlay.getTitlebarAreaRect === "function") {
+      const rect = overlay.getTitlebarAreaRect();
+      if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.width)) {
+        rightInset = Math.max(150, globalThis.innerWidth - (rect.x + rect.width));
+      }
+
+      if (rect && Number.isFinite(rect.height)) {
+        topbarHeight = Math.max(46, rect.height);
+      }
+    }
+
+    setDesktopInset("--desktop-right-inset", rightInset);
+    setDesktopInset("--desktop-titlebar-height", topbarHeight);
+  };
+
+  syncOverlayInsets();
+  overlay?.addEventListener?.("geometrychange", syncOverlayInsets);
+  globalThis.addEventListener("resize", syncOverlayInsets);
+}
 
 const STORAGE_KEY = "archharness.web.shell-state";
 const IDLE_INTERACTION_POLL_MS = 5000;
 const ACTIVE_INTERACTION_POLL_MS = 400;
 const STREAM_RENDER_DELAY_MS = 140;
+const REVIEW_PROVIDER_NAME_MAX_LENGTH = 128;
+const REVIEW_FILTER_MAX_LENGTH = 200;
+const REVIEW_PULL_REQUEST_ID_MAX_LENGTH = 20;
+const PAT_STORAGE_MODE_PROTECTED = 0;
+const PAT_STORAGE_MODE_PLAINTEXT = 1;
 const LEGACY_AUTOFILL_PROMPTS = [
   "Implement requested change",
   "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation."
@@ -86,7 +159,26 @@ const elements = {
   artifactSummary: document.getElementById("artifact-summary"),
   projectTemplate: document.getElementById("project-template"),
   runTemplate: document.getElementById("run-template"),
-  artifactTemplate: document.getElementById("artifact-template")
+  artifactTemplate: document.getElementById("artifact-template"),
+  providerList: document.getElementById("provider-list"),
+  providerSetup: document.getElementById("provider-setup"),
+  btnAddProvider: document.getElementById("btn-add-provider"),
+  btnTestProvider: document.getElementById("btn-test-provider"),
+  btnSaveProvider: document.getElementById("btn-save-provider"),
+  btnCancelProvider: document.getElementById("btn-cancel-provider"),
+  providerTestStatus: document.getElementById("provider-test-status"),
+  providerTypeRadios: document.querySelectorAll('input[name="pf-type"]'),
+  providerDisplayName: document.getElementById("pf-display-name"),
+  providerServerUrlWrap: document.getElementById("pf-server-url-wrap"),
+  providerServerUrl: document.getElementById("pf-server-url"),
+  providerOrgWrap: document.getElementById("pf-org-wrap"),
+  providerOrgLabel: document.getElementById("pf-org-label"),
+  providerOrg: document.getElementById("pf-org"),
+  providerPatWrap: document.getElementById("pf-pat-wrap"),
+  providerPat: document.getElementById("pf-pat"),
+  providerPatHint: document.getElementById("pf-pat-hint"),
+  providerPatToggle: document.getElementById("pf-pat-toggle"),
+  providerPatToggleIcon: document.getElementById("pf-pat-toggle-icon")
 };
 
 async function requestJson(url, options) {
@@ -96,11 +188,115 @@ async function requestJson(url, options) {
   }
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Request failed with status ${response.status}`);
+    const contentType = response.headers.get("content-type") || "";
+    let errorData = null;
+    let text = "";
+
+    if (contentType.includes("application/json")) {
+      errorData = await response.json();
+      text = errorData?.error || errorData?.title || JSON.stringify(errorData);
+    } else {
+      text = await response.text();
+    }
+
+    const error = new Error(text || `Request failed with status ${response.status}`);
+    error.status = response.status;
+    error.data = errorData;
+    throw error;
   }
 
   return response.json();
+}
+
+async function requestEventStream(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    let errorData = null;
+    let text = "";
+
+    if (contentType.includes("application/json")) {
+      errorData = await response.json();
+      text = errorData?.error || errorData?.title || JSON.stringify(errorData);
+    } else {
+      text = await response.text();
+    }
+
+    const error = new Error(text || `Request failed with status ${response.status}`);
+    error.status = response.status;
+    error.data = errorData;
+    throw error;
+  }
+
+  if (!response.body) {
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const processBlock = block => {
+    const normalized = block.replace(/\r/g, "");
+    if (!normalized.trim()) {
+      return;
+    }
+
+    let eventName = "message";
+    const dataLines = [];
+    normalized.split("\n").forEach(line => {
+      if (!line || line.startsWith(":")) {
+        return;
+      }
+
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim() || "message";
+        return;
+      }
+
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trimStart());
+      }
+    });
+
+    let data = null;
+    const serialized = dataLines.join("\n");
+    if (serialized) {
+      try {
+        data = JSON.parse(serialized);
+      } catch {
+        data = serialized;
+      }
+    }
+
+    options?.onEvent?.({ event: eventName, data });
+  };
+
+  const flushBuffer = finalChunk => {
+    let delimiterIndex = buffer.indexOf("\n\n");
+    while (delimiterIndex >= 0) {
+      processBlock(buffer.slice(0, delimiterIndex));
+      buffer = buffer.slice(delimiterIndex + 2);
+      delimiterIndex = buffer.indexOf("\n\n");
+    }
+
+    if (finalChunk && buffer.trim()) {
+      processBlock(buffer);
+      buffer = "";
+    }
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      buffer += decoder.decode();
+      flushBuffer(true);
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    flushBuffer(false);
+  }
 }
 
 function saveShellState() {
@@ -252,26 +448,38 @@ function escapeHtml(text) {
     .replaceAll("'", "&#39;");
 }
 
-// Sanitizes server-rendered HTML by stripping script elements and inline event handlers
-// to defend against XSS even when the source is a trusted local backend.
+// Security boundary: sanitizeHtml is the only approved path for injecting rendered HTML into the DOM.
+// Every innerHTML or outerHTML write must go through sanitizeHtml or setSanitizedHtml so sink review stays centralized.
+// Strips hostile tags and URI schemes to guard against XSS from locally-rendered server content.
 function sanitizeHtml(html) {
-  const doc = new DOMParser().parseFromString(html || "", "text/html");
-  doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,link[rel=import]").forEach(el => el.remove());
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html || "", "text/html");
+  doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,use,link[rel=import]").forEach(el => el.remove());
   doc.querySelectorAll("*").forEach(el => {
     for (const attr of [...el.attributes]) {
       const name = attr.name.toLowerCase();
+      const trimmedValue = attr.value.trimStart().toLowerCase();
+      const isUnsafeUri = trimmedValue.startsWith("javascript:")
+        || trimmedValue.startsWith("data:")
+        || trimmedValue.startsWith("vbscript:");
+      const isUnsafeSrcSet = name === "srcset"
+        && (trimmedValue.includes("data:") || trimmedValue.includes("javascript:") || trimmedValue.includes("vbscript:"));
       if (name.startsWith("on")
         || name === "style"
         || name === "formaction"
         || name === "xlink:href"
-        || name === "data" && (el.tagName === "OBJECT" || el.tagName === "EMBED")
-        || (name === "href" && attr.value.trimStart().toLowerCase().startsWith("javascript:"))
-        || (name === "src" && attr.value.trimStart().toLowerCase().startsWith("javascript:"))) {
+        || (name === "data" && (el.tagName === "OBJECT" || el.tagName === "EMBED"))
+        || ((name === "href" || name === "src" || name === "action" || name === "poster" || name === "background") && isUnsafeUri)
+        || isUnsafeSrcSet) {
         el.removeAttribute(attr.name);
       }
     }
   });
   return doc.body.innerHTML;
+}
+
+function setSanitizedHtml(element, html) {
+  element.innerHTML = sanitizeHtml(html);
 }
 
 function closeEventStream(status = "idle") {
@@ -347,6 +555,10 @@ function openModal(modalId) {
 }
 
 function closeModal() {
+  if (state.openModalId === "review-pr-modal") {
+    abortPullRequestStream();
+  }
+
   if (!state.openModalId) {
     elements.modalBackdrop.classList.add("hidden");
     return;
@@ -646,7 +858,7 @@ function renderStream() {
     const body = document.createElement("div");
     body.className = "markdown-surface stream-markdown";
     body.dataset.agentId = section.agentId;
-    body.innerHTML = sanitizeHtml(buildSectionBodyHtml(section));
+    setSanitizedHtml(body, buildSectionBodyHtml(section));
     details.append(summary, body);
     elements.streamSections.append(details);
   });
@@ -774,7 +986,7 @@ async function renderStreamSectionMarkdown(agentId) {
 
   const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
   if (container) {
-    container.innerHTML = sanitizeHtml(buildSectionBodyHtml(section));
+    setSanitizedHtml(container, buildSectionBodyHtml(section));
     scrollStreamToBottom();
   } else {
     renderStream();
@@ -869,7 +1081,8 @@ async function loadProjects() {
 
 async function loadSettings() {
   state.settings = await requestJson("/api/settings");
-  state.models = (await requestJson("/api/models"))?.models || [];
+  const modelsResponse = await requestJson("/api/models");
+  state.models = modelsResponse?.models || [];
   renderSettingsForm();
   applySettingsDefaults();
 }
@@ -1138,6 +1351,8 @@ async function submitUserInput(answer) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answer })
   });
+  state.pendingInteraction = null;
+  renderInlineInteraction();
   await pollPendingInteraction();
 }
 
@@ -1149,6 +1364,8 @@ async function submitPermission(approved) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approved })
   });
+  state.pendingInteraction = null;
+  renderInlineInteraction();
   await pollPendingInteraction();
 }
 
@@ -1185,6 +1402,556 @@ async function saveSettings(event) {
   });
   applySettingsDefaults();
   closeModal();
+}
+
+// =================== Settings Tabs ===================
+
+function switchSettingsTab(tabName) {
+  document.querySelectorAll(".settings-tab").forEach(btn => {
+    const isActive = btn.dataset.tab === tabName;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+  document.getElementById("settings-tab-agent").classList.toggle("hidden", tabName !== "agent-settings");
+  document.getElementById("settings-tab-providers").classList.toggle("hidden", tabName !== "source-control-providers");
+}
+
+// =================== Multi-Provider Setup ===================
+
+const PROVIDER_META = {
+  0: {
+    numericValue: 0,
+    label: "Azure DevOps Server",
+    badgeClass: "provider-badge-ado-server",
+    radioValue: "ado-server",
+    visibleFields: ["serverUrl", "organization", "personalAccessToken"],
+    fieldLabels: {
+      organization: "Organization / Collection"
+    },
+    formValueFields: {
+      serverUrl: "serverUrl",
+      organization: "organization"
+    },
+    patHint: "Requires Code (Read) permission.",
+    orgRequiredMessage: "Organization is required."
+  },
+  1: {
+    numericValue: 1,
+    label: "Azure DevOps Services",
+    badgeClass: "provider-badge-ado-services",
+    radioValue: "ado-services",
+    visibleFields: ["organization", "personalAccessToken"],
+    fieldLabels: {
+      organization: "Organization"
+    },
+    formValueFields: {
+      organization: "organization"
+    },
+    patHint: "Requires Code (Read) permission.",
+    orgRequiredMessage: "Organization is required."
+  },
+  2: {
+    numericValue: 2,
+    label: "GitHub",
+    badgeClass: "provider-badge-github",
+    radioValue: "github",
+    visibleFields: ["organization", "personalAccessToken"],
+    fieldLabels: {
+      organization: "Owner / Organization"
+    },
+    formValueFields: {
+      organization: "organization"
+    },
+    patHint: "Optional for public repos; required for private repos.",
+    orgRequiredMessage: "Owner or organization is required for GitHub."
+  }
+};
+
+const RADIO_PROVIDER_MAP = Object.fromEntries(
+  Object.values(PROVIDER_META).map(meta => [meta.radioValue, meta.numericValue])
+);
+const PROVIDER_ALLOWED_PROTOCOLS = new Set(["https:"]);
+const PROVIDER_FORM_FIELDS = {
+  serverUrl: {
+    input: elements.providerServerUrl,
+    wrapper: elements.providerServerUrlWrap
+  },
+  organization: {
+    input: elements.providerOrg,
+    wrapper: elements.providerOrgWrap,
+    labelElement: elements.providerOrgLabel,
+    defaultLabel: "Organization"
+  },
+  personalAccessToken: {
+    input: elements.providerPat,
+    wrapper: elements.providerPatWrap
+  }
+};
+
+function normalizeProviderField(value) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .trim();
+}
+
+function normalizeProviderToken(value) {
+  return String(value ?? "").trim();
+}
+
+function looksLikeProviderUrl(value) {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeReviewLookupValue(value, maxLength = REVIEW_FILTER_MAX_LENGTH) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeReviewPullRequestId(value) {
+  const normalized = normalizeReviewLookupValue(value, REVIEW_PULL_REQUEST_ID_MAX_LENGTH);
+  return /^\d+$/.test(normalized) ? normalized : "";
+}
+
+function normalizeProviderSummary(provider) {
+  if (!provider || typeof provider !== "object") {
+    return null;
+  }
+
+  const providerType = Number(provider.providerType ?? provider.provider);
+  if (!Number.isInteger(providerType) || !Object.prototype.hasOwnProperty.call(PROVIDER_META, providerType)) {
+    return null;
+  }
+
+  return {
+    providerType,
+    displayName: normalizeProviderField(provider.displayName) || null,
+    serverUrl: normalizeProviderField(provider.serverUrl) || null,
+    organization: normalizeProviderField(provider.organization) || null,
+    personalAccessToken: null,
+    personalAccessTokenStorageMode: Number.isInteger(provider.personalAccessTokenStorageMode)
+      ? Number(provider.personalAccessTokenStorageMode)
+      : PAT_STORAGE_MODE_PROTECTED,
+    isEnabled: provider.isEnabled !== false
+  };
+}
+
+function normalizeProviderCollection(result) {
+  const providers = Array.isArray(result)
+    ? result
+    : (Array.isArray(result?.providers) ? result.providers : []);
+
+  return providers
+    .map(normalizeProviderSummary)
+    .filter(provider => provider !== null);
+}
+
+function getSelectedProviderRadioValue() {
+  return document.querySelector('input[name="pf-type"]:checked')?.value || null;
+}
+
+function getProviderMetaByType(providerType) {
+  if (providerType == null) {
+    return null;
+  }
+
+  return PROVIDER_META[providerType] || null;
+}
+
+function getProviderMetaByRadioValue(radioValue) {
+  return getProviderMetaByType(radioValue == null ? null : RADIO_PROVIDER_MAP[radioValue]);
+}
+
+function setProviderStatus(message = "", tone = null) {
+  elements.providerTestStatus.textContent = message;
+  elements.providerTestStatus.className = tone
+    ? `sc-status sc-status-${tone}`
+    : "sc-status";
+}
+
+function setProviderPatMasked(masked) {
+  elements.providerPat.type = masked ? "password" : "text";
+  elements.providerPatToggleIcon.className = masked ? "fa-solid fa-eye" : "fa-solid fa-eye-slash";
+  elements.providerPatToggle.setAttribute("aria-label", masked ? "Show token" : "Hide token");
+  elements.providerPatToggle.setAttribute("aria-pressed", masked ? "false" : "true");
+}
+
+function buildProviderPatHint(providerMeta) {
+  if (!providerMeta) {
+    return "";
+  }
+
+  const baseHint = providerMeta.patHint || "Requires Code (Read) permission.";
+
+  return state.editingProviderName
+    ? `${baseHint} Leave blank to keep the current token.`
+    : baseHint;
+}
+
+function validateProviderServerUrl(serverUrl) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(serverUrl);
+  } catch {
+    return "Server URL must be an absolute HTTPS URL.";
+  }
+
+  if (!PROVIDER_ALLOWED_PROTOCOLS.has(parsedUrl.protocol)) {
+    return "Server URL must use the https scheme.";
+  }
+
+  if (parsedUrl.username || parsedUrl.password) {
+    return "Server URL cannot include embedded credentials.";
+  }
+
+  return null;
+}
+
+async function loadProviders() {
+  try {
+    const result = await requestJson("/api/providers");
+    state.providers = normalizeProviderCollection(result);
+  } catch {
+    state.providers = [];
+  }
+  renderProviderList();
+}
+
+function renderProviderList() {
+  elements.providerList.replaceChildren();
+
+  if (!state.providers || state.providers.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "provider-list-empty";
+    empty.textContent = "No providers configured.";
+    elements.providerList.append(empty);
+    return;
+  }
+
+  state.providers.forEach(provider => {
+    const item = document.createElement("div");
+    item.className = "provider-item";
+
+    const info = document.createElement("div");
+    info.className = "provider-item-info";
+
+    const name = document.createElement("strong");
+    name.className = "provider-item-name";
+    name.textContent = provider.displayName || "Unnamed";
+
+    const badge = document.createElement("span");
+    const providerMeta = getProviderMetaByType(provider.providerType);
+    badge.className = `provider-badge ${providerMeta?.badgeClass || ""}`;
+    badge.textContent = providerMeta?.label || "Unknown";
+
+    const storageBadge = document.createElement("span");
+    storageBadge.className = `provider-badge ${provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
+      ? "provider-badge-plaintext"
+      : "provider-badge-protected"}`;
+    storageBadge.textContent = provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
+      ? "Plain Text PAT"
+      : "Protected PAT";
+
+    info.append(name, badge, storageBadge);
+
+    const actions = document.createElement("div");
+    actions.className = "provider-item-actions";
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "ghost-button small-button";
+    editBtn.type = "button";
+    editBtn.textContent = "Edit";
+    editBtn.addEventListener("click", () => openProviderSetup(provider));
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.className = "ghost-button small-button danger-button";
+    deleteBtn.type = "button";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.addEventListener("click", () => {
+      void confirmDeleteProvider(provider.displayName).catch(err => console.error("Delete provider failed:", err));
+    });
+
+    actions.append(editBtn, deleteBtn);
+    item.append(info, actions);
+    elements.providerList.append(item);
+  });
+}
+
+function openProviderSetup(provider = null) {
+  const normalizedProvider = normalizeProviderSummary(provider);
+  const providerMeta = getProviderMetaByType(normalizedProvider?.providerType ?? null);
+  state.editingProviderName = normalizedProvider?.displayName || null;
+  state.editingProviderStorageMode = normalizedProvider?.personalAccessTokenStorageMode ?? PAT_STORAGE_MODE_PROTECTED;
+  state.providerConnectionTested = false;
+
+  elements.providerTypeRadios.forEach(radio => { radio.checked = false; });
+  elements.providerDisplayName.value = "";
+  Object.values(PROVIDER_FORM_FIELDS).forEach(field => {
+    field.input.value = "";
+    field.wrapper.classList.add("hidden");
+    if (field.labelElement) {
+      field.labelElement.textContent = field.defaultLabel || "";
+    }
+  });
+  setProviderPatMasked(true);
+  setProviderStatus();
+
+  if (normalizedProvider) {
+    const radioValue = providerMeta?.radioValue;
+    const radio = radioValue
+      ? document.querySelector(`input[name="pf-type"][value="${radioValue}"]`)
+      : null;
+    if (radio) {
+      radio.checked = true;
+      onProviderSetupTypeChange();
+    }
+
+    elements.providerDisplayName.value = normalizedProvider.displayName || "";
+
+    Object.entries(providerMeta?.formValueFields || {}).forEach(([fieldKey, providerKey]) => {
+      const field = PROVIDER_FORM_FIELDS[fieldKey];
+      if (field) {
+        field.input.value = normalizedProvider[providerKey] || "";
+      }
+    });
+  }
+
+  elements.providerList.classList.add("hidden");
+  elements.btnAddProvider.classList.add("hidden");
+  elements.providerSetup.classList.remove("hidden");
+  elements.btnSaveProvider.textContent = provider ? "Update Provider" : "Save Provider";
+  onProviderSetupTypeChange();
+}
+
+function closeProviderSetup() {
+  elements.providerSetup.classList.add("hidden");
+  elements.providerList.classList.remove("hidden");
+  elements.btnAddProvider.classList.remove("hidden");
+  state.editingProviderName = null;
+  state.editingProviderStorageMode = PAT_STORAGE_MODE_PROTECTED;
+  state.providerConnectionTested = false;
+  setProviderPatMasked(true);
+  setProviderStatus();
+}
+
+function onProviderSetupTypeChange() {
+  const meta = getProviderMetaByRadioValue(getSelectedProviderRadioValue());
+
+  Object.entries(PROVIDER_FORM_FIELDS).forEach(([fieldKey, field]) => {
+    const isVisible = meta?.visibleFields.includes(fieldKey) || false;
+    field.wrapper.classList.toggle("hidden", !isVisible);
+    if (field.labelElement) {
+      field.labelElement.textContent = meta?.fieldLabels?.[fieldKey] || field.defaultLabel || "";
+    }
+  });
+
+  elements.providerPatHint.textContent = buildProviderPatHint(meta);
+  setProviderStatus();
+}
+
+function collectProviderPayload(options = {}) {
+  const requirePersonalAccessToken = options.requirePersonalAccessToken === true;
+  const personalAccessTokenStorageMode = Number.isInteger(options.personalAccessTokenStorageMode)
+    ? options.personalAccessTokenStorageMode
+    : state.editingProviderStorageMode;
+  const providerMeta = getProviderMetaByRadioValue(getSelectedProviderRadioValue());
+  if (!providerMeta) {
+    return { payload: null, error: "Select a source control provider." };
+  }
+
+  const displayName = normalizeProviderField(elements.providerDisplayName.value);
+  const personalAccessToken = normalizeProviderToken(elements.providerPat.value);
+  const normalizedFieldValues = Object.fromEntries(
+    Object.entries(providerMeta.formValueFields).map(([fieldKey, providerKey]) => [
+      providerKey,
+      normalizeProviderField(PROVIDER_FORM_FIELDS[fieldKey].input.value)
+    ])
+  );
+  const organization = normalizedFieldValues.organization || "";
+  const serverUrl = normalizedFieldValues.serverUrl || null;
+
+  elements.providerDisplayName.value = displayName;
+  elements.providerPat.value = personalAccessToken;
+  Object.entries(providerMeta.formValueFields).forEach(([fieldKey, providerKey]) => {
+    PROVIDER_FORM_FIELDS[fieldKey].input.value = normalizedFieldValues[providerKey] || "";
+  });
+
+  if (!displayName) {
+    return { payload: null, error: "Display name is required." };
+  }
+
+  if (/[\\/]/.test(displayName)) {
+    return { payload: null, error: "Display name cannot contain path separator characters." };
+  }
+
+  if (!organization) {
+    return { payload: null, error: providerMeta.orgRequiredMessage };
+  }
+
+  if (providerMeta.visibleFields.includes("serverUrl")) {
+    if (!serverUrl) {
+      return { payload: null, error: "Server URL is required for Azure DevOps Server." };
+    }
+
+    const serverUrlError = validateProviderServerUrl(serverUrl);
+    if (serverUrlError) {
+      return { payload: null, error: serverUrlError };
+    }
+  }
+
+  if (requirePersonalAccessToken && !personalAccessToken) {
+    return { payload: null, error: "Enter a personal access token to test the connection." };
+  }
+
+  if (personalAccessToken && looksLikeProviderUrl(personalAccessToken)) {
+    return { payload: null, error: "Personal access token looks like a URL. Check browser autofill and re-enter the token." };
+  }
+
+  const payload = {
+    provider: providerMeta.numericValue,
+    displayName,
+    personalAccessToken: personalAccessToken || null,
+    personalAccessTokenStorageMode,
+    isEnabled: true,
+    serverUrl,
+    organizationUrl: null,
+    organization
+  };
+
+  return { payload, error: null };
+}
+
+async function testProviderConnection() {
+  const { payload: config, error } = collectProviderPayload({ requirePersonalAccessToken: true });
+  const btn = elements.btnTestProvider;
+
+  if (!config) {
+    setProviderStatus(error || "Select a provider, enter a display name, and fill in the required fields.", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  setProviderStatus("Testing...", null);
+  state.providerConnectionTested = false;
+
+  try {
+    const result = await requestJson("/api/providers/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config)
+    });
+    if (!result.success) {
+      setProviderStatus(`Connection failed: ${result.message}`, "error");
+    } else {
+      setProviderStatus(result.message || "Connection successful.", "success");
+      state.providerConnectionTested = true;
+    }
+  } catch (error) {
+    setProviderStatus(`Connection failed: ${error.message}`, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function shouldOfferPlainTextProviderFallback(error, payload) {
+  return error?.status === 409
+    && error?.data?.code === "pat-protection-unavailable"
+    && payload.personalAccessTokenStorageMode !== PAT_STORAGE_MODE_PLAINTEXT;
+}
+
+function confirmPlainTextProviderFallback(warning) {
+  return globalThis.confirm(`${warning}\n\nSelect OK to store the token in plain text for this provider, or Cancel to keep editing.`);
+}
+
+async function persistProviderWithFallback(payload) {
+  let savePayload = { ...payload };
+
+  while (true) {
+    try {
+      await requestJson("/api/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(savePayload)
+      });
+      return savePayload;
+    } catch (requestError) {
+      if (!shouldOfferPlainTextProviderFallback(requestError, savePayload)) {
+        throw requestError;
+      }
+
+      const warning = requestError.data.warning || "Secure token storage is unavailable on this platform.";
+      const confirmed = confirmPlainTextProviderFallback(warning);
+      if (!confirmed) {
+        setProviderStatus("Provider was not saved. Secure token storage is unavailable on this platform.", "error");
+        return null;
+      }
+
+      savePayload = {
+        ...savePayload,
+        personalAccessTokenStorageMode: PAT_STORAGE_MODE_PLAINTEXT
+      };
+      state.editingProviderStorageMode = PAT_STORAGE_MODE_PLAINTEXT;
+    }
+  }
+}
+
+async function saveProvider() {
+  const { payload, error } = collectProviderPayload({ requirePersonalAccessToken: false });
+
+  if (!payload) {
+    setProviderStatus(error || "Select a provider, enter a display name, and fill in the required fields.", "error");
+    return;
+  }
+
+  if (state.editingProviderName
+    && state.editingProviderName !== payload.displayName
+    && !payload.personalAccessToken) {
+    setProviderStatus("Enter a personal access token when renaming a provider so the saved credential can be preserved.", "error");
+    return;
+  }
+
+  elements.btnSaveProvider.disabled = true;
+
+  try {
+    const savePayload = await persistProviderWithFallback(payload);
+    if (!savePayload) {
+      return;
+    }
+
+    if (state.editingProviderName && state.editingProviderName !== savePayload.displayName) {
+      await requestJson(`/api/providers/${encodeURIComponent(state.editingProviderName)}`, { method: "DELETE" });
+    }
+
+    await loadProviders();
+    renderProviderList();
+    closeProviderSetup();
+  } catch (error) {
+    setProviderStatus(`Save failed: ${error.message}`, "error");
+  } finally {
+    elements.btnSaveProvider.disabled = false;
+  }
+}
+
+async function confirmDeleteProvider(displayName) {
+  if (!window.confirm(`Delete provider "${displayName}"?`)) return;
+
+  try {
+    await requestJson(`/api/providers/${encodeURIComponent(displayName)}`, { method: "DELETE" });
+    state.providers = state.providers.filter(p => p.displayName !== displayName);
+    renderProviderList();
+  } catch (error) {
+    console.error("Delete provider failed:", error);
+  }
 }
 
 async function openRunDetails(project, run) {
@@ -1230,6 +1997,577 @@ function renderArtifacts() {
   elements.artifactPreview.textContent = selected.preview || "Artifact previews appear here.";
 }
 
+// =================== Review PR ===================
+
+const REVIEW_PR_STEP_TITLES = ["Select Provider", "Select Pull Request", "Working Folder", "Confirm Review"];
+const REVIEW_PR_STEP_IDS = ["review-pr-step-provider", "review-pr-step-list", "review-pr-step-folder", "review-pr-step-confirm"];
+
+async function openReviewPrModal() {
+  abortPullRequestStream();
+  reviewPrState = {
+    step: 0,
+    providers: [],
+    selectedProvider: null,
+    autoSelectedProvider: false,
+    allPullRequests: [],
+    pullRequests: [],
+    selectedProjects: [],
+    selectedRepositories: [],
+    selectedAuthors: [],
+    pullRequestStreamController: null,
+    isPullRequestStreamLoading: false,
+    isPullRequestStreamComplete: false,
+    pullRequestError: "",
+    selectedPr: null,
+    folderPath: "",
+    prFiles: []
+  };
+
+  let providers;
+  try {
+    providers = await requestJson("/api/providers");
+  } catch {
+    alert("Failed to load providers. Check your connection and try again.");
+    return;
+  }
+
+  const enabled = normalizeProviderCollection(providers).filter(p => p.isEnabled);
+
+  if (enabled.length === 0) {
+    alert("No source control providers are enabled. Configure a provider in Settings first.");
+    return;
+  }
+
+  reviewPrState.providers = enabled;
+
+  if (enabled.length === 1) {
+    reviewPrState.selectedProvider = enabled[0];
+    reviewPrState.autoSelectedProvider = true;
+    showReviewPrStep(1);
+  } else {
+    renderProviderPicker();
+    showReviewPrStep(0);
+  }
+
+  openModal("review-pr-modal");
+
+  if (reviewPrState.autoSelectedProvider) {
+    await loadPullRequests();
+  }
+}
+
+function showReviewPrStep(i) {
+  reviewPrState.step = i;
+
+  REVIEW_PR_STEP_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add("hidden");
+  });
+
+  const stepEl = document.getElementById(REVIEW_PR_STEP_IDS[i]);
+  if (stepEl) stepEl.classList.remove("hidden");
+
+  const titleEl = document.getElementById("review-pr-modal-title");
+  if (titleEl) titleEl.textContent = REVIEW_PR_STEP_TITLES[i] || "Review PR";
+
+  const backBtn = document.getElementById("review-pr-back-button");
+  const nextBtn = document.getElementById("review-pr-next-button");
+
+  const showBack = i > 0 && !(i === 1 && reviewPrState.autoSelectedProvider);
+  backBtn.classList.toggle("hidden", !showBack);
+
+  nextBtn.textContent = i === 3 ? "Start Review" : "Next";
+
+  if (i === 0) {
+    nextBtn.disabled = !reviewPrState.selectedProvider;
+  } else if (i === 1) {
+    nextBtn.disabled = !reviewPrState.selectedPr;
+  } else if (i === 2) {
+    nextBtn.disabled = !reviewPrState.folderPath.trim();
+  } else {
+    nextBtn.disabled = false;
+  }
+}
+
+function renderProviderPicker() {
+  const list = document.getElementById("review-pr-provider-list");
+  list.replaceChildren();
+  const nextBtn = document.getElementById("review-pr-next-button");
+
+  reviewPrState.providers.forEach(provider => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "provider-picker-item";
+    const displayName = provider.displayName || "";
+    const providerTypeLabel = getProviderMetaByType(provider.providerType)?.label || "";
+    btn.textContent = providerTypeLabel ? `${displayName} · ${providerTypeLabel}` : displayName;
+    btn.classList.toggle("selected", provider === reviewPrState.selectedProvider);
+
+    btn.addEventListener("click", () => {
+      reviewPrState.selectedProvider = provider;
+      list.querySelectorAll(".provider-picker-item").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      if (nextBtn) nextBtn.disabled = false;
+    });
+
+    list.append(btn);
+  });
+}
+
+async function loadPullRequests() {
+  const loadingEl = document.getElementById("review-pr-list-loading");
+  const listEl = document.getElementById("review-pr-list");
+  const nextBtn = document.getElementById("review-pr-next-button");
+
+  abortPullRequestStream();
+  loadingEl.classList.remove("hidden");
+  listEl.replaceChildren();
+  reviewPrState.allPullRequests = [];
+  reviewPrState.pullRequests = [];
+  reviewPrState.selectedProjects = [];
+  reviewPrState.selectedRepositories = [];
+  reviewPrState.selectedAuthors = [];
+  reviewPrState.isPullRequestStreamLoading = true;
+  reviewPrState.isPullRequestStreamComplete = false;
+  reviewPrState.pullRequestError = "";
+  reviewPrState.selectedPr = null;
+  reviewPrState.prFiles = [];
+  if (nextBtn) nextBtn.disabled = true;
+
+  const providerName = normalizeReviewLookupValue(reviewPrState.selectedProvider?.displayName, REVIEW_PROVIDER_NAME_MAX_LENGTH);
+
+  renderPullRequestFilters();
+  renderPullRequestList();
+  renderPullRequestLoadingState();
+
+  if (!providerName) {
+    reviewPrState.isPullRequestStreamLoading = false;
+    reviewPrState.isPullRequestStreamComplete = true;
+    renderPullRequestLoadingState();
+    return;
+  }
+
+  const streamController = new AbortController();
+  reviewPrState.pullRequestStreamController = streamController;
+
+  try {
+    await requestEventStream(`/api/providers/${encodeURIComponent(providerName)}/pullrequests/stream`, {
+      headers: {
+        Accept: "text/event-stream"
+      },
+      signal: streamController.signal,
+      onEvent: ({ event, data }) => {
+        if (streamController.signal.aborted) {
+          return;
+        }
+
+        if (event === "batch") {
+          appendPullRequestBatch(Array.isArray(data?.pullRequests) ? data.pullRequests : []);
+          renderPullRequestFilters();
+          applyPullRequestFilters();
+        } else if (event === "error") {
+          reviewPrState.pullRequestError = data?.error || "Failed to load pull requests.";
+          renderPullRequestList();
+        } else if (event === "completed") {
+          reviewPrState.isPullRequestStreamComplete = true;
+        }
+
+        renderPullRequestLoadingState();
+      }
+    });
+  } catch (error) {
+    if (streamController.signal.aborted) {
+      return;
+    }
+
+    reviewPrState.pullRequestError = error?.message || "Failed to load pull requests.";
+  } finally {
+    if (reviewPrState.pullRequestStreamController === streamController) {
+      reviewPrState.pullRequestStreamController = null;
+      reviewPrState.isPullRequestStreamLoading = false;
+      renderPullRequestLoadingState();
+      renderPullRequestFilters();
+      applyPullRequestFilters();
+    }
+  }
+}
+
+function abortPullRequestStream() {
+  if (reviewPrState.pullRequestStreamController) {
+    reviewPrState.pullRequestStreamController.abort();
+    reviewPrState.pullRequestStreamController = null;
+  }
+
+  reviewPrState.isPullRequestStreamLoading = false;
+}
+
+function getPullRequestKey(pr) {
+  const id = String(pr?.Id || pr?.id || pr?.PullRequestId || pr?.pullRequestId || "").trim();
+  const project = getPullRequestFieldValue(pr, "ProjectName", "projectName");
+  const repository = getPullRequestFieldValue(pr, "RepositoryName", "repositoryName");
+  return `${project}::${repository}::${id}`;
+}
+
+function appendPullRequestBatch(batch) {
+  if (!Array.isArray(batch) || batch.length === 0) {
+    return;
+  }
+
+  const existingKeys = new Set(reviewPrState.allPullRequests.map(getPullRequestKey));
+  batch.forEach(pr => {
+    const key = getPullRequestKey(pr);
+    if (!existingKeys.has(key)) {
+      existingKeys.add(key);
+      reviewPrState.allPullRequests.push(pr);
+    }
+  });
+}
+
+function renderPullRequestLoadingState() {
+  const loadingEl = document.getElementById("review-pr-list-loading");
+  if (!loadingEl) {
+    return;
+  }
+
+  if (!reviewPrState.isPullRequestStreamLoading) {
+    loadingEl.classList.add("hidden");
+    loadingEl.textContent = "Loading…";
+    return;
+  }
+
+  const loadedCount = reviewPrState.allPullRequests.length;
+  loadingEl.textContent = loadedCount > 0
+    ? `Loading pull requests… ${loadedCount} loaded so far.`
+    : "Loading pull requests…";
+  loadingEl.classList.remove("hidden");
+}
+
+function getPullRequestFieldValue(pr, preferredKey, fallbackKey) {
+  return normalizeReviewLookupValue(pr?.[preferredKey] ?? pr?.[fallbackKey] ?? "");
+}
+
+function getUniquePullRequestValues(getValue) {
+  return [...new Set(
+    reviewPrState.allPullRequests
+      .map(pr => getValue(pr))
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right));
+}
+
+function getPullRequestFilterSelection(filterKey) {
+  if (filterKey === "project") {
+    return reviewPrState.selectedProjects;
+  }
+
+  if (filterKey === "repository") {
+    return reviewPrState.selectedRepositories;
+  }
+
+  return reviewPrState.selectedAuthors;
+}
+
+function setPullRequestFilterSelection(filterKey, selectedValues) {
+  if (filterKey === "project") {
+    reviewPrState.selectedProjects = selectedValues;
+    return;
+  }
+
+  if (filterKey === "repository") {
+    reviewPrState.selectedRepositories = selectedValues;
+    return;
+  }
+
+  reviewPrState.selectedAuthors = selectedValues;
+}
+
+function togglePullRequestFilterValue(filterKey, value) {
+  const currentSelection = getPullRequestFilterSelection(filterKey);
+  const nextSelection = currentSelection.includes(value)
+    ? currentSelection.filter(selectedValue => selectedValue !== value)
+    : [...currentSelection, value];
+
+  setPullRequestFilterSelection(filterKey, nextSelection);
+  renderPullRequestFilters();
+  applyPullRequestFilters();
+}
+
+function clearPullRequestFilter(filterKey) {
+  setPullRequestFilterSelection(filterKey, []);
+  renderPullRequestFilters();
+  applyPullRequestFilters();
+}
+
+function renderPullRequestFilterChips(containerEl, values, selectedValues, filterKey) {
+  if (!containerEl) {
+    return;
+  }
+
+  containerEl.replaceChildren();
+  if (values.length === 0) {
+    const emptyEl = document.createElement("span");
+    emptyEl.className = "filter-chip-empty";
+    emptyEl.textContent = reviewPrState.isPullRequestStreamLoading ? "Loading options…" : "No values available.";
+    containerEl.append(emptyEl);
+    return;
+  }
+
+  const orderedValues = [
+    ...values.filter(value => selectedValues.includes(value)),
+    ...values.filter(value => !selectedValues.includes(value))
+  ];
+
+  orderedValues.forEach(value => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-chip";
+    button.textContent = value;
+    button.setAttribute("aria-pressed", selectedValues.includes(value) ? "true" : "false");
+    button.classList.toggle("selected", selectedValues.includes(value));
+    button.addEventListener("click", () => {
+      togglePullRequestFilterValue(filterKey, value);
+    });
+    containerEl.append(button);
+  });
+}
+
+function renderPullRequestFilters() {
+  const projectContainer = document.getElementById("pr-filter-project");
+  const repositoryContainer = document.getElementById("pr-filter-repo");
+  const authorContainer = document.getElementById("pr-filter-author");
+  const projectClearButton = document.getElementById("pr-filter-project-clear");
+  const repositoryClearButton = document.getElementById("pr-filter-repo-clear");
+  const authorClearButton = document.getElementById("pr-filter-author-clear");
+
+  const projectValues = getUniquePullRequestValues(pr => getPullRequestFieldValue(pr, "ProjectName", "projectName"));
+  const repositoryValues = getUniquePullRequestValues(pr => getPullRequestFieldValue(pr, "RepositoryName", "repositoryName"));
+  const authorValues = getUniquePullRequestValues(pr => getPullRequestFieldValue(pr, "Author", "author"));
+
+  reviewPrState.selectedProjects = reviewPrState.selectedProjects.filter(value => projectValues.includes(value));
+  reviewPrState.selectedRepositories = reviewPrState.selectedRepositories.filter(value => repositoryValues.includes(value));
+  reviewPrState.selectedAuthors = reviewPrState.selectedAuthors.filter(value => authorValues.includes(value));
+
+  renderPullRequestFilterChips(projectContainer, projectValues, reviewPrState.selectedProjects, "project");
+  renderPullRequestFilterChips(repositoryContainer, repositoryValues, reviewPrState.selectedRepositories, "repository");
+  renderPullRequestFilterChips(authorContainer, authorValues, reviewPrState.selectedAuthors, "author");
+
+  if (projectClearButton) {
+    projectClearButton.disabled = reviewPrState.selectedProjects.length === 0;
+  }
+
+  if (repositoryClearButton) {
+    repositoryClearButton.disabled = reviewPrState.selectedRepositories.length === 0;
+  }
+
+  if (authorClearButton) {
+    authorClearButton.disabled = reviewPrState.selectedAuthors.length === 0;
+  }
+}
+
+function applyPullRequestFilters() {
+  const matchesSelectedValues = (selectedValues, value) => selectedValues.length === 0 || selectedValues.includes(value);
+
+  reviewPrState.pullRequests = reviewPrState.allPullRequests.filter(pr => {
+    const projectValue = getPullRequestFieldValue(pr, "ProjectName", "projectName");
+    const repositoryValue = getPullRequestFieldValue(pr, "RepositoryName", "repositoryName");
+    const authorValue = getPullRequestFieldValue(pr, "Author", "author");
+
+    return matchesSelectedValues(reviewPrState.selectedProjects, projectValue)
+      && matchesSelectedValues(reviewPrState.selectedRepositories, repositoryValue)
+      && matchesSelectedValues(reviewPrState.selectedAuthors, authorValue);
+  });
+
+  if (reviewPrState.selectedPr && !reviewPrState.pullRequests.includes(reviewPrState.selectedPr)) {
+    reviewPrState.selectedPr = null;
+  }
+
+  renderPullRequestList();
+}
+
+function renderPullRequestList() {
+  const errorEl = document.getElementById("review-pr-list-error");
+  const emptyEl = document.getElementById("review-pr-list-empty");
+  const listEl = document.getElementById("review-pr-list");
+  const nextBtn = document.getElementById("review-pr-next-button");
+  listEl.replaceChildren();
+  if (nextBtn) nextBtn.disabled = !reviewPrState.selectedPr;
+
+  if (reviewPrState.pullRequestError) {
+    errorEl.textContent = reviewPrState.pullRequestError;
+    errorEl.classList.remove("hidden");
+  } else {
+    errorEl.classList.add("hidden");
+    errorEl.textContent = "";
+  }
+
+  if (reviewPrState.pullRequests.length === 0) {
+    if (reviewPrState.isPullRequestStreamLoading && reviewPrState.allPullRequests.length === 0 && !reviewPrState.pullRequestError) {
+      emptyEl.classList.add("hidden");
+      return;
+    }
+
+    const hasActiveFilters = reviewPrState.selectedProjects.length > 0
+      || reviewPrState.selectedRepositories.length > 0
+      || reviewPrState.selectedAuthors.length > 0;
+    emptyEl.textContent = hasActiveFilters ? "No pull requests match the selected filters." : "No pull requests found.";
+    emptyEl.classList.remove("hidden");
+    return;
+  }
+  emptyEl.classList.add("hidden");
+
+  reviewPrState.pullRequests.forEach(pr => {
+    const li = document.createElement("li");
+    li.className = "pr-list-item";
+    li.classList.toggle("selected", pr === reviewPrState.selectedPr);
+
+    const titleEl = document.createElement("span");
+    titleEl.className = "pr-title";
+    titleEl.textContent = pr.Title || pr.title || "";
+
+    const metaEl = document.createElement("span");
+    metaEl.className = "pr-meta";
+    const parts = [
+      pr.Author || pr.author || "",
+      pr.SourceBranch || pr.sourceBranch || "",
+      (pr.TargetBranch || pr.targetBranch) ? `→ ${pr.TargetBranch || pr.targetBranch}` : "",
+      pr.ProjectName || pr.projectName || "",
+      pr.RepositoryName || pr.repositoryName || ""
+    ].filter(Boolean);
+    metaEl.textContent = parts.join(" · ");
+
+    li.append(titleEl, metaEl);
+    li.addEventListener("click", () => {
+      reviewPrState.selectedPr = pr;
+      listEl.querySelectorAll(".pr-list-item").forEach(item => item.classList.remove("selected"));
+      li.classList.add("selected");
+      if (nextBtn) nextBtn.disabled = false;
+    });
+
+    listEl.append(li);
+  });
+}
+
+function renderFolderStep() {
+  const pr = reviewPrState.selectedPr;
+  const summaryEl = document.getElementById("review-pr-selected-pr-summary");
+  summaryEl.replaceChildren();
+
+  const titleEl = document.createElement("strong");
+  titleEl.className = "pr-title";
+  titleEl.textContent = pr.Title || pr.title || "";
+
+  const prUrl = pr.Url || pr.url || "";
+  if (prUrl) {
+    const link = document.createElement("a");
+    link.href = prUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "View PR ↗";
+    summaryEl.append(titleEl, document.createTextNode(" "), link);
+  } else {
+    summaryEl.append(titleEl);
+  }
+
+  const folderInput = document.getElementById("review-pr-folder-path");
+  folderInput.value = reviewPrState.folderPath;
+
+  const nextBtn = document.getElementById("review-pr-next-button");
+  nextBtn.disabled = !reviewPrState.folderPath.trim();
+
+  folderInput.oninput = () => {
+    reviewPrState.folderPath = folderInput.value;
+    document.getElementById("review-pr-next-button").disabled = !folderInput.value.trim();
+  };
+}
+
+async function loadPrFiles() {
+  const pr = reviewPrState.selectedPr;
+  const providerName = normalizeReviewLookupValue(reviewPrState.selectedProvider?.displayName, REVIEW_PROVIDER_NAME_MAX_LENGTH);
+  const prId = normalizeReviewPullRequestId(pr.Id ?? pr.id ?? pr.PullRequestId ?? pr.pullRequestId ?? "");
+  const projectName = normalizeReviewLookupValue(pr.ProjectName ?? pr.projectName ?? "");
+  const repositoryName = normalizeReviewLookupValue(pr.RepositoryName ?? pr.repositoryName ?? "");
+  const params = new URLSearchParams();
+  if (projectName) params.set("project", projectName);
+  if (repositoryName) params.set("repository", repositoryName);
+
+  if (!providerName || !prId) {
+    reviewPrState.prFiles = [];
+    renderConfirmStep();
+    return;
+  }
+
+  try {
+    const qs = params.toString();
+    const files = await requestJson(`/api/providers/${encodeURIComponent(providerName)}/pullrequests/${encodeURIComponent(prId)}/files${qs ? "?" + qs : ""}`);
+    reviewPrState.prFiles = Array.isArray(files) ? files : [];
+  } catch {
+    reviewPrState.prFiles = [];
+  }
+
+  renderConfirmStep();
+}
+
+function renderConfirmStep() {
+  const pr = reviewPrState.selectedPr;
+  const summaryEl = document.getElementById("review-pr-confirm-summary");
+  summaryEl.replaceChildren();
+
+  const titleEl = document.createElement("strong");
+  titleEl.textContent = pr.Title || pr.title || "";
+
+  const metaEl = document.createElement("p");
+  metaEl.className = "pr-meta";
+  const author = pr.Author || pr.author || "";
+  const sourceBranch = pr.SourceBranch || pr.sourceBranch || "";
+  const targetBranch = pr.TargetBranch || pr.targetBranch || "";
+  const parts = [author, sourceBranch, targetBranch ? `→ ${targetBranch}` : ""].filter(Boolean);
+  metaEl.textContent = parts.join(" · ");
+
+  summaryEl.append(titleEl, metaEl);
+
+  const fileList = document.getElementById("review-pr-file-list");
+  fileList.replaceChildren();
+
+  reviewPrState.prFiles.forEach(file => {
+    const li = document.createElement("li");
+    li.className = "pr-file-item";
+
+    const pathEl = document.createElement("span");
+    pathEl.textContent = file.Path || file.path || file.FileName || file.fileName || "";
+
+    const rawType = file.ChangeType || file.changeType || "modified";
+    const changeType = String(rawType).toLowerCase();
+    const badge = document.createElement("span");
+    badge.className = `pr-file-badge pr-badge-${changeType}`;
+    badge.textContent = changeType;
+
+    li.append(pathEl, badge);
+    fileList.append(li);
+  });
+}
+
+function handleReviewPrNext() {
+  const step = reviewPrState.step;
+  if (step === 0) {
+    showReviewPrStep(1);
+    void loadPullRequests();
+  } else if (step === 1) {
+    showReviewPrStep(2);
+    renderFolderStep();
+  } else if (step === 2) {
+    reviewPrState.folderPath = document.getElementById("review-pr-folder-path").value;
+    showReviewPrStep(3);
+    void loadPrFiles();
+  } else if (step === 3) {
+    alert("PR review integration coming soon.");
+  }
+}
+
+function handleReviewPrBack() {
+  showReviewPrStep(reviewPrState.step - 1);
+}
+
+// =================== End Review PR ===================
+
 function handleVisibilityChange() {
   if (document.hidden) {
     clearPendingInteractionPoll();
@@ -1250,6 +2588,9 @@ function attachHandlers() {
   elements.settingsButton.addEventListener("click", () => {
     renderSettingsForm();
     applySettingsDefaults();
+    switchSettingsTab("agent-settings");
+    closeProviderSetup();
+    void loadProviders();
     openModal("settings-modal");
   });
   elements.streamSections.addEventListener("scroll", () => {
@@ -1282,6 +2623,29 @@ function attachHandlers() {
     button.addEventListener("click", closeModal);
   });
   elements.modalBackdrop.addEventListener("click", closeModal);
+  document.querySelectorAll(".settings-tab").forEach(btn => {
+    btn.addEventListener("click", () => switchSettingsTab(btn.dataset.tab));
+  });
+  elements.btnAddProvider.addEventListener("click", () => openProviderSetup());
+  elements.btnCancelProvider.addEventListener("click", closeProviderSetup);
+  elements.btnTestProvider.addEventListener("click", () => {
+    void testProviderConnection().catch(error => console.error("Provider test failed:", error));
+  });
+  elements.btnSaveProvider.addEventListener("click", () => {
+    void saveProvider().catch(error => console.error("Save provider failed:", error));
+  });
+  elements.providerTypeRadios.forEach(radio => {
+    radio.addEventListener("change", onProviderSetupTypeChange);
+  });
+  [elements.providerDisplayName, elements.providerServerUrl, elements.providerOrg, elements.providerPat].forEach(input => {
+    input.addEventListener("input", () => {
+      state.providerConnectionTested = false;
+      setProviderStatus();
+    });
+  });
+  elements.providerPatToggle.addEventListener("click", () => {
+    setProviderPatMasked(elements.providerPat.type !== "password");
+  });
   elements.newProjectForm.addEventListener("submit", event => {
     void createProject(event).catch(error => {
       console.error("Project creation failed:", error);
@@ -1294,9 +2658,20 @@ function attachHandlers() {
   });
 
   document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  document.getElementById("review-pr-button").addEventListener("click", () => {
+    void openReviewPrModal();
+  });
+  document.getElementById("review-pr-close-button").addEventListener("click", closeModal);
+  document.getElementById("review-pr-back-button").addEventListener("click", handleReviewPrBack);
+  document.getElementById("review-pr-next-button").addEventListener("click", handleReviewPrNext);
+  document.getElementById("pr-filter-project-clear").addEventListener("click", () => clearPullRequestFilter("project"));
+  document.getElementById("pr-filter-repo-clear").addEventListener("click", () => clearPullRequestFilter("repository"));
+  document.getElementById("pr-filter-author-clear").addEventListener("click", () => clearPullRequestFilter("author"));
 }
 
 async function init() {
+  applyDesktopChrome();
   attachHandlers();
   restoreShellState();
   clearLegacyAutofillPrompt();
@@ -1310,7 +2685,7 @@ async function init() {
   await pollPendingInteraction();
 }
 
-window.addEventListener("beforeunload", () => {
+globalThis.addEventListener("beforeunload", () => {
   state.isUnloading = true;
   closeEventStream();
   clearPendingInteractionPoll();

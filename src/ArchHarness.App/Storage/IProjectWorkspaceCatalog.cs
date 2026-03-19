@@ -36,4 +36,13 @@ public interface IProjectWorkspaceCatalog
         string permissionHandlerMode,
         bool architectureReviewMode,
         string? architectureReviewPrompt);
+
+    /// <summary>
+    /// Updates the source control configuration for the specified project.
+    /// </summary>
+    PersistedProjectWorkspace? UpdateProjectSourceControl(
+        string projectId,
+        string? providerName,
+        string? projectName,
+        string? repositoryName);
 }

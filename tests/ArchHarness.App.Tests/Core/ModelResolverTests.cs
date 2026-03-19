@@ -1,5 +1,6 @@
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
+using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 using Microsoft.Extensions.Options;
 
@@ -100,12 +101,24 @@ public sealed class ModelResolverTests
         FileSystemGlobalSettingsCatalog settingsCatalog = new FileSystemGlobalSettingsCatalog(
             Path.Combine(Path.GetTempPath(), "ArchHarnessModelResolverTests", Guid.NewGuid().ToString("N"), "settings.json"),
             agentsOptions,
-            copilotOptions);
+            copilotOptions,
+            new TestPersonalAccessTokenProtector());
 
         return new ModelResolver(
             Options.Create(agentsOptions),
             Options.Create(copilotOptions),
             catalog,
             settingsCatalog);
+    }
+
+    private sealed class TestPersonalAccessTokenProtector : IPersonalAccessTokenProtector
+    {
+        public bool CanProtect => true;
+
+        public string? UnavailableReason => null;
+
+        public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null) => personalAccessToken;
+
+        public string Unprotect(string protectedPersonalAccessToken) => protectedPersonalAccessToken;
     }
 }
