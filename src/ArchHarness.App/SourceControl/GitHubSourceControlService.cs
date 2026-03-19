@@ -188,6 +188,23 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         return files;
     }
 
+    /// <inheritdoc />
+    public async Task<string> GetRepositoryCloneUrlAsync(
+        ProviderConnectionSettings settings,
+        string? projectName,
+        string repositoryName,
+        CancellationToken cancellationToken)
+    {
+        JsonDocument document = await SendObjectRequestAsync(
+            BuildRepositoryEndpoint(settings, RequireValue(repositoryName, "repositoryName")),
+            settings.PersonalAccessToken,
+            cancellationToken);
+        using (document)
+        {
+            return GetStringValue(document.RootElement, "clone_url");
+        }
+    }
+
     private static HttpRequestMessage CreateRequest(HttpMethod method, string requestUri, string? personalAccessToken, string authorizationScheme)
     {
         HttpRequestMessage request = new HttpRequestMessage(method, ValidateHttpsRequestUri(requestUri));
@@ -431,6 +448,23 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         {
             document.Dispose();
             throw new InvalidOperationException("GitHub response did not include a valid array payload.");
+        }
+
+        return document;
+    }
+
+    private async Task<JsonDocument> SendObjectRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, personalAccessToken, "Bearer");
+        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessStatusCodeAsync(response, "repository metadata retrieval", cancellationToken);
+
+        await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            document.Dispose();
+            throw new InvalidOperationException("GitHub response did not include a valid object payload.");
         }
 
         return document;

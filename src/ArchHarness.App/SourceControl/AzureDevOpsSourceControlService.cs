@@ -262,6 +262,25 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         return files;
     }
 
+    /// <inheritdoc />
+    public async Task<string> GetRepositoryCloneUrlAsync(
+        ProviderConnectionSettings settings,
+        string? projectName,
+        string repositoryName,
+        CancellationToken cancellationToken)
+    {
+        string checkedProjectName = RequireValue(projectName, "projectName");
+        string checkedRepositoryName = RequireValue(repositoryName, "repositoryName");
+        string requestUri = BuildRepositoryEndpoint(settings, checkedProjectName, checkedRepositoryName);
+        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, settings.PersonalAccessToken);
+        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessStatusCodeAsync(response, "repository metadata retrieval", cancellationToken);
+
+        await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
+        return GetStringValue(document.RootElement, "remoteUrl");
+    }
+
     private static HttpRequestMessage CreateRequest(HttpMethod method, string requestUri, string? personalAccessToken)
     {
         HttpRequestMessage request = new HttpRequestMessage(method, ValidateHttpsRequestUri(requestUri));
@@ -287,6 +306,14 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         string checkedProjectName = RequireValue(projectName, "projectName");
         return $"{BuildBaseEndpoint(settings, checkedProjectName)}/_apis/git/repositories?api-version=7.0";
+    }
+
+    private static string BuildRepositoryEndpoint(ProviderConnectionSettings settings, string projectName, string repositoryName)
+    {
+        string checkedProjectName = RequireValue(projectName, "projectName");
+        string checkedRepositoryName = RequireValue(repositoryName, "repositoryName");
+        string escapedRepositoryName = Uri.EscapeDataString(checkedRepositoryName);
+        return $"{BuildBaseEndpoint(settings, checkedProjectName)}/_apis/git/repositories/{escapedRepositoryName}?api-version=7.0";
     }
 
     private static string BuildPullRequestIterationsEndpoint(ProviderConnectionSettings settings, string projectName, string repositoryName, string pullRequestId)

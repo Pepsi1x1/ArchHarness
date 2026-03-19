@@ -43,4 +43,13 @@ public interface ISourceControlReviewProviderService
         string? repositoryName,
         string pullRequestId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Resolves the HTTPS clone URL for the specified repository.
+    /// </summary>
+    Task<string> GetRepositoryCloneUrlAsync(
+        ProviderConnectionSettings settings,
+        string? projectName,
+        string repositoryName,
+        CancellationToken cancellationToken);
 }

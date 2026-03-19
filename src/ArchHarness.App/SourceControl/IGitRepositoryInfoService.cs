@@ -13,7 +13,12 @@ public interface IGitRepositoryInfoService
     /// <summary>
     /// Switches the repository to the requested local branch when safe to do so.
     /// </summary>
-    GitBranchCheckoutResult CheckoutBranch(string workspacePath, string branchName);
+    GitBranchCheckoutResult CheckoutBranch(string workspacePath, string branchName, GitAuthenticationOptions? authentication = null);
+
+    /// <summary>
+    /// Clones a repository into the workspace path and optionally switches to a branch.
+    /// </summary>
+    GitCloneResult CloneRepository(string workspacePath, string remoteUrl, string? branchName = null, GitAuthenticationOptions? authentication = null);
 
     /// <summary>
     /// Returns the current working tree changes for a workspace path.
@@ -47,6 +52,22 @@ public sealed record GitRepositoryBranchInfo(bool IsGitRepository, string? Curre
 /// <param name="ErrorMessage">Human-readable error when checkout fails.</param>
 /// <param name="BranchInfo">Current branch information after the attempted checkout.</param>
 public sealed record GitBranchCheckoutResult(bool Succeeded, string? FailureCode, string? ErrorMessage, GitRepositoryBranchInfo BranchInfo);
+
+/// <summary>
+/// Describes the outcome of a clone request.
+/// </summary>
+/// <param name="Succeeded">Whether the clone succeeded.</param>
+/// <param name="FailureCode">Machine-readable failure code when cloning fails.</param>
+/// <param name="ErrorMessage">Human-readable error when cloning fails.</param>
+/// <param name="BranchInfo">Current branch information after the attempted clone.</param>
+public sealed record GitCloneResult(bool Succeeded, string? FailureCode, string? ErrorMessage, GitRepositoryBranchInfo BranchInfo);
+
+/// <summary>
+/// Optional credentials used for clone or fetch operations.
+/// </summary>
+/// <param name="Username">Username supplied to Git for HTTPS authentication.</param>
+/// <param name="Password">Password or personal access token supplied to Git for HTTPS authentication.</param>
+public sealed record GitAuthenticationOptions(string? Username, string? Password);
 
 /// <summary>
 /// Describes the changed files in a working tree.

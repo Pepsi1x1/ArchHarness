@@ -58,8 +58,11 @@ let reviewPrState = {
   isPullRequestStreamComplete: false,
   pullRequestError: "",
   selectedPr: null,
+  projectId: null,
   folderPath: '',
-  prFiles: []
+  prFiles: [],
+  isPreparingWorkspace: false,
+  isStartingReview: false
 };
 
 const desktopBridge = globalThis.archHarnessDesktop || null;
@@ -500,7 +503,9 @@ function createEmptyGitChangeReviewState() {
     diffLoadingPath: null,
     error: "",
     stashInFlight: false,
-    actionError: ""
+    actionError: "",
+    onCompleted: null,
+    onClosed: null
   };
 }
 
@@ -959,11 +964,13 @@ async function ensureSelectedGitDiff() {
   }
 }
 
-async function openGitChangeReview(projectId, targetBranch, branchInfo) {
+async function openGitChangeReview(projectId, targetBranch, branchInfo, options = {}) {
   state.gitChangeReview = createEmptyGitChangeReviewState();
   state.gitChangeReview.projectId = projectId;
   state.gitChangeReview.currentBranch = branchInfo?.currentBranch || null;
   state.gitChangeReview.targetBranch = targetBranch || null;
+  state.gitChangeReview.onCompleted = typeof options.onCompleted === "function" ? options.onCompleted : null;
+  state.gitChangeReview.onClosed = typeof options.onClosed === "function" ? options.onClosed : null;
   state.gitChangeReview.loading = true;
   renderGitChangeReview();
   openModal("git-changes-modal");
@@ -1006,8 +1013,9 @@ async function stashGitChangesAndContinue() {
 
     const targetBranch = review.targetBranch;
     const projectId = review.projectId;
-    closeModal();
-    await handleWorkspaceBranchSelection(projectId, targetBranch);
+    const onCompleted = review.onCompleted;
+    closeModal({ skipGitChangeReviewClose: true });
+    await handleWorkspaceBranchSelection(projectId, targetBranch, { onSucceeded: onCompleted });
   } catch (error) {
     applyProjectBranchInfo(review.projectId, error?.data?.branchInfo);
     applyWorkingTreeStatusToGitChangeReview(error?.data?.workingTreeStatus);
@@ -1218,13 +1226,16 @@ function openModal(modalId) {
   elements.modalBackdrop.classList.remove("hidden");
 }
 
-function closeModal() {
+function closeModal(options = {}) {
+  const skipGitChangeReviewClose = options.skipGitChangeReviewClose === true;
+  let gitChangeReviewClosedHandler = null;
   closeWorkspaceBranchMenu();
   closeComposerDropdowns();
   if (state.openModalId === "review-pr-modal") {
     abortPullRequestStream();
   }
   if (state.openModalId === "git-changes-modal") {
+    gitChangeReviewClosedHandler = skipGitChangeReviewClose ? null : state.gitChangeReview.onClosed;
     state.gitChangeReview = createEmptyGitChangeReviewState();
   }
 
@@ -1241,6 +1252,10 @@ function closeModal() {
 
   state.openModalId = null;
   elements.modalBackdrop.classList.add("hidden");
+
+  if (typeof gitChangeReviewClosedHandler === "function") {
+    gitChangeReviewClosedHandler();
+  }
 }
 
 function applyBootstrap(bootstrap) {
@@ -1304,15 +1319,15 @@ async function pickReviewPrFolder() {
   }
 
   reviewPrState.folderPath = selectedPath;
+  reviewPrState.projectId = null;
+  reviewPrState.prFiles = [];
   const folderInput = document.getElementById("review-pr-folder-path");
   if (folderInput) {
     folderInput.value = selectedPath;
   }
 
-  const nextButton = document.getElementById("review-pr-next-button");
-  if (nextButton) {
-    nextButton.disabled = !selectedPath.trim();
-  }
+  setReviewPrFolderHint();
+  updateReviewPrNavigation();
 }
 
 function renderActiveRun() {
@@ -1431,11 +1446,18 @@ function toggleWorkspaceBranchMenu() {
   renderTopbar();
 }
 
-async function handleWorkspaceBranchSelection(projectId, branchName) {
+async function handleWorkspaceBranchSelection(projectId, branchName, options = {}) {
+  const onSucceeded = typeof options.onSucceeded === "function" ? options.onSucceeded : null;
+  const onBlocked = typeof options.onBlocked === "function" ? options.onBlocked : null;
+  const onReviewClosed = typeof options.onReviewClosed === "function" ? options.onReviewClosed : null;
   const branchInfo = state.projectBranchInfoById[projectId] || null;
   if (branchName === branchInfo?.currentBranch) {
     closeWorkspaceBranchMenu();
-    return;
+    if (onSucceeded) {
+      await onSucceeded();
+    }
+
+    return true;
   }
 
   state.branchSwitchProjectId = projectId;
@@ -1451,6 +1473,11 @@ async function handleWorkspaceBranchSelection(projectId, branchName) {
 
     applyProjectBranchInfo(projectId, response);
     await loadProjects();
+    if (onSucceeded) {
+      await onSucceeded();
+    }
+
+    return true;
   } catch (error) {
     const latestBranchInfo = error?.data?.branchInfo ? toProjectBranchInfo(error.data.branchInfo) : branchInfo;
 
@@ -1460,11 +1487,19 @@ async function handleWorkspaceBranchSelection(projectId, branchName) {
 
     if (error?.status === 409
       && (error?.data?.failureCode === "dirty-worktree" || error?.data?.failureCode === "checkout-conflict")) {
-      await openGitChangeReview(projectId, branchName, latestBranchInfo);
-      return;
+      if (onBlocked) {
+        onBlocked();
+      }
+
+      await openGitChangeReview(projectId, branchName, latestBranchInfo, {
+        onCompleted: onSucceeded,
+        onClosed: onReviewClosed
+      });
+      return false;
     }
 
     globalThis.alert(error?.message || "Failed to switch branches.");
+    return false;
   } finally {
     state.branchSwitchProjectId = null;
     renderTopbar();
@@ -2057,6 +2092,10 @@ function collectRunRequest() {
 
 async function startRun() {
   const request = collectRunRequest();
+  await submitRunRequest(request);
+}
+
+async function submitRunRequest(request) {
   resetStream();
   showStreamStarting();
   const snapshot = await requestJson("/api/runs", {
@@ -2904,8 +2943,11 @@ async function openReviewPrModal() {
     isPullRequestStreamComplete: false,
     pullRequestError: "",
     selectedPr: null,
+    projectId: null,
     folderPath: "",
-    prFiles: []
+    prFiles: [],
+    isPreparingWorkspace: false,
+    isStartingReview: false
   };
 
   let providers;
@@ -2956,22 +2998,272 @@ function showReviewPrStep(i) {
   if (titleEl) titleEl.textContent = REVIEW_PR_STEP_TITLES[i] || "Review PR";
 
   const backBtn = document.getElementById("review-pr-back-button");
-  const nextBtn = document.getElementById("review-pr-next-button");
 
   const showBack = i > 0 && !(i === 1 && reviewPrState.autoSelectedProvider);
   backBtn.classList.toggle("hidden", !showBack);
 
-  nextBtn.textContent = i === 3 ? "Start Review" : "Next";
+  updateReviewPrNavigation();
+}
 
-  if (i === 0) {
-    nextBtn.disabled = !reviewPrState.selectedProvider;
-  } else if (i === 1) {
-    nextBtn.disabled = !reviewPrState.selectedPr;
-  } else if (i === 2) {
-    nextBtn.disabled = !reviewPrState.folderPath.trim();
-  } else {
-    nextBtn.disabled = false;
+function updateReviewPrNavigation() {
+  const nextBtn = document.getElementById("review-pr-next-button");
+  if (!nextBtn) {
+    return;
   }
+
+  if (reviewPrState.step === 3) {
+    nextBtn.textContent = reviewPrState.isStartingReview ? "Starting review..." : "Start Review";
+  } else if (reviewPrState.step === 2) {
+    nextBtn.textContent = reviewPrState.isPreparingWorkspace ? "Preparing..." : "Next";
+  } else {
+    nextBtn.textContent = "Next";
+  }
+
+  if (reviewPrState.step === 0) {
+    nextBtn.disabled = !reviewPrState.selectedProvider;
+  } else if (reviewPrState.step === 1) {
+    nextBtn.disabled = !reviewPrState.selectedPr;
+  } else if (reviewPrState.step === 2) {
+    nextBtn.disabled = reviewPrState.isPreparingWorkspace || !reviewPrState.folderPath.trim();
+  } else {
+    nextBtn.disabled = reviewPrState.isStartingReview || !reviewPrState.projectId;
+  }
+}
+
+function getReviewPrFolderBaseHint() {
+  return desktopBridge?.hostMode === "electron-local-web"
+    ? "Use Browse to choose the local folder for the PR workspace. If the folder is not a Git repo yet, ArchHarness will clone it for you."
+    : "Enter the path to the local folder for the PR workspace. If the folder is not a Git repo yet, ArchHarness will clone it for you.";
+}
+
+function setReviewPrFolderHint(message = null) {
+  const hintEl = document.getElementById("review-pr-folder-hint");
+  if (!hintEl) {
+    return;
+  }
+
+  hintEl.textContent = message || getReviewPrFolderBaseHint();
+}
+
+function getReviewPrSourceBranch(pr = reviewPrState.selectedPr) {
+  return pr?.SourceBranch || pr?.sourceBranch || "";
+}
+
+function getReviewPrTargetBranch(pr = reviewPrState.selectedPr) {
+  return pr?.TargetBranch || pr?.targetBranch || "";
+}
+
+function getReviewPrId(pr = reviewPrState.selectedPr) {
+  return String(pr?.Id || pr?.id || pr?.PullRequestId || pr?.pullRequestId || "").trim();
+}
+
+function buildReviewPrDisplayName(pr, folderPath) {
+  const repositoryName = pr?.RepositoryName || pr?.repositoryName || "Repository";
+  const sourceBranch = getReviewPrSourceBranch(pr);
+  if (repositoryName && sourceBranch) {
+    return `${repositoryName} (${sourceBranch})`;
+  }
+
+  return repositoryName || summarizeWorkspacePath(folderPath) || "PR workspace";
+}
+
+async function ensureReviewPrProject() {
+  const folderPath = reviewPrState.folderPath.trim();
+  const pr = reviewPrState.selectedPr;
+  const payload = {
+    displayName: buildReviewPrDisplayName(pr, folderPath),
+    workspacePath: folderPath,
+    workspaceMode: "existing-git",
+    permissionHandlerMode: elements.permissionMode.value || state.settings?.defaults?.permissionHandlerMode || "approve-all",
+    architectureReviewMode: false,
+    architectureReviewPrompt: null
+  };
+
+  const project = await requestJson("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  await requestJson(`/api/projects/${encodeURIComponent(project.projectId)}/source-control`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      providerName: reviewPrState.selectedProvider?.displayName || null,
+      projectName: pr?.ProjectName || pr?.projectName || null,
+      repositoryName: pr?.RepositoryName || pr?.repositoryName || null
+    })
+  });
+
+  reviewPrState.projectId = project.projectId;
+  return project;
+}
+
+async function finalizeReviewPrWorkspace(projectId) {
+  reviewPrState.projectId = projectId;
+  state.activeProjectId = projectId;
+  await loadProjects();
+  showReviewPrStep(3);
+  await loadPrFiles();
+}
+
+async function prepareReviewPrWorkspace() {
+  if (reviewPrState.isPreparingWorkspace) {
+    return false;
+  }
+
+  const branchName = getReviewPrSourceBranch();
+  if (!branchName) {
+    throw new Error("The selected pull request does not include a source branch.");
+  }
+
+  reviewPrState.isPreparingWorkspace = true;
+  setReviewPrFolderHint("Preparing the PR workspace...");
+  updateReviewPrNavigation();
+
+  try {
+    const project = await ensureReviewPrProject();
+    state.activeProjectId = project.projectId;
+
+    const branchInfo = await requestJson(`/api/projects/${encodeURIComponent(project.projectId)}/branch`);
+    applyProjectBranchInfo(project.projectId, branchInfo);
+
+    if (!branchInfo?.isGitRepository) {
+      setReviewPrFolderHint(`Cloning ${prSummaryLabel(reviewPrState.selectedPr)} into the selected folder...`);
+      const cloneResponse = await requestJson(`/api/projects/${encodeURIComponent(project.projectId)}/git/clone`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branchName })
+      });
+
+      applyProjectBranchInfo(project.projectId, cloneResponse);
+      await finalizeReviewPrWorkspace(project.projectId);
+      return true;
+    }
+
+    const workingTreeStatus = await requestJson(`/api/projects/${encodeURIComponent(project.projectId)}/git/changes`);
+    if (workingTreeStatus?.hasChanges) {
+      reviewPrState.isPreparingWorkspace = false;
+      updateReviewPrNavigation();
+      await openGitChangeReview(project.projectId, branchName, branchInfo, {
+        onCompleted: async () => {
+          await finalizeReviewPrWorkspace(project.projectId);
+        },
+        onClosed: () => {
+          openModal("review-pr-modal");
+          showReviewPrStep(2);
+          renderFolderStep();
+        }
+      });
+      return false;
+    }
+
+    const currentBranch = branchInfo?.currentBranch || null;
+    if (currentBranch && !equalIgnoringCase(currentBranch, branchName)) {
+      const confirmMessage = `Switch ${project.displayName} from ${currentBranch} to ${branchName} to review this pull request?`;
+      if (!globalThis.confirm(confirmMessage)) {
+        return false;
+      }
+
+      const switched = await handleWorkspaceBranchSelection(project.projectId, branchName, {
+        onSucceeded: async () => {
+          await finalizeReviewPrWorkspace(project.projectId);
+        },
+        onReviewClosed: () => {
+          openModal("review-pr-modal");
+          showReviewPrStep(2);
+          renderFolderStep();
+        }
+      });
+      return switched;
+    }
+
+    await finalizeReviewPrWorkspace(project.projectId);
+    return true;
+  } finally {
+    reviewPrState.isPreparingWorkspace = false;
+    setReviewPrFolderHint();
+    updateReviewPrNavigation();
+  }
+}
+
+function equalIgnoringCase(left, right) {
+  return String(left || "").localeCompare(String(right || ""), undefined, { sensitivity: "accent" }) === 0;
+}
+
+function buildPullRequestReviewPrompt() {
+  const pr = reviewPrState.selectedPr;
+  const title = pr?.Title || pr?.title || "Pull request";
+  const pullRequestId = getReviewPrId(pr) || "unknown";
+  const sourceBranch = getReviewPrSourceBranch(pr);
+  const targetBranch = getReviewPrTargetBranch(pr);
+  const changedFiles = reviewPrState.prFiles
+    .map(file => file.Path || file.path || file.FileName || file.fileName || "")
+    .filter(Boolean)
+    .slice(0, 200);
+
+  const promptLines = [
+    `Review pull request #${pullRequestId}: ${title}.`,
+    sourceBranch ? `Source branch: ${sourceBranch}.` : "",
+    targetBranch ? `Target branch: ${targetBranch}.` : "",
+    "Focus on bugs, behavioral regressions, security issues, and missing tests.",
+    changedFiles.length > 0 ? "Prioritize the files changed in this PR:" : ""
+  ].filter(Boolean);
+
+  if (changedFiles.length > 0) {
+    changedFiles.forEach(path => {
+      promptLines.push(`- ${path}`);
+    });
+  }
+
+  return promptLines.join("\n");
+}
+
+async function startPullRequestReview() {
+  if (reviewPrState.isStartingReview) {
+    return;
+  }
+
+  const projectId = reviewPrState.projectId;
+  const project = state.projects.find(candidate => candidate.projectId === projectId)
+    || (await requestJson("/api/projects?maxRunsPerProject=24")).find(candidate => candidate.projectId === projectId);
+  if (!project) {
+    throw new Error("The PR workspace project could not be loaded.");
+  }
+
+  reviewPrState.isStartingReview = true;
+  updateReviewPrNavigation();
+
+  try {
+    await submitRunRequest({
+      taskPrompt: buildPullRequestReviewPrompt(),
+      workspacePath: project.workspacePath,
+      workspaceMode: "existing-git",
+      workflow: "auto",
+      projectName: project.displayName,
+      projectId: project.projectId,
+      modelOverrides: null,
+      buildCommand: null,
+      permissionHandlerMode: elements.permissionMode.value || project.permissionHandlerMode,
+      reviewLoopAgents: state.bootstrap?.reviewLoopAgents || {
+        codingStyleEnabled: true,
+        securityEnabled: true,
+        architectureEnabled: true
+      },
+      architectureLoopMode: false,
+      architectureLoopPrompt: null,
+      runTitle: `PR #${getReviewPrId() || ""} review`.trim()
+    });
+
+    closeModal();
+  } finally {
+    reviewPrState.isStartingReview = false;
+    updateReviewPrNavigation();
+  }
+}
+
+function prSummaryLabel(pr) {
+  return pr?.RepositoryName || pr?.repositoryName || "the repository";
 }
 
 function renderProviderPicker() {
@@ -3334,7 +3626,6 @@ function renderPullRequestList() {
 function renderFolderStep() {
   const pr = reviewPrState.selectedPr;
   const summaryEl = document.getElementById("review-pr-selected-pr-summary");
-  const hintEl = document.getElementById("review-pr-folder-hint");
   const browseButton = document.getElementById("review-pr-pick-folder");
   summaryEl.replaceChildren();
 
@@ -3356,22 +3647,19 @@ function renderFolderStep() {
 
   const folderInput = document.getElementById("review-pr-folder-path");
   folderInput.value = reviewPrState.folderPath;
-  if (hintEl) {
-    hintEl.textContent = desktopBridge?.hostMode === "electron-local-web"
-      ? "Use Browse to choose the local folder where the PR branch is checked out, or enter the path manually."
-      : "Enter the path to the local folder where the PR branch is checked out.";
-  }
+  setReviewPrFolderHint();
   if (browseButton) {
     browseButton.disabled = !desktopBridge?.selectFolder;
   }
 
-  const nextBtn = document.getElementById("review-pr-next-button");
-  nextBtn.disabled = !reviewPrState.folderPath.trim();
-
   folderInput.oninput = () => {
     reviewPrState.folderPath = folderInput.value;
-    document.getElementById("review-pr-next-button").disabled = !folderInput.value.trim();
+    reviewPrState.projectId = null;
+    reviewPrState.prFiles = [];
+    updateReviewPrNavigation();
   };
+
+  updateReviewPrNavigation();
 }
 
 async function loadPrFiles() {
@@ -3438,9 +3726,11 @@ function renderConfirmStep() {
     li.append(pathEl, badge);
     fileList.append(li);
   });
+
+  updateReviewPrNavigation();
 }
 
-function handleReviewPrNext() {
+async function handleReviewPrNext() {
   const step = reviewPrState.step;
   if (step === 0) {
     showReviewPrStep(1);
@@ -3450,15 +3740,20 @@ function handleReviewPrNext() {
     renderFolderStep();
   } else if (step === 2) {
     reviewPrState.folderPath = document.getElementById("review-pr-folder-path").value;
-    showReviewPrStep(3);
-    void loadPrFiles();
+    await prepareReviewPrWorkspace();
   } else if (step === 3) {
-    alert("PR review integration coming soon.");
+    await startPullRequestReview();
   }
 }
 
 function handleReviewPrBack() {
   showReviewPrStep(reviewPrState.step - 1);
+
+  if (reviewPrState.step === 2) {
+    renderFolderStep();
+  } else if (reviewPrState.step === 3) {
+    renderConfirmStep();
+  }
 }
 
 // =================== End Review PR ===================
@@ -3600,7 +3895,15 @@ function attachHandlers() {
   });
   document.getElementById("review-pr-close-button").addEventListener("click", closeModal);
   document.getElementById("review-pr-back-button").addEventListener("click", handleReviewPrBack);
-  document.getElementById("review-pr-next-button").addEventListener("click", handleReviewPrNext);
+  document.getElementById("review-pr-next-button").addEventListener("click", () => {
+    void handleReviewPrNext().catch(error => {
+      setReviewPrFolderHint(error?.message || "Failed to prepare the PR workspace.");
+      reviewPrState.isPreparingWorkspace = false;
+      reviewPrState.isStartingReview = false;
+      updateReviewPrNavigation();
+      console.error("PR review step failed:", error);
+    });
+  });
   document.getElementById("pr-filter-project-clear").addEventListener("click", () => clearPullRequestFilter("project"));
   document.getElementById("pr-filter-repo-clear").addEventListener("click", () => clearPullRequestFilter("repository"));
   document.getElementById("pr-filter-author-clear").addEventListener("click", () => clearPullRequestFilter("author"));

@@ -9,6 +9,8 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
 {
     private const string FailureCodeNotGitRepository = "not-git-repository";
     private const string FailureCodeBranchNotFound = "branch-not-found";
+    private const string FailureCodeCloneFailed = "clone-failed";
+    private const string FailureCodeAlreadyGitRepository = "already-git-repository";
     private const string FailureCodeDirtyWorktree = "dirty-worktree";
     private const string FailureCodeCheckoutConflict = "checkout-conflict";
     private const string FailureCodeInvalidRequest = "invalid-request";
@@ -70,7 +72,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
     }
 
     /// <inheritdoc />
-    public GitBranchCheckoutResult CheckoutBranch(string workspacePath, string branchName)
+    public GitBranchCheckoutResult CheckoutBranch(string workspacePath, string branchName, GitAuthenticationOptions? authentication = null)
     {
         if (string.IsNullOrWhiteSpace(branchName))
         {
@@ -95,18 +97,25 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
             }
 
             using Repository repository = new Repository(discoveredPath);
-            if (string.Equals(repository.Head?.FriendlyName, branchName.Trim(), StringComparison.OrdinalIgnoreCase))
+            string normalizedBranchName = branchName.Trim();
+            if (string.Equals(repository.Head?.FriendlyName, normalizedBranchName, StringComparison.OrdinalIgnoreCase))
             {
                 return new GitBranchCheckoutResult(true, null, null, BuildBranchInfo(repository));
             }
 
-            Branch? branch = repository.Branches[branchName.Trim()];
+            Branch? branch = ResolveLocalBranch(repository, normalizedBranchName);
+            if (branch is null && authentication is not null)
+            {
+                FetchAllRemotes(repository, authentication);
+                branch = ResolveLocalBranch(repository, normalizedBranchName);
+            }
+
             if (branch is null || branch.IsRemote)
             {
                 return new GitBranchCheckoutResult(
                     false,
                     FailureCodeBranchNotFound,
-                    $"Local branch '{branchName.Trim()}' was not found.",
+                    $"Branch '{normalizedBranchName}' was not found locally or on a configured remote.",
                     BuildBranchInfo(repository));
             }
 
@@ -162,6 +171,87 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 FailureCodeCheckoutConflict,
                 "Git could not switch branches because the repository files are not currently accessible.",
                 GetBranchInfo(workspacePath));
+        }
+    }
+
+    /// <inheritdoc />
+    public GitCloneResult CloneRepository(string workspacePath, string remoteUrl, string? branchName = null, GitAuthenticationOptions? authentication = null)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return new GitCloneResult(
+                false,
+                FailureCodeInvalidRequest,
+                "Workspace path is required.",
+                new GitRepositoryBranchInfo(false, null, Array.Empty<string>()));
+        }
+
+        if (string.IsNullOrWhiteSpace(remoteUrl))
+        {
+            return new GitCloneResult(
+                false,
+                FailureCodeInvalidRequest,
+                "Repository clone URL is required.",
+                GetBranchInfo(workspacePath));
+        }
+
+        try
+        {
+            string fullWorkspacePath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath));
+            string? discoveredPath = Repository.Discover(fullWorkspacePath);
+            if (!string.IsNullOrWhiteSpace(discoveredPath))
+            {
+                return new GitCloneResult(
+                    false,
+                    FailureCodeAlreadyGitRepository,
+                    "The selected folder already contains a Git repository.",
+                    GetBranchInfo(workspacePath));
+            }
+
+            string? parentDirectory = Path.GetDirectoryName(fullWorkspacePath);
+            if (!string.IsNullOrWhiteSpace(parentDirectory))
+            {
+                Directory.CreateDirectory(parentDirectory);
+            }
+
+            CloneOptions cloneOptions = new CloneOptions();
+            LibGit2Sharp.Handlers.CredentialsHandler? credentialsProvider = BuildCredentialsProvider(authentication);
+            if (credentialsProvider is not null)
+            {
+                cloneOptions.FetchOptions.CredentialsProvider = credentialsProvider;
+            }
+
+            Repository.Clone(remoteUrl.Trim(), fullWorkspacePath, cloneOptions);
+
+            using Repository repository = new Repository(fullWorkspacePath);
+            if (!string.IsNullOrWhiteSpace(branchName))
+            {
+                Branch? branch = ResolveLocalBranch(repository, branchName.Trim());
+                if (branch is null)
+                {
+                    return new GitCloneResult(
+                        false,
+                        FailureCodeBranchNotFound,
+                        $"Branch '{branchName.Trim()}' was not found after cloning the repository.",
+                        BuildBranchInfo(repository));
+                }
+
+                Commands.Checkout(repository, branch);
+            }
+
+            return new GitCloneResult(true, null, null, BuildBranchInfo(repository));
+        }
+        catch (LibGit2SharpException ex)
+        {
+            return new GitCloneResult(false, FailureCodeCloneFailed, ex.Message, GetBranchInfo(workspacePath));
+        }
+        catch (IOException)
+        {
+            return new GitCloneResult(false, FailureCodeCloneFailed, "Git could not clone the repository because the target folder is not currently accessible.", GetBranchInfo(workspacePath));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new GitCloneResult(false, FailureCodeCloneFailed, "Git could not clone the repository because the target folder is not currently accessible.", GetBranchInfo(workspacePath));
         }
     }
 
@@ -313,6 +403,98 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
         }
 
         return new GitRepositoryBranchInfo(true, currentBranch, branchNames);
+    }
+
+    private static Branch? ResolveLocalBranch(Repository repository, string branchName)
+    {
+        Branch? localBranch = repository.Branches[branchName];
+        if (localBranch is not null && !localBranch.IsRemote)
+        {
+            return localBranch;
+        }
+
+        Branch? remoteBranch = FindRemoteBranch(repository, branchName);
+        if (remoteBranch is null)
+        {
+            return null;
+        }
+
+        Branch? trackedBranch = repository.Branches[branchName];
+        if (trackedBranch is null || trackedBranch.IsRemote)
+        {
+            trackedBranch = repository.CreateBranch(branchName, remoteBranch.Tip);
+        }
+
+        string remoteName = GetRemoteName(remoteBranch);
+        repository.Branches.Update(trackedBranch, updater =>
+        {
+            updater.Remote = remoteName;
+            updater.TrackedBranch = remoteBranch.CanonicalName;
+        });
+
+        return trackedBranch;
+    }
+
+    private static Branch? FindRemoteBranch(Repository repository, string branchName)
+    {
+        string originFriendlyName = $"origin/{branchName}";
+        Branch? originBranch = repository.Branches.FirstOrDefault(branch =>
+            branch.IsRemote
+            && string.Equals(branch.FriendlyName, originFriendlyName, StringComparison.OrdinalIgnoreCase));
+        if (originBranch is not null)
+        {
+            return originBranch;
+        }
+
+        return repository.Branches.FirstOrDefault(branch =>
+            branch.IsRemote
+            && string.Equals(NormalizeRemoteBranchName(branch.FriendlyName), branchName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeRemoteBranchName(string? branchName)
+    {
+        string normalized = NormalizeRepositoryPath(branchName);
+        int separatorIndex = normalized.IndexOf('/');
+        return separatorIndex >= 0 ? normalized[(separatorIndex + 1)..] : normalized;
+    }
+
+    private static string GetRemoteName(Branch remoteBranch)
+    {
+        string friendlyName = NormalizeRepositoryPath(remoteBranch.FriendlyName);
+        int separatorIndex = friendlyName.IndexOf('/');
+        return separatorIndex > 0 ? friendlyName[..separatorIndex] : "origin";
+    }
+
+    private static void FetchAllRemotes(Repository repository, GitAuthenticationOptions authentication)
+    {
+        FetchOptions fetchOptions = new FetchOptions();
+        LibGit2Sharp.Handlers.CredentialsHandler? credentialsProvider = BuildCredentialsProvider(authentication);
+        if (credentialsProvider is not null)
+        {
+            fetchOptions.CredentialsProvider = credentialsProvider;
+        }
+
+        foreach (Remote remote in repository.Network.Remotes)
+        {
+            Commands.Fetch(repository, remote.Name, Array.Empty<string>(), fetchOptions, null);
+        }
+    }
+
+    private static LibGit2Sharp.Handlers.CredentialsHandler? BuildCredentialsProvider(GitAuthenticationOptions? authentication)
+    {
+        if (authentication is null || string.IsNullOrWhiteSpace(authentication.Password))
+        {
+            return null;
+        }
+
+        string username = string.IsNullOrWhiteSpace(authentication.Username) ? "git" : authentication.Username.Trim();
+        string password = authentication.Password.Trim();
+
+        return (_url, _user, _types) => new UsernamePasswordCredentials
+        {
+            Username = username,
+            Password = password
+        };
     }
 
     private static GitWorkingTreeStatus BuildWorkingTreeStatus(Repository repository)

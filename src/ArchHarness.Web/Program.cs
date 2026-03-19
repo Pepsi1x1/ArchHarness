@@ -271,7 +271,7 @@ app.MapPost("/api/projects/{projectId}/git/stash", (string projectId, StashProje
     return Results.Ok(responsePayload);
 });
 
-app.MapPost("/api/projects/{projectId}/branch", (string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+app.MapPost("/api/projects/{projectId}/git/clone", async (string projectId, CloneProjectRepositoryRequest request, IProjectWorkspaceCatalog projectCatalog, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory, IGitRepositoryInfoService gitRepositoryInfoService, CancellationToken cancellationToken) =>
 {
     PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
     if (project is null)
@@ -279,7 +279,93 @@ app.MapPost("/api/projects/{projectId}/branch", (string projectId, SwitchProject
         return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
     }
 
-    GitBranchCheckoutResult result = gitRepositoryInfoService.CheckoutBranch(project.WorkspacePath, request.BranchName);
+    if (string.IsNullOrWhiteSpace(project.SourceControlProviderName))
+    {
+        return Results.BadRequest(new { error = "Source control is not configured for this project." });
+    }
+
+    if (string.IsNullOrWhiteSpace(project.SourceControlRepositoryName))
+    {
+        return Results.BadRequest(new { error = "Repository name is not configured for this project." });
+    }
+
+    ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, project.SourceControlProviderName);
+    if (providerSettings is null)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{project.SourceControlProviderName}' was not found." });
+    }
+
+    if (!providerSettings.IsEnabled)
+    {
+        return Results.BadRequest(new { error = $"Source control provider '{project.SourceControlProviderName}' is not enabled." });
+    }
+
+    try
+    {
+        ISourceControlReviewProviderService provider = providerFactory.GetProvider(providerSettings.Provider);
+        string cloneUrl = await provider.GetRepositoryCloneUrlAsync(
+            providerSettings,
+            project.SourceControlProjectName,
+            project.SourceControlRepositoryName,
+            cancellationToken);
+        GitCloneResult result = gitRepositoryInfoService.CloneRepository(
+            project.WorkspacePath,
+            cloneUrl,
+            NormalizeText(request.BranchName),
+            BuildGitAuthenticationOptions(providerSettings));
+
+        if (!result.Succeeded)
+        {
+            object errorPayload = new
+            {
+                error = result.ErrorMessage,
+                failureCode = result.FailureCode,
+                branchInfo = new
+                {
+                    isGitRepository = result.BranchInfo.IsGitRepository,
+                    currentBranch = result.BranchInfo.CurrentBranch,
+                    branches = result.BranchInfo.Branches
+                }
+            };
+
+            return result.FailureCode switch
+            {
+                "already-git-repository" => Results.Conflict(errorPayload),
+                _ => Results.BadRequest(errorPayload)
+            };
+        }
+
+        return Results.Ok(new
+        {
+            projectId = project.ProjectId,
+            isGitRepository = result.BranchInfo.IsGitRepository,
+            currentBranch = result.BranchInfo.CurrentBranch,
+            branches = result.BranchInfo.Branches
+        });
+    }
+    catch (SourceControlRequestFailedException ex)
+    {
+        return CreateSourceControlErrorResult(ex);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapPost("/api/projects/{projectId}/branch", (string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IProviderConnectionCatalog providerCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, project.SourceControlProviderName);
+    GitBranchCheckoutResult result = gitRepositoryInfoService.CheckoutBranch(
+        project.WorkspacePath,
+        request.BranchName,
+        BuildGitAuthenticationOptions(providerSettings));
     if (!result.Succeeded)
     {
         object errorPayload = new
@@ -1093,6 +1179,19 @@ static ProviderConnectionSettings? FindProviderByDisplayName(IProviderConnection
         ? null
         : providerCatalog.GetProviders()
             .FirstOrDefault(provider => string.Equals(provider.DisplayName, normalizedProviderName, StringComparison.OrdinalIgnoreCase));
+}
+
+static GitAuthenticationOptions? BuildGitAuthenticationOptions(ProviderConnectionSettings? providerSettings)
+{
+    if (providerSettings is null || string.IsNullOrWhiteSpace(providerSettings.PersonalAccessToken))
+    {
+        return null;
+    }
+
+    string username = providerSettings.Provider == SourceControlProvider.GitHub
+        ? "x-access-token"
+        : "pat";
+    return new GitAuthenticationOptions(username, providerSettings.PersonalAccessToken.Trim());
 }
 
 static object CreatePersonalAccessTokenStorageConflict(string warningMessage)
