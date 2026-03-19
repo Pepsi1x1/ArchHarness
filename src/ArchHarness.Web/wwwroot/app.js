@@ -121,10 +121,10 @@ const REVIEW_FILTER_MAX_LENGTH = 200;
 const REVIEW_PULL_REQUEST_ID_MAX_LENGTH = 20;
 const PAT_STORAGE_MODE_PROTECTED = 0;
 const PAT_STORAGE_MODE_PLAINTEXT = 1;
-const LEGACY_AUTOFILL_PROMPTS = [
+const LEGACY_AUTOFILL_PROMPTS = new Set([
   "Implement requested change",
   "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation."
-];
+]);
 const ROLE_LABELS = {
   conversation: "Conversation",
   orchestration: "Orchestration",
@@ -279,7 +279,7 @@ async function requestEventStream(url, options) {
   let buffer = "";
 
   const processBlock = block => {
-    const normalized = block.replace(/\r/g, "");
+    const normalized = block.replaceAll("\r", "");
     if (!normalized.trim()) {
       return;
     }
@@ -350,11 +350,11 @@ function saveShellState() {
     architectureReviewPreset: elements.architectureReviewPreset.value,
     seenRunIds: [...state.seenRunIds]
   };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
 
 function restoreShellState() {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = globalThis.localStorage.getItem(STORAGE_KEY);
   if (!raw) {
     return;
   }
@@ -368,12 +368,12 @@ function restoreShellState() {
     setSelectValue(elements.permissionMode, saved.permissionMode);
     setSelectValue(elements.architectureReviewPreset, saved.architectureReviewPreset);
   } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
+    globalThis.localStorage.removeItem(STORAGE_KEY);
   }
 }
 
 function clearLegacyAutofillPrompt() {
-  if (LEGACY_AUTOFILL_PROMPTS.includes(elements.taskPrompt.value.trim())) {
+  if (LEGACY_AUTOFILL_PROMPTS.has(elements.taskPrompt.value.trim())) {
     elements.taskPrompt.value = "";
   }
 }
@@ -1069,7 +1069,7 @@ function getProjectRunCount(project) {
 function timeAgo(value) {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
-  if (isNaN(date)) return "";
+  if (Number.isNaN(date.getTime())) return "";
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
   if (secs < 60) return `${secs}s ago`;
   const mins = Math.floor(secs / 60);
@@ -1122,7 +1122,7 @@ function formatRunTimestamp(runId) {
 }
 
 function summarizeWorkspacePath(path) {
-  const normalized = String(path || "").replace(/\\/g, "/").replace(/\/$/, "");
+  const normalized = String(path || "").replaceAll("\\", "/").replaceAll(/\/$/, "");
   if (!normalized) {
     return "No workspace path";
   }
@@ -1148,7 +1148,7 @@ function sanitizeHtml(html) {
   const doc = parser.parseFromString(html || "", "text/html");
   doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,use,link[rel=import]").forEach(el => el.remove());
   doc.querySelectorAll("*").forEach(el => {
-    for (const attr of [...el.attributes]) {
+    for (const attr of el.attributes) {
       const name = attr.name.toLowerCase();
       const trimmedValue = attr.value.trimStart().toLowerCase();
       const isUnsafeUri = trimmedValue.startsWith("javascript:")
@@ -1242,7 +1242,7 @@ function buildPullRequestArchitecturePrompt(project) {
 
 function clearPendingInteractionPoll() {
   if (state.interactionPollHandle) {
-    window.clearTimeout(state.interactionPollHandle);
+    globalThis.clearTimeout(state.interactionPollHandle);
     state.interactionPollHandle = null;
   }
 }
@@ -1261,7 +1261,7 @@ function schedulePendingInteractionPoll(delayMs) {
     return;
   }
 
-  state.interactionPollHandle = window.setTimeout(() => {
+  state.interactionPollHandle = globalThis.setTimeout(() => {
     state.interactionPollHandle = null;
     void pollPendingInteraction();
   }, delayMs);
@@ -1344,7 +1344,7 @@ async function pickProjectFolder() {
 
   elements.newProjectPath.value = selectedPath;
   if (!elements.newProjectName.value.trim()) {
-    const segments = selectedPath.replace(/\\/g, "/").split("/").filter(Boolean);
+    const segments = selectedPath.replaceAll("\\", "/").split("/").filter(Boolean);
     elements.newProjectName.value = segments[segments.length - 1] || selectedPath;
   }
 }
@@ -1506,12 +1506,7 @@ async function handleWorkspaceBranchSelection(projectId, branchName, options = {
   const onReviewClosed = typeof options.onReviewClosed === "function" ? options.onReviewClosed : null;
   const branchInfo = state.projectBranchInfoById[projectId] || null;
   if (branchName === branchInfo?.currentBranch) {
-    closeWorkspaceBranchMenu();
-    if (onSucceeded) {
-      await onSucceeded();
-    }
-
-    return true;
+    return completeWorkspaceBranchSelection(onSucceeded);
   }
 
   state.branchSwitchProjectId = projectId;
@@ -1526,38 +1521,55 @@ async function handleWorkspaceBranchSelection(projectId, branchName, options = {
     });
 
     applyProjectBranchInfo(projectId, response);
-    await loadProjects();
-    if (onSucceeded) {
-      await onSucceeded();
-    }
-
-    return true;
+    return completeWorkspaceBranchSelection(onSucceeded);
   } catch (error) {
-    const latestBranchInfo = error?.data?.branchInfo ? toProjectBranchInfo(error.data.branchInfo) : branchInfo;
-
-    if (latestBranchInfo) {
-      state.projectBranchInfoById[projectId] = latestBranchInfo;
-    }
-
-    if (error?.status === 409
-      && (error?.data?.failureCode === "dirty-worktree" || error?.data?.failureCode === "checkout-conflict")) {
-      if (onBlocked) {
-        onBlocked();
-      }
-
-      await openGitChangeReview(projectId, branchName, latestBranchInfo, {
-        onCompleted: onSucceeded,
-        onClosed: onReviewClosed
-      });
-      return false;
-    }
-
-    globalThis.alert(error?.message || "Failed to switch branches.");
+    await handleWorkspaceBranchSelectionError(error, {
+      projectId,
+      branchName,
+      branchInfo,
+      onSucceeded,
+      onBlocked,
+      onReviewClosed
+    });
     return false;
   } finally {
     state.branchSwitchProjectId = null;
     renderTopbar();
   }
+}
+
+async function completeWorkspaceBranchSelection(onSucceeded) {
+  closeWorkspaceBranchMenu();
+  await loadProjects();
+  if (onSucceeded) {
+    await onSucceeded();
+  }
+
+  return true;
+}
+
+function isBlockedWorkspaceBranchSwitch(error) {
+  return error?.status === 409
+    && (error?.data?.failureCode === "dirty-worktree" || error?.data?.failureCode === "checkout-conflict");
+}
+
+async function handleWorkspaceBranchSelectionError(error, context) {
+  const latestBranchInfo = error?.data?.branchInfo ? toProjectBranchInfo(error.data.branchInfo) : context.branchInfo;
+
+  if (latestBranchInfo) {
+    state.projectBranchInfoById[context.projectId] = latestBranchInfo;
+  }
+
+  if (isBlockedWorkspaceBranchSwitch(error)) {
+    context.onBlocked?.();
+    await openGitChangeReview(context.projectId, context.branchName, latestBranchInfo, {
+      onCompleted: context.onSucceeded,
+      onClosed: context.onReviewClosed
+    });
+    return;
+  }
+
+  globalThis.alert(error?.message || "Failed to switch branches.");
 }
 
 async function ensureActiveProjectBranchInfo() {
@@ -1734,7 +1746,7 @@ function ensureStreamSection(agentId, agentRole, title) {
 
 function getOrCreateTextSegment(section) {
   const last = section.segments[section.segments.length - 1];
-  if (last && last.type === "text") return last;
+  if (last?.type === "text") return last;
   const seg = { type: "text", content: "", html: "" };
   section.segments.push(seg);
   return seg;
@@ -1742,7 +1754,7 @@ function getOrCreateTextSegment(section) {
 
 function getOrCreateToolGroup(section) {
   const last = section.segments[section.segments.length - 1];
-  if (last && last.type === "tool-group") return last;
+  if (last?.type === "tool-group") return last;
   const seg = { type: "tool-group", calls: [] };
   section.segments.push(seg);
   return seg;
@@ -1910,10 +1922,10 @@ function scheduleStreamRender(agentId) {
   }
 
   if (section.renderHandle) {
-    window.clearTimeout(section.renderHandle);
+    globalThis.clearTimeout(section.renderHandle);
   }
 
-  section.renderHandle = window.setTimeout(() => {
+  section.renderHandle = globalThis.setTimeout(() => {
     section.renderHandle = null;
     void renderStreamSectionMarkdown(agentId);
   }, STREAM_RENDER_DELAY_MS);
@@ -1935,10 +1947,10 @@ async function renderStreamSectionMarkdown(agentId) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ markdown: seg.content })
       });
-      if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) return;
+      if (state.streamSections[agentId]?.renderVersion !== version) return;
       seg.html = response.html || `<pre>${escapeHtml(seg.content)}</pre>`;
     } catch {
-      if (!state.streamSections[agentId] || state.streamSections[agentId].renderVersion !== version) return;
+      if (state.streamSections[agentId]?.renderVersion !== version) return;
       seg.html = `<pre>${escapeHtml(seg.content)}</pre>`;
     }
   }
@@ -1993,7 +2005,7 @@ function recordStreamEvent(entry) {
 function resetStream() {
   Object.values(state.streamSections).forEach(section => {
     if (section.renderHandle) {
-      window.clearTimeout(section.renderHandle);
+      globalThis.clearTimeout(section.renderHandle);
     }
   });
   state.streamSections = {};
@@ -2221,7 +2233,7 @@ function connectEventStream() {
 
     closeEventStream(state.activeRun?.isRunning ? "reconnecting" : "idle");
     if (state.activeRun?.isRunning) {
-      window.setTimeout(connectEventStream, 1000);
+      globalThis.setTimeout(connectEventStream, 1000);
     }
   };
 }
@@ -2464,7 +2476,7 @@ const PROVIDER_FORM_FIELDS = {
 
 function normalizeProviderField(value) {
   return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .replaceAll(/[\u0000-\u001F\u007F]+/g, " ")
     .trim();
 }
 
@@ -2487,7 +2499,7 @@ function looksLikeProviderUrl(value) {
 
 function normalizeReviewLookupValue(value, maxLength = REVIEW_FILTER_MAX_LENGTH) {
   return String(value ?? "")
-    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .replaceAll(/[\u0000-\u001F\u007F]+/g, " ")
     .trim()
     .slice(0, maxLength);
 }
@@ -2503,7 +2515,7 @@ function normalizeProviderSummary(provider) {
   }
 
   const providerType = Number(provider.providerType ?? provider.provider);
-  if (!Number.isInteger(providerType) || !Object.prototype.hasOwnProperty.call(PROVIDER_META, providerType)) {
+  if (!Number.isInteger(providerType) || !Object.hasOwn(PROVIDER_META, providerType)) {
     return null;
   }
 
@@ -2521,9 +2533,12 @@ function normalizeProviderSummary(provider) {
 }
 
 function normalizeProviderCollection(result) {
-  const providers = Array.isArray(result)
-    ? result
-    : (Array.isArray(result?.providers) ? result.providers : []);
+  let providers = [];
+  if (Array.isArray(result)) {
+    providers = result;
+  } else if (Array.isArray(result?.providers)) {
+    providers = result.providers;
+  }
 
   return providers
     .map(normalizeProviderSummary)
@@ -2824,11 +2839,11 @@ async function testProviderConnection() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config)
     });
-    if (!result.success) {
-      setProviderStatus(`Connection failed: ${result.message}`, "error");
-    } else {
+    if (result.success) {
       setProviderStatus(result.message || "Connection successful.", "success");
       state.providerConnectionTested = true;
+    } else {
+      setProviderStatus(`Connection failed: ${result.message}`, "error");
     }
   } catch (error) {
     setProviderStatus(`Connection failed: ${error.message}`, "error");
@@ -2917,7 +2932,7 @@ async function saveProvider() {
 }
 
 async function confirmDeleteProvider(displayName) {
-  if (!window.confirm(`Delete provider "${displayName}"?`)) return;
+  if (!globalThis.confirm(`Delete provider "${displayName}"?`)) return;
 
   try {
     await requestJson(`/api/providers/${encodeURIComponent(displayName)}`, { method: "DELETE" });
@@ -4024,6 +4039,8 @@ globalThis.addEventListener("beforeunload", () => {
   abortPendingInteractionPoll();
 });
 
-init().catch(error => {
+try {
+  await init();
+} catch (error) {
   console.error("Initialization failed:", error);
-});
+}
