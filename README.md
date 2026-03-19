@@ -121,9 +121,18 @@ To build the wrapper with a published local web host bundled into the app:
 cd src/ArchHarness.Electron
 npm install
 npm run pack:mac
+npm run pack:win
+npm run pack:linux
 ```
 
-That packaging flow first runs `dotnet publish` for `ArchHarness.Web` into `src/ArchHarness.Electron/build/web-host/`, then uses `electron-builder` to produce a macOS zip bundle under `src/ArchHarness.Electron/dist/`.
+That packaging flow first runs `dotnet publish` for `ArchHarness.Web` into `src/ArchHarness.Electron/build/web-host/`, then uses `electron-builder` to produce platform-specific artifacts under `src/ArchHarness.Electron/dist/`.
+
+GitHub Actions release automation is defined in `.github/workflows/electron-release.yml`.
+
+- Pushing a tag that matches `v*` builds packaged Electron releases for Windows, macOS, and Linux.
+- Each matrix job bundles the published `ArchHarness.Web` host into the Electron app before packaging.
+- A release job collects the generated artifacts and uploads them to a GitHub Release for the tag.
+- You can also run it manually with `workflow_dispatch` and provide a `tag_name` to create or update a release.
 
 ## Configuration
 

@@ -1,0 +1,118 @@
+name: Electron Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag to create or update, for example v0.1.0"
+        required: true
+        type: string
+      release_name:
+        description: "Optional release title"
+        required: false
+        type: string
+      draft:
+        description: "Create the GitHub release as a draft"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark the GitHub release as a prerelease"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            npm_script: pack:win
+          - os: macos-latest
+            label: macOS
+            npm_script: pack:mac
+          - os: ubuntu-latest
+            label: Linux
+            npm_script: pack:linux
+
+    defaults:
+      run:
+        working-directory: src/ArchHarness.Electron
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/ArchHarness.Electron/package-lock.json
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install Linux packaging dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build packaged Electron app
+        run: npm run ${{ matrix.npm_script }} -- --publish never
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-${{ matrix.label }}
+          path: |
+            src/ArchHarness.Electron/dist/*
+            !src/ArchHarness.Electron/dist/*-unpacked/**
+            !src/ArchHarness.Electron/dist/*.yml
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+          name: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_name || inputs.tag_name) || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+          files: |
+            release-assets/*
+          fail_on_unmatched_files: true
