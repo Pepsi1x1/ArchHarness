@@ -142,6 +142,7 @@ const elements = {
   newProjectName: document.getElementById("new-project-name"),
   newProjectPath: document.getElementById("new-project-path"),
   pickProjectFolder: document.getElementById("pick-project-folder"),
+  reviewPrPickFolder: document.getElementById("review-pr-pick-folder"),
   newProjectPermission: document.getElementById("new-project-permission"),
   newProjectArchitecture: document.getElementById("new-project-architecture"),
   newProjectArchitecturePrompt: document.getElementById("new-project-architecture-prompt"),
@@ -595,12 +596,11 @@ function applyBootstrap(bootstrap) {
 }
 
 async function pickProjectFolder() {
-  if (!desktopBridge?.selectFolder) {
-    elements.projectPickerNote.textContent = "The system picker is only available in desktop mode.";
-    return;
-  }
-
-  const selectedPath = await desktopBridge.selectFolder();
+  const selectedPath = await selectFolderWithDesktopBridge({
+    title: "Select Project Folder",
+    unavailableMessage: "The system picker is only available in desktop mode.",
+    unavailableTarget: elements.projectPickerNote
+  });
   if (!selectedPath) {
     return;
   }
@@ -609,6 +609,41 @@ async function pickProjectFolder() {
   if (!elements.newProjectName.value.trim()) {
     const segments = selectedPath.replace(/\\/g, "/").split("/").filter(Boolean);
     elements.newProjectName.value = segments[segments.length - 1] || selectedPath;
+  }
+}
+
+async function selectFolderWithDesktopBridge({ title, unavailableMessage, unavailableTarget }) {
+  if (!desktopBridge?.selectFolder) {
+    if (unavailableTarget) {
+      unavailableTarget.textContent = unavailableMessage;
+    }
+
+    return null;
+  }
+
+  return desktopBridge.selectFolder({ title });
+}
+
+async function pickReviewPrFolder() {
+  const hintEl = document.getElementById("review-pr-folder-hint");
+  const selectedPath = await selectFolderWithDesktopBridge({
+    title: "Select PR Working Folder",
+    unavailableMessage: "The system picker is only available in desktop mode. Enter the path manually here.",
+    unavailableTarget: hintEl
+  });
+  if (!selectedPath) {
+    return;
+  }
+
+  reviewPrState.folderPath = selectedPath;
+  const folderInput = document.getElementById("review-pr-folder-path");
+  if (folderInput) {
+    folderInput.value = selectedPath;
+  }
+
+  const nextButton = document.getElementById("review-pr-next-button");
+  if (nextButton) {
+    nextButton.disabled = !selectedPath.trim();
   }
 }
 
@@ -2449,6 +2484,8 @@ function renderPullRequestList() {
 function renderFolderStep() {
   const pr = reviewPrState.selectedPr;
   const summaryEl = document.getElementById("review-pr-selected-pr-summary");
+  const hintEl = document.getElementById("review-pr-folder-hint");
+  const browseButton = document.getElementById("review-pr-pick-folder");
   summaryEl.replaceChildren();
 
   const titleEl = document.createElement("strong");
@@ -2469,6 +2506,14 @@ function renderFolderStep() {
 
   const folderInput = document.getElementById("review-pr-folder-path");
   folderInput.value = reviewPrState.folderPath;
+  if (hintEl) {
+    hintEl.textContent = desktopBridge?.hostMode === "electron-local-web"
+      ? "Use Browse to choose the local folder where the PR branch is checked out, or enter the path manually."
+      : "Enter the path to the local folder where the PR branch is checked out.";
+  }
+  if (browseButton) {
+    browseButton.disabled = !desktopBridge?.selectFolder;
+  }
 
   const nextBtn = document.getElementById("review-pr-next-button");
   nextBtn.disabled = !reviewPrState.folderPath.trim();
@@ -2583,6 +2628,14 @@ function attachHandlers() {
   elements.pickProjectFolder.addEventListener("click", () => {
     void pickProjectFolder().catch(error => {
       elements.projectPickerNote.textContent = `Folder selection failed: ${error.message}`;
+    });
+  });
+  elements.reviewPrPickFolder.addEventListener("click", () => {
+    void pickReviewPrFolder().catch(error => {
+      const hintEl = document.getElementById("review-pr-folder-hint");
+      if (hintEl) {
+        hintEl.textContent = `Folder selection failed: ${error.message}`;
+      }
     });
   });
   elements.settingsButton.addEventListener("click", () => {

@@ -353,8 +353,11 @@
           <div id="review-pr-selected-pr-summary" class="pr-selected-summary"></div>
           <div class="form-group">
             <label for="review-pr-folder-path">Local Working Folder</label>
-            <p class="form-hint">Enter the path to the local folder where the PR branch is checked out.</p>
-            <input type="text" id="review-pr-folder-path" class="form-input" placeholder="/path/to/folder" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <p id="review-pr-folder-hint" class="form-hint">Enter the path to the local folder where the PR branch is checked out.</p>
+            <div class="path-row">
+              <input type="text" id="review-pr-folder-path" class="form-input" placeholder="/path/to/folder" autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button id="review-pr-pick-folder" class="ghost-button small-button" type="button">Browse</button>
+            </div>
           </div>
         </div>
 

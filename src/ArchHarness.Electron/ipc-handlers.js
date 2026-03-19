@@ -8,12 +8,15 @@ const { dialog, ipcMain } = require("electron");
 const handlers = [
   {
     channel: "archharness:pick-folder",
-    handler: (windowProvider) => async () => {
+    handler: (windowProvider) => async (_, options) => {
       const window = windowProvider();
       const owner = window && !window.isDestroyed() ? window : null;
+      const title = typeof options?.title === "string" && options.title.trim()
+        ? options.title.trim()
+        : "Select Project Folder";
       const result = await dialog.showOpenDialog(owner, {
         properties: ["openDirectory", "createDirectory"],
-        title: "Select Project Folder"
+        title
       });
 
       if (result.canceled || result.filePaths.length === 0) {

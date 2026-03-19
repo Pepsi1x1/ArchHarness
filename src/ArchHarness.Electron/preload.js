@@ -6,5 +6,5 @@ contextBridge.exposeInMainWorld("archHarnessDesktop", {
     platform: process.platform,
     titleBarOverlay: process.platform === "win32"
   },
-  selectFolder: () => ipcRenderer.invoke("archharness:pick-folder")
+  selectFolder: (options) => ipcRenderer.invoke("archharness:pick-folder", options ?? null)
 });
