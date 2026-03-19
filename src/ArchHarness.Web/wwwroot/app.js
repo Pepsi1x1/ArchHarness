@@ -2787,7 +2787,6 @@ function onProviderSetupTypeChange() {
 }
 
 function collectProviderPayload(options = {}) {
-  const requirePersonalAccessToken = options.requirePersonalAccessToken === true;
   const personalAccessTokenStorageMode = Number.isInteger(options.personalAccessTokenStorageMode)
     ? options.personalAccessTokenStorageMode
     : state.editingProviderStorageMode;
@@ -2795,6 +2794,9 @@ function collectProviderPayload(options = {}) {
   if (!providerMeta) {
     return { payload: null, error: "Select a source control provider." };
   }
+
+  const requirePersonalAccessToken = options.requirePersonalAccessToken === true
+    && providerMeta.numericValue !== 2;
 
   const displayName = normalizeProviderField(elements.providerDisplayName.value);
   const personalAccessToken = normalizeProviderToken(elements.providerPat.value);

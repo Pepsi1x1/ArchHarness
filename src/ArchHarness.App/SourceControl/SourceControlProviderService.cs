@@ -27,7 +27,7 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
     public Task<ConnectionTestResult> TestConnectionAsync(ProviderConnectionSettings settings)
     {
         ProviderConnectionSettings normalized = Normalize(settings);
-        Validate(normalized, requirePersonalAccessToken: true);
+        Validate(normalized, requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(normalized.Provider));
 
         ISourceControlReviewProviderService service = this._providerFactory.GetProvider(normalized.Provider);
         return service.TestConnectionAsync(normalized, CancellationToken.None);
@@ -145,6 +145,9 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
     }
 
     private static bool RequiresPersonalAccessTokenForSave(SourceControlProvider provider)
+        => provider is not SourceControlProvider.GitHub;
+
+    private static bool RequiresPersonalAccessTokenForConnectionTest(SourceControlProvider provider)
         => provider is not SourceControlProvider.GitHub;
 
     private static string? NormalizeText(string? value)

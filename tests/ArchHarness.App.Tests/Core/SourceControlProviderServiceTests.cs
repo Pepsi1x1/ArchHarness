@@ -705,6 +705,152 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("github-pat", authorization.Parameter);
     }
 
+      [Fact]
+      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_UsesOrganizationEndpointWithoutAuthorizationHeader()
+      {
+        string? requestUri = null;
+        AuthenticationHeaderValue? authorization = null;
+        StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
+        {
+          requestUri = request.RequestUri?.ToString();
+          authorization = request.Headers.Authorization;
+          return new HttpResponseMessage(HttpStatusCode.OK)
+          {
+            Content = new StringContent("""{ \"login\": \"octo-org\" }""", Encoding.UTF8, "application/json")
+          };
+        });
+
+        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        ProviderConnectionSettings settings = new ProviderConnectionSettings
+        {
+          Provider = SourceControlProvider.GitHub,
+          DisplayName = "GitHub",
+          Organization = "octo-org",
+          PersonalAccessToken = null,
+          IsEnabled = true
+        };
+
+        ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal("https://api.github.com/orgs/octo-org", requestUri);
+        Assert.Null(authorization);
+      }
+
+      [Fact]
+      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_FallsBackToUserEndpointWhenOwnerIsNotAnOrganization()
+      {
+        List<string> requestUris = new List<string>();
+        StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
+        {
+          string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+          requestUris.Add(requestUri);
+
+          return requestUri switch
+          {
+            "https://api.github.com/orgs/octocat" => new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+              Content = new StringContent("""{ "message": "Not Found" }""", Encoding.UTF8, "application/json")
+            },
+            "https://api.github.com/users/octocat" => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+              Content = new StringContent("""{ "login": "octocat" }""", Encoding.UTF8, "application/json")
+            },
+            _ => throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}")
+          };
+        });
+
+        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        ProviderConnectionSettings settings = new ProviderConnectionSettings
+        {
+          Provider = SourceControlProvider.GitHub,
+          DisplayName = "GitHub",
+          Organization = "octocat",
+          PersonalAccessToken = null,
+          IsEnabled = true
+        };
+
+        ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
+
+        Assert.True(result.Success, result.Message);
+        Assert.Equal(new[]
+        {
+          "https://api.github.com/orgs/octocat",
+          "https://api.github.com/users/octocat"
+        }, requestUris);
+      }
+
+      [Fact]
+      public async Task GitHub_GetPullRequestsAsync_FallsBackToUserRepositoriesEndpointWhenOwnerIsNotAnOrganization()
+      {
+        List<string> requestUris = new List<string>();
+        StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
+        {
+          string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+          requestUris.Add(requestUri);
+
+          return requestUri switch
+          {
+            "https://api.github.com/orgs/octocat/repos?type=all&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+              Content = new StringContent("""{ "message": "Not Found" }""", Encoding.UTF8, "application/json")
+            },
+            "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+              Content = new StringContent("""
+                [
+                  { "name": "archharness" }
+                ]
+                """, Encoding.UTF8, "application/json")
+            },
+            "https://api.github.com/repos/octocat/archharness/pulls?state=open&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+              Content = new StringContent("""
+                [
+                  {
+                  "number": 21,
+                  "title": "Fix review PR flow",
+                  "user": {
+                    "login": "octocat"
+                  },
+                  "head": {
+                    "ref": "feature/review-pr"
+                  },
+                  "base": {
+                    "ref": "main"
+                  },
+                  "state": "open",
+                  "draft": false,
+                  "html_url": "https://github.com/octocat/archharness/pull/21",
+                  "created_at": "2026-03-18T09:00:00Z"
+                  }
+                ]
+                """, Encoding.UTF8, "application/json")
+            },
+            _ => throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}")
+          };
+        });
+
+        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        ProviderConnectionSettings settings = new ProviderConnectionSettings
+        {
+          Provider = SourceControlProvider.GitHub,
+          DisplayName = "GitHub",
+          Organization = "octocat",
+          PersonalAccessToken = null,
+          IsEnabled = true
+        };
+
+        IReadOnlyList<PullRequestSummary> pullRequests = await service.GetPullRequestsAsync(settings, null, null, CancellationToken.None);
+
+        PullRequestSummary pullRequest = Assert.Single(pullRequests);
+        Assert.Equal("21", pullRequest.Id);
+        Assert.Equal("octocat", pullRequest.ProjectName);
+        Assert.Equal("archharness", pullRequest.RepositoryName);
+        Assert.Contains("https://api.github.com/orgs/octocat/repos?type=all&per_page=100&page=1", requestUris);
+        Assert.Contains("https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1", requestUris);
+      }
+
     [Fact]
     public async Task GitHub_TestConnectionAsync_RedactsSensitiveProviderErrors()
     {

@@ -290,6 +290,38 @@ public sealed class WebApiTests
     }
 
     [Fact]
+    public async Task ProvidersTestEndpoint_AllowsGitHubWithoutPersonalAccessToken()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.ConfigureGitHubResponse((request, _) =>
+        {
+            Assert.Equal("https://api.github.com/orgs/octo-org", request.RequestUri?.ToString());
+            Assert.Null(request.Headers.Authorization);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{ \"login\": \"octo-org\" }""", Encoding.UTF8, "application/json")
+            };
+        });
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/providers/test", new
+        {
+            provider = (int)SourceControlProvider.GitHub,
+            displayName = "GitHub",
+            serverUrl = (string?)null,
+            organization = "octo-org",
+            personalAccessToken = (string?)null,
+            isEnabled = true
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal("Successfully connected to GitHub.", document.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
     public async Task ProvidersEndpoint_ReturnsConflictWhenProtectedStorageIsUnavailable()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
@@ -508,6 +540,84 @@ public sealed class WebApiTests
         Assert.Equal("octo-org", pullRequest.GetProperty("projectName").GetString());
         Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
     }
+
+        [Fact]
+        public async Task ProviderPullRequestsEndpoint_FallsBackToGitHubUserRepositoriesWhenOwnerIsNotAnOrganization()
+        {
+                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+                factory.SeedProviderConnections(new ProviderConnectionSettings
+                {
+                        Provider = SourceControlProvider.GitHub,
+                        DisplayName = "GitHub",
+                        Organization = "octocat",
+                        PersonalAccessToken = null,
+                        IsEnabled = true
+                });
+                factory.ConfigureGitHubResponse((request, _) =>
+                {
+                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+                        if (requestUri == "https://api.github.com/orgs/octocat/repos?type=all&per_page=100&page=1")
+                        {
+                                return new HttpResponseMessage(HttpStatusCode.NotFound)
+                                {
+                                        Content = new StringContent("""{ "message": "Not Found" }""", Encoding.UTF8, "application/json")
+                                };
+                        }
+
+                        if (requestUri == "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1")
+                        {
+                                return new HttpResponseMessage(HttpStatusCode.OK)
+                                {
+                                        Content = new StringContent("""
+                                                [
+                                                    { "name": "archharness" }
+                                                ]
+                                                """, Encoding.UTF8, "application/json")
+                                };
+                        }
+
+                        if (requestUri == "https://api.github.com/repos/octocat/archharness/pulls?state=open&per_page=100&page=1")
+                        {
+                                return new HttpResponseMessage(HttpStatusCode.OK)
+                                {
+                                        Content = new StringContent("""
+                                                [
+                                                    {
+                                                        "number": 21,
+                                                        "title": "Fix review PR flow",
+                                                        "user": {
+                                                            "login": "octocat"
+                                                        },
+                                                        "head": {
+                                                            "ref": "feature/review-pr"
+                                                        },
+                                                        "base": {
+                                                            "ref": "main"
+                                                        },
+                                                        "state": "open",
+                                                        "draft": false,
+                                                        "html_url": "https://github.com/octocat/archharness/pull/21",
+                                                        "created_at": "2026-03-18T09:00:00Z"
+                                                    }
+                                                ]
+                                                """, Encoding.UTF8, "application/json")
+                                };
+                        }
+
+                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+                });
+                using HttpClient client = factory.CreateClient();
+
+                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests");
+
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+                Assert.Equal("21", pullRequest.GetProperty("id").GetString());
+                Assert.Equal("octocat", pullRequest.GetProperty("projectName").GetString());
+                Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
+        }
 
         [Fact]
         public async Task ProviderPullRequestsEndpoint_UsesAzureDevOpsProjectFilterWithoutListingAllProjects()

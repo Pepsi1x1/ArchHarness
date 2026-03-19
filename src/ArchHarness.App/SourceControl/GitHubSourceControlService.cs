@@ -9,8 +9,11 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class GitHubSourceControlService : ISourceControlReviewProviderService
 {
+    private const string BearerAuthorizationScheme = "Bearer";
+    private const string InvalidProviderMessage = "GitHub configuration requires the GitHub provider type.";
     private const string OrganizationFieldName = "Organization";
     private const int GitHubPageSize = 100;
+    private const string TokenAuthorizationScheme = "token";
     private static readonly Regex SensitiveHeaderPattern = new Regex(
         "(?i)\\b(authorization|token|pat)\\b\\s*[:=]\\s*[^,;\\s]+",
         RegexOptions.Compiled);
@@ -35,11 +38,13 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         {
             if (settings.Provider != SourceControlProvider.GitHub)
             {
-                throw new InvalidOperationException("GitHub configuration requires the GitHub provider type.");
+                throw new InvalidOperationException(InvalidProviderMessage);
             }
 
-            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, BuildUserEndpoint(), settings.PersonalAccessToken, "token");
-            using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken);
+            bool hasPersonalAccessToken = !string.IsNullOrWhiteSpace(settings.PersonalAccessToken);
+            using HttpResponseMessage response = hasPersonalAccessToken
+                ? await SendRequestAsync(BuildUserEndpoint(), settings.PersonalAccessToken, TokenAuthorizationScheme, cancellationToken)
+                : await SendOwnerObjectRequestWithFallbackAsync(settings, settings.PersonalAccessToken, TokenAuthorizationScheme, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return new ConnectionTestResult(false, await BuildFailureMessageAsync(response, cancellationToken));
@@ -224,7 +229,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
     {
         if (settings.Provider != SourceControlProvider.GitHub)
         {
-            throw new InvalidOperationException("GitHub configuration requires the GitHub provider type.");
+            throw new InvalidOperationException(InvalidProviderMessage);
         }
 
         string owner = RequireValue(settings.Organization, OrganizationFieldName);
@@ -237,12 +242,48 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
     {
         if (settings.Provider != SourceControlProvider.GitHub)
         {
-            throw new InvalidOperationException("GitHub configuration requires the GitHub provider type.");
+            throw new InvalidOperationException(InvalidProviderMessage);
         }
 
         string owner = RequireValue(settings.Organization, OrganizationFieldName);
         string escapedOwner = Uri.EscapeDataString(owner);
         return $"https://api.github.com/orgs/{escapedOwner}/repos";
+    }
+
+    private static string BuildUserRepositoriesEndpoint(ProviderConnectionSettings settings)
+    {
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            throw new InvalidOperationException(InvalidProviderMessage);
+        }
+
+        string owner = RequireValue(settings.Organization, OrganizationFieldName);
+        string escapedOwner = Uri.EscapeDataString(owner);
+        return $"https://api.github.com/users/{escapedOwner}/repos";
+    }
+
+    private static string BuildOrganizationEndpoint(ProviderConnectionSettings settings)
+    {
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            throw new InvalidOperationException(InvalidProviderMessage);
+        }
+
+        string owner = RequireValue(settings.Organization, OrganizationFieldName);
+        string escapedOwner = Uri.EscapeDataString(owner);
+        return $"https://api.github.com/orgs/{escapedOwner}";
+    }
+
+    private static string BuildUserOwnerEndpoint(ProviderConnectionSettings settings)
+    {
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            throw new InvalidOperationException(InvalidProviderMessage);
+        }
+
+        string owner = RequireValue(settings.Organization, OrganizationFieldName);
+        string escapedOwner = Uri.EscapeDataString(owner);
+        return $"https://api.github.com/users/{escapedOwner}";
     }
 
     private static string BuildUserEndpoint()
@@ -423,8 +464,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         bool hasMorePages = true;
         while (hasMorePages)
         {
-            string requestUri = $"{BuildRepositoriesEndpoint(settings)}?type=all&per_page={GitHubPageSize}&page={page}";
-            JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
+            JsonDocument document = await SendRepositoryListRequestWithFallbackAsync(settings, page, cancellationToken);
             using (document)
             {
                 int repositoryCount = 0;
@@ -447,27 +487,67 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         return repositories;
     }
 
-    private async Task<JsonDocument> SendArrayRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
+    private async Task<JsonDocument> SendRepositoryListRequestWithFallbackAsync(
+        ProviderConnectionSettings settings,
+        int page,
+        CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, personalAccessToken, "Bearer");
-        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken);
-        await EnsureSuccessStatusCodeAsync(response, "pull request data retrieval", cancellationToken);
-
-        await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        string query = $"type=all&per_page={GitHubPageSize}&page={page}";
+        string organizationRequestUri = $"{BuildRepositoriesEndpoint(settings)}?{query}";
+        using HttpResponseMessage response = await SendRequestAsync(organizationRequestUri, settings.PersonalAccessToken, BearerAuthorizationScheme, cancellationToken);
+        if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
         {
-            document.Dispose();
-            throw new InvalidOperationException("GitHub response did not include a valid array payload.");
+            return await ParseArrayResponseAsync(response, "pull request data retrieval", cancellationToken);
         }
 
-        return document;
+        string userRequestUri = $"{BuildUserRepositoriesEndpoint(settings)}?{query}";
+        using HttpResponseMessage fallbackResponse = await SendRequestAsync(userRequestUri, settings.PersonalAccessToken, BearerAuthorizationScheme, cancellationToken);
+        return await ParseArrayResponseAsync(fallbackResponse, "pull request data retrieval", cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendOwnerObjectRequestWithFallbackAsync(
+        ProviderConnectionSettings settings,
+        string? personalAccessToken,
+        string authorizationScheme,
+        CancellationToken cancellationToken)
+    {
+        HttpResponseMessage response = await SendRequestAsync(BuildOrganizationEndpoint(settings), personalAccessToken, authorizationScheme, cancellationToken);
+        if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
+        {
+            return response;
+        }
+
+        response.Dispose();
+        return await SendRequestAsync(BuildUserOwnerEndpoint(settings), personalAccessToken, authorizationScheme, cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendRequestAsync(
+        string requestUri,
+        string? personalAccessToken,
+        string authorizationScheme,
+        CancellationToken cancellationToken)
+    {
+        HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, personalAccessToken, authorizationScheme);
+        try
+        {
+            return await this._httpClient.SendAsync(request, cancellationToken);
+        }
+        catch
+        {
+            request.Dispose();
+            throw;
+        }
+    }
+
+    private async Task<JsonDocument> SendArrayRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await SendRequestAsync(requestUri, personalAccessToken, BearerAuthorizationScheme, cancellationToken);
+        return await ParseArrayResponseAsync(response, "pull request data retrieval", cancellationToken);
     }
 
     private async Task<JsonDocument> SendObjectRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, personalAccessToken, "Bearer");
-        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken);
+        using HttpResponseMessage response = await SendRequestAsync(requestUri, personalAccessToken, BearerAuthorizationScheme, cancellationToken);
         await EnsureSuccessStatusCodeAsync(response, "repository metadata retrieval", cancellationToken);
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -476,6 +556,21 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         {
             document.Dispose();
             throw new InvalidOperationException("GitHub response did not include a valid object payload.");
+        }
+
+        return document;
+    }
+
+    private static async Task<JsonDocument> ParseArrayResponseAsync(HttpResponseMessage response, string operationName, CancellationToken cancellationToken)
+    {
+        await EnsureSuccessStatusCodeAsync(response, operationName, cancellationToken);
+
+        await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            document.Dispose();
+            throw new InvalidOperationException("GitHub response did not include a valid array payload.");
         }
 
         return document;

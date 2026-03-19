@@ -8,16 +8,19 @@
     "start": "electron .",
     "dev": "electron .",
     "prepare:win-icon": "node scripts/generate-win-icon.mjs",
+    "stamp:win-exe-icon": "node scripts/stamp-win-exe-icon.mjs",
     "bundle:web-host": "node scripts/publish-web-host.mjs",
     "pack:dir": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --dir",
     "pack:mac": "npm run bundle:web-host && electron-builder --mac zip",
-    "pack:win": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --win nsis zip",
+    "pack:win": "node scripts/pack-win.mjs",
     "pack:linux": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --linux AppImage zip"
   },
   "devDependencies": {
     "electron": "^35.7.4",
     "electron-builder": "^26.0.12",
-    "png-to-ico": "^2.1.8"
+    "png-to-ico": "^2.1.8",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.34.5"
   },
   "build": {
     "appId": "com.archharness.desktop",

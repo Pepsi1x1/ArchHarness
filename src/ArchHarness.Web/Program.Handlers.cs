@@ -462,7 +462,9 @@ internal static class ProgramHandlers
 
     public static async Task<IResult> TestProviderConnectionAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService)
     {
-        Dictionary<string, string[]> validationErrors = ValidateProviderConnectionSettings(settings, requirePersonalAccessToken: true);
+        Dictionary<string, string[]> validationErrors = ValidateProviderConnectionSettings(
+            settings,
+            requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(settings.Provider));
         if (validationErrors.Count > 0)
         {
             return Results.ValidationProblem(validationErrors);
@@ -1009,6 +1011,9 @@ internal static class ProgramHandlers
 
         AddProviderValidationError(errors, "personalAccessToken", "PersonalAccessToken looks like a URL. Check browser autofill and re-enter the token.");
     }
+
+    private static bool RequiresPersonalAccessTokenForConnectionTest(SourceControlProvider provider)
+        => provider is not SourceControlProvider.GitHub;
 
     private static bool LooksLikeAbsoluteHttpUrl(string? value)
         => !string.IsNullOrWhiteSpace(value)
