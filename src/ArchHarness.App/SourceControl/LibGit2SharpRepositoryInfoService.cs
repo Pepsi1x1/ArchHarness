@@ -1,3 +1,4 @@
+using System.Text;
 using LibGit2Sharp;
 
 namespace ArchHarness.App.SourceControl;
@@ -303,14 +304,29 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 string.Equals(NormalizeRepositoryPath(entry.Path), normalizedPath, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(NormalizeRepositoryPath(entry.OldPath), normalizedPath, StringComparison.OrdinalIgnoreCase));
 
+            StatusEntry? statusEntry = repository.RetrieveStatus(new StatusOptions
+            {
+                IncludeUnaltered = false,
+                RecurseUntrackedDirs = true
+            }).FirstOrDefault(entry =>
+                string.Equals(NormalizeRepositoryPath(entry.FilePath), normalizedPath, StringComparison.OrdinalIgnoreCase));
+
             if (change is null)
             {
+                string? addedFileDiff = TryBuildAddedFileDiff(repository, normalizedPath, statusEntry?.State);
+                if (!string.IsNullOrWhiteSpace(addedFileDiff))
+                {
+                    return new GitWorkingTreeDiffResult(true, true, normalizedPath, addedFileDiff, null);
+                }
+
                 return new GitWorkingTreeDiffResult(true, false, normalizedPath, null, "No diff is available for the selected file.");
             }
 
-            string diffText = string.IsNullOrWhiteSpace(change.Patch)
-                ? "No textual diff is available for the selected file."
+            string? diffText = string.IsNullOrWhiteSpace(change.Patch)
+                ? TryBuildAddedFileDiff(repository, normalizedPath, statusEntry?.State)
                 : change.Patch;
+
+            diffText ??= "No textual diff is available for the selected file.";
 
             return new GitWorkingTreeDiffResult(true, true, normalizedPath, diffText, null);
         }
@@ -576,6 +592,71 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
         }
 
         return "Modified";
+    }
+
+    private static string? TryBuildAddedFileDiff(Repository repository, string normalizedPath, FileStatus? status)
+    {
+        if (status is null || !IsAddedStatus(status.Value))
+        {
+            return null;
+        }
+
+        string workingDirectory = repository.Info.WorkingDirectory;
+        string fullPath = Path.Combine(workingDirectory, normalizedPath.Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(fullPath))
+        {
+            return null;
+        }
+
+        string fileText;
+        try
+        {
+            fileText = File.ReadAllText(fullPath);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (DecoderFallbackException)
+        {
+            return null;
+        }
+
+        string normalizedText = fileText.Replace("\r\n", "\n").Replace('\r', '\n');
+        string[] lines = normalizedText.Split('\n');
+        bool hasTrailingNewline = normalizedText.EndsWith("\n", StringComparison.Ordinal);
+        int lineCount = hasTrailingNewline ? lines.Length - 1 : lines.Length;
+
+        List<string> diffLines = new List<string>
+        {
+            $"diff --git a/{normalizedPath} b/{normalizedPath}",
+            "new file mode 100644",
+            "--- /dev/null",
+            $"+++ b/{normalizedPath}",
+            $"@@ -0,0 +1,{Math.Max(lineCount, 0)} @@"
+        };
+
+        for (int index = 0; index < lineCount; index += 1)
+        {
+            diffLines.Add($"+{lines[index]}");
+        }
+
+        if (!hasTrailingNewline && lineCount > 0)
+        {
+            diffLines.Add("\\ No newline at end of file");
+        }
+
+        return string.Join("\n", diffLines);
+    }
+
+    private static bool IsAddedStatus(FileStatus state)
+    {
+        return state.HasFlag(FileStatus.NewInIndex)
+            || state.HasFlag(FileStatus.NewInWorkdir);
     }
 
     private static bool IsStaged(FileStatus state)
