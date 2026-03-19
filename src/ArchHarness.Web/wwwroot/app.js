@@ -1396,6 +1396,10 @@ function renderActiveRun() {
   }
   elements.cancelRun.disabled = !activeRun.isRunning;
 
+  if (activeRun.isRunning && !state.streamOrder.length) {
+    syncSubmittedPromptSection(activeRun.taskPrompt);
+  }
+
   if (!activeRun.isRunning && !state.isUnloading) {
     closeEventStream("idle");
   }
@@ -1838,6 +1842,27 @@ function renderStream() {
   renderTopbar();
 }
 
+function syncSubmittedPromptSection(promptText) {
+  const submittedPrompt = String(promptText || "").trim();
+  if (!submittedPrompt) {
+    return;
+  }
+
+  const section = ensureStreamSection("submitted-run-prompt", "Run Request", "Submitted Prompt");
+  section.segments = [
+    {
+      type: "text",
+      content: submittedPrompt,
+      html: ""
+    }
+  ];
+  section.updatedAt = new Date().toISOString();
+  section.segmentCount = 1;
+  section.streamKind = "prompt";
+  renderStream();
+  scheduleStreamRender(section.agentId);
+}
+
 function scrollStreamToBottom() {
   if (!state.streamAutoScroll) return;
   const el = elements.streamSections;
@@ -2171,6 +2196,8 @@ async function submitRunRequest(request) {
   });
 
   state.activeRun = snapshot;
+  elements.taskPrompt.value = "";
+  saveShellState();
   renderActiveRun();
   connectEventStream();
   await loadProjects();
