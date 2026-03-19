@@ -145,6 +145,122 @@ app.MapPost("/api/projects", (CreateProjectRequest request, IProjectWorkspaceCat
     return Results.Created($"/api/projects/{project.ProjectId}", project);
 });
 
+app.MapGet("/api/projects/{projectId}/branch", (string projectId, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    GitRepositoryBranchInfo branchInfo = gitRepositoryInfoService.GetBranchInfo(project.WorkspacePath);
+    return Results.Ok(new
+    {
+        projectId = project.ProjectId,
+        isGitRepository = branchInfo.IsGitRepository,
+        currentBranch = branchInfo.CurrentBranch,
+        branches = branchInfo.Branches
+    });
+});
+
+app.MapGet("/api/projects/{projectId}/git/changes", (string projectId, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    GitWorkingTreeStatus changeStatus = gitRepositoryInfoService.GetWorkingTreeStatus(project.WorkspacePath);
+    return Results.Ok(new
+    {
+        projectId = project.ProjectId,
+        isGitRepository = changeStatus.IsGitRepository,
+        currentBranch = changeStatus.CurrentBranch,
+        hasChanges = changeStatus.HasChanges,
+        files = changeStatus.Files.Select(file => new
+        {
+            path = file.Path,
+            status = file.Status,
+            previousPath = file.PreviousPath,
+            isStaged = file.IsStaged,
+            isUntracked = file.IsUntracked
+        })
+    });
+});
+
+app.MapGet("/api/projects/{projectId}/git/diff", (string projectId, string path, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    if (string.IsNullOrWhiteSpace(path))
+    {
+        return Results.BadRequest(new { error = "A repository-relative path is required." });
+    }
+
+    GitWorkingTreeDiffResult diffResult = gitRepositoryInfoService.GetWorkingTreeDiff(project.WorkspacePath, path);
+    if (!diffResult.IsGitRepository)
+    {
+        return Results.BadRequest(new { error = diffResult.ErrorMessage, failureCode = "not-git-repository" });
+    }
+
+    if (!diffResult.HasDiff)
+    {
+        return Results.NotFound(new { error = diffResult.ErrorMessage, failureCode = "diff-not-found", path = diffResult.Path });
+    }
+
+    return Results.Ok(new
+    {
+        projectId = project.ProjectId,
+        path = diffResult.Path,
+        diffText = diffResult.DiffText
+    });
+});
+
+app.MapPost("/api/projects/{projectId}/branch", (string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    GitBranchCheckoutResult result = gitRepositoryInfoService.CheckoutBranch(project.WorkspacePath, request.BranchName);
+    if (!result.Succeeded)
+    {
+        object errorPayload = new
+        {
+            error = result.ErrorMessage,
+            failureCode = result.FailureCode,
+            branchInfo = new
+            {
+                isGitRepository = result.BranchInfo.IsGitRepository,
+                currentBranch = result.BranchInfo.CurrentBranch,
+                branches = result.BranchInfo.Branches
+            }
+        };
+
+        return result.FailureCode switch
+        {
+            "branch-not-found" => Results.NotFound(errorPayload),
+            "dirty-worktree" or "checkout-conflict" => Results.Conflict(errorPayload),
+            _ => Results.BadRequest(errorPayload)
+        };
+    }
+
+    return Results.Ok(new
+    {
+        projectId = project.ProjectId,
+        isGitRepository = result.BranchInfo.IsGitRepository,
+        currentBranch = result.BranchInfo.CurrentBranch,
+        branches = result.BranchInfo.Branches
+    });
+});
+
 app.MapGet("/api/settings", (IGlobalSettingsCatalog settingsCatalog) =>
 {
     PersistedGlobalSettings settings = settingsCatalog.GetSettings();

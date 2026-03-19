@@ -22,6 +22,22 @@ const state = {
   expandedProjectIds: new Set(),
   seenRunIds: new Set(),
   providers: [],
+  projectBranchInfoById: {},
+  projectBranchRequestsInFlight: new Set(),
+  branchMenuOpen: false,
+  gitChangeReview: {
+    projectId: null,
+    currentBranch: null,
+    targetBranch: null,
+    files: [],
+    selectedPath: null,
+    diffByPath: {},
+    loading: false,
+    diffLoadingPath: null,
+    error: ""
+  },
+  composerMenuOpen: null,
+  branchSwitchProjectId: null,
   providerConnectionTested: false,
   editingProviderName: null,
   editingProviderStorageMode: 0
@@ -123,6 +139,10 @@ const elements = {
   settingsButton: document.getElementById("settings-button"),
   projectList: document.getElementById("project-list"),
   workspaceTitle: document.getElementById("workspace-title"),
+  workspaceBranchWrap: document.getElementById("workspace-branch-wrap"),
+  workspaceBranchButton: document.getElementById("workspace-branch-button"),
+  workspaceBranchLabel: document.getElementById("workspace-branch-label"),
+  workspaceBranchMenu: document.getElementById("workspace-branch-menu"),
   eventStreamState: null,
   streamSummary: null,
   streamEmpty: document.getElementById("stream-empty"),
@@ -130,7 +150,15 @@ const elements = {
   inlineInteraction: document.getElementById("inline-interaction"),
 
   taskPrompt: document.getElementById("task-prompt"),
+  runModeWrap: document.getElementById("run-mode-wrap"),
+  runModeButton: document.getElementById("run-mode-button"),
+  runModeLabel: document.getElementById("run-mode-label"),
+  runModeMenu: document.getElementById("run-mode-menu"),
   runMode: document.getElementById("run-mode"),
+  permissionModeWrap: document.getElementById("permission-mode-wrap"),
+  permissionModeButton: document.getElementById("permission-mode-button"),
+  permissionModeLabel: document.getElementById("permission-mode-label"),
+  permissionModeMenu: document.getElementById("permission-mode-menu"),
   permissionMode: document.getElementById("permission-mode"),
   architectureReviewChip: document.getElementById("architecture-review-chip"),
   architectureReviewPreset: document.getElementById("architecture-review-preset"),
@@ -158,6 +186,12 @@ const elements = {
   artifactList: document.getElementById("artifact-list"),
   artifactPreview: document.getElementById("artifact-preview"),
   artifactSummary: document.getElementById("artifact-summary"),
+  gitChangesModal: document.getElementById("git-changes-modal"),
+  gitChangesTitle: document.getElementById("git-changes-title"),
+  gitChangesSummary: document.getElementById("git-changes-summary"),
+  gitChangeList: document.getElementById("git-change-list"),
+  gitDiffMeta: document.getElementById("git-diff-meta"),
+  gitDiffPreview: document.getElementById("git-diff-preview"),
   projectTemplate: document.getElementById("project-template"),
   runTemplate: document.getElementById("run-template"),
   artifactTemplate: document.getElementById("artifact-template"),
@@ -355,6 +389,293 @@ function setSelectValue(select, value) {
   const option = Array.from(select.options).find(candidate => candidate.value === value);
   if (option) {
     select.value = value;
+  }
+}
+
+function getSelectDisplayLabel(select) {
+  const selectedOption = Array.from(select.options).find(option => option.value === select.value) || select.options[0] || null;
+  return selectedOption?.textContent || selectedOption?.value || "Select";
+}
+
+function getComposerDropdownConfigs() {
+  return [
+    {
+      id: "run-mode",
+      select: elements.runMode,
+      wrap: elements.runModeWrap,
+      button: elements.runModeButton,
+      label: elements.runModeLabel,
+      menu: elements.runModeMenu
+    },
+    {
+      id: "permission-mode",
+      select: elements.permissionMode,
+      wrap: elements.permissionModeWrap,
+      button: elements.permissionModeButton,
+      label: elements.permissionModeLabel,
+      menu: elements.permissionModeMenu
+    }
+  ];
+}
+
+function renderComposerDropdowns() {
+  getComposerDropdownConfigs().forEach(renderComposerDropdown);
+}
+
+function renderComposerDropdown(config) {
+  const isOpen = state.composerMenuOpen === config.id;
+  const options = Array.from(config.select.options);
+  config.label.textContent = getSelectDisplayLabel(config.select);
+  config.button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  config.menu.replaceChildren();
+
+  options.forEach(option => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "composer-dropdown-item";
+    item.textContent = option.textContent || option.value;
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", option.value === config.select.value ? "true" : "false");
+    item.classList.toggle("current", option.value === config.select.value);
+    item.addEventListener("click", event => {
+      event.stopPropagation();
+      selectComposerDropdownValue(config.id, option.value);
+    });
+    config.menu.append(item);
+  });
+
+  config.menu.classList.toggle("hidden", !isOpen || options.length === 0);
+  config.wrap.classList.toggle("open", isOpen && options.length > 0);
+  config.button.disabled = options.length === 0;
+}
+
+function closeComposerDropdowns() {
+  if (!state.composerMenuOpen) {
+    return;
+  }
+
+  state.composerMenuOpen = null;
+  renderComposerDropdowns();
+}
+
+function toggleComposerDropdown(dropdownId) {
+  if (state.composerMenuOpen === dropdownId) {
+    state.composerMenuOpen = null;
+    renderComposerDropdowns();
+    return;
+  }
+
+  closeWorkspaceBranchMenu();
+  state.composerMenuOpen = dropdownId;
+  renderComposerDropdowns();
+}
+
+function selectComposerDropdownValue(dropdownId, value) {
+  const config = getComposerDropdownConfigs().find(candidate => candidate.id === dropdownId);
+  if (!config) {
+    return;
+  }
+
+  if (config.select.value === value) {
+    closeComposerDropdowns();
+    return;
+  }
+
+  setSelectValue(config.select, value);
+  closeComposerDropdowns();
+  config.select.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function createEmptyGitChangeReviewState() {
+  return {
+    projectId: null,
+    currentBranch: null,
+    targetBranch: null,
+    files: [],
+    selectedPath: null,
+    diffByPath: {},
+    loading: false,
+    diffLoadingPath: null,
+    error: ""
+  };
+}
+
+function getGitChangeReviewSummary(currentBranch = "the current branch", targetBranch = "another branch") {
+  const sourceLabel = currentBranch;
+  const targetLabel = targetBranch;
+  return `Switching from ${sourceLabel} to ${targetLabel} is blocked because there are local changes. Review them here. Stash support is coming next.`;
+}
+
+function getGitChangeStatusClass(status) {
+  return String(status || "modified").toLowerCase().replaceAll(/[^a-z0-9]+/g, "-");
+}
+
+function renderGitChangeReview() {
+  const review = state.gitChangeReview;
+  const currentBranch = review.currentBranch || "Current branch";
+  elements.gitChangesTitle.textContent = `Local changes on ${currentBranch}`;
+  elements.gitChangesSummary.textContent = getGitChangeReviewSummary(review.currentBranch, review.targetBranch);
+  elements.gitChangeList.replaceChildren();
+
+  if (review.loading && review.files.length === 0) {
+    elements.gitChangeList.className = "git-change-list empty-state";
+    elements.gitChangeList.textContent = "Loading changed files...";
+    elements.gitDiffMeta.textContent = "Loading Git diff...";
+    elements.gitDiffPreview.textContent = "Loading changed files...";
+    return;
+  }
+
+  if (review.error) {
+    elements.gitChangeList.className = "git-change-list empty-state";
+    elements.gitChangeList.textContent = review.error;
+    elements.gitDiffMeta.textContent = "Git diff unavailable";
+    elements.gitDiffPreview.textContent = review.error;
+    return;
+  }
+
+  if (!Array.isArray(review.files) || review.files.length === 0) {
+    elements.gitChangeList.className = "git-change-list empty-state";
+    elements.gitChangeList.textContent = "No local changes were found.";
+    elements.gitDiffMeta.textContent = "No diff to show";
+    elements.gitDiffPreview.textContent = "No local changes were found.";
+    return;
+  }
+
+  elements.gitChangeList.className = "git-change-list";
+
+  review.files.forEach(file => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "git-change-item";
+    button.classList.toggle("active", file.path === review.selectedPath);
+
+    const header = document.createElement("div");
+    header.className = "git-change-item-header";
+
+    const path = document.createElement("strong");
+    path.className = "git-change-item-path";
+    path.textContent = file.path;
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `git-change-badge git-change-badge-status-${getGitChangeStatusClass(file.status)}`;
+    statusBadge.textContent = file.status || "Modified";
+
+    header.append(path, statusBadge);
+
+    const meta = document.createElement("div");
+    meta.className = "git-change-item-meta";
+    if (file.isStaged) {
+      const stagedBadge = document.createElement("span");
+      stagedBadge.className = "git-change-badge";
+      stagedBadge.textContent = "Staged";
+      meta.append(stagedBadge);
+    }
+    if (file.isUntracked) {
+      const untrackedBadge = document.createElement("span");
+      untrackedBadge.className = "git-change-badge";
+      untrackedBadge.textContent = "Untracked";
+      meta.append(untrackedBadge);
+    }
+    if (file.previousPath) {
+      const previousPathBadge = document.createElement("span");
+      previousPathBadge.className = "git-change-badge";
+      previousPathBadge.textContent = `from ${file.previousPath}`;
+      meta.append(previousPathBadge);
+    }
+
+    button.append(header);
+    if (meta.childElementCount > 0) {
+      button.append(meta);
+    }
+    button.addEventListener("click", () => {
+      if (review.selectedPath === file.path) {
+        return;
+      }
+
+      state.gitChangeReview.selectedPath = file.path;
+      renderGitChangeReview();
+      void ensureSelectedGitDiff();
+    });
+    elements.gitChangeList.append(button);
+  });
+
+  const selectedFile = review.files.find(file => file.path === review.selectedPath) || review.files[0];
+  if (!selectedFile) {
+    elements.gitDiffMeta.textContent = "Select a changed file to view its diff.";
+    elements.gitDiffPreview.textContent = "Select a changed file to view its diff.";
+    return;
+  }
+
+  state.gitChangeReview.selectedPath = selectedFile.path;
+  const cachedDiff = review.diffByPath[selectedFile.path] || null;
+  elements.gitDiffMeta.textContent = `${selectedFile.path} • ${selectedFile.status || "Modified"}`;
+  if (review.diffLoadingPath === selectedFile.path) {
+    elements.gitDiffPreview.textContent = "Loading Git diff...";
+    return;
+  }
+
+  if (cachedDiff?.error) {
+    elements.gitDiffPreview.textContent = cachedDiff.error;
+    return;
+  }
+
+  if (cachedDiff?.diffText) {
+    elements.gitDiffPreview.textContent = cachedDiff.diffText;
+    return;
+  }
+
+  elements.gitDiffPreview.textContent = "Select a changed file to view its diff.";
+}
+
+async function ensureSelectedGitDiff() {
+  const review = state.gitChangeReview;
+  if (!review.projectId || !review.selectedPath) {
+    return;
+  }
+
+  if (review.diffByPath[review.selectedPath] || review.diffLoadingPath === review.selectedPath) {
+    return;
+  }
+
+  state.gitChangeReview.diffLoadingPath = review.selectedPath;
+  renderGitChangeReview();
+
+  try {
+    const response = await requestJson(`/api/projects/${encodeURIComponent(review.projectId)}/git/diff?path=${encodeURIComponent(review.selectedPath)}`);
+    state.gitChangeReview.diffByPath[review.selectedPath] = {
+      diffText: response?.diffText || "No textual diff is available for the selected file."
+    };
+  } catch (error) {
+    state.gitChangeReview.diffByPath[review.selectedPath] = {
+      error: error?.message || "Failed to load the selected Git diff."
+    };
+  } finally {
+    state.gitChangeReview.diffLoadingPath = null;
+    renderGitChangeReview();
+  }
+}
+
+async function openGitChangeReview(projectId, targetBranch, branchInfo) {
+  state.gitChangeReview = createEmptyGitChangeReviewState();
+  state.gitChangeReview.projectId = projectId;
+  state.gitChangeReview.currentBranch = branchInfo?.currentBranch || null;
+  state.gitChangeReview.targetBranch = targetBranch || null;
+  state.gitChangeReview.loading = true;
+  renderGitChangeReview();
+  openModal("git-changes-modal");
+
+  try {
+    const response = await requestJson(`/api/projects/${encodeURIComponent(projectId)}/git/changes`);
+    state.gitChangeReview.currentBranch = response?.currentBranch || state.gitChangeReview.currentBranch;
+    state.gitChangeReview.files = Array.isArray(response?.files) ? response.files : [];
+    state.gitChangeReview.selectedPath = state.gitChangeReview.files[0]?.path || null;
+    state.gitChangeReview.loading = false;
+    renderGitChangeReview();
+    await ensureSelectedGitDiff();
+  } catch (error) {
+    state.gitChangeReview.loading = false;
+    state.gitChangeReview.error = error?.message || "Failed to load local Git changes.";
+    renderGitChangeReview();
   }
 }
 
@@ -556,8 +877,13 @@ function openModal(modalId) {
 }
 
 function closeModal() {
+  closeWorkspaceBranchMenu();
+  closeComposerDropdowns();
   if (state.openModalId === "review-pr-modal") {
     abortPullRequestStream();
+  }
+  if (state.openModalId === "git-changes-modal") {
+    state.gitChangeReview = createEmptyGitChangeReviewState();
   }
 
   if (!state.openModalId) {
@@ -668,13 +994,181 @@ function renderActiveRun() {
 
 function renderTopbar() {
   const activeProject = getActiveProject();
-  const activeRun = state.activeRun;
-  const runStatus = activeRun?.isRunning
-    ? `Live run • ${activeRun.status || "running"}`
-    : (state.pendingInteraction ? (state.pendingInteraction.kind === "permission" ? "Approval needed" : "Input needed") : "idle");
 
   elements.workspaceTitle.textContent = activeProject ? activeProject.displayName : "No project selected";
+  renderWorkspaceBranch(activeProject);
+  void ensureActiveProjectBranchInfo();
   renderComposerState();
+}
+
+function renderWorkspaceBranch(activeProject) {
+  if (!activeProject) {
+    state.branchMenuOpen = false;
+    elements.workspaceBranchWrap.classList.add("hidden");
+    elements.workspaceBranchMenu.replaceChildren();
+    elements.workspaceBranchLabel.textContent = "No branch";
+    elements.workspaceBranchButton.disabled = true;
+    elements.workspaceBranchButton.setAttribute("aria-expanded", "false");
+    elements.workspaceBranchMenu.classList.add("hidden");
+    elements.workspaceBranchWrap.classList.remove("open");
+    return;
+  }
+
+  const branchInfo = state.projectBranchInfoById[activeProject.projectId] || null;
+  let isDisabled = true;
+  let buttonLabel;
+  if (!branchInfo) {
+    buttonLabel = "Loading branch...";
+  } else if (!branchInfo.isGitRepository) {
+    buttonLabel = "No Git repository";
+  } else if (!Array.isArray(branchInfo.branches) || branchInfo.branches.length === 0) {
+    buttonLabel = branchInfo.currentBranch || "Detached HEAD";
+  } else {
+    isDisabled = false;
+    buttonLabel = branchInfo.currentBranch || branchInfo.branches[0] || "Detached HEAD";
+  }
+
+  elements.workspaceBranchLabel.textContent = state.branchSwitchProjectId === activeProject.projectId
+    ? "Switching..."
+    : buttonLabel;
+  elements.workspaceBranchButton.disabled = isDisabled || state.branchSwitchProjectId === activeProject.projectId;
+  elements.workspaceBranchButton.setAttribute("aria-expanded", state.branchMenuOpen ? "true" : "false");
+  renderWorkspaceBranchMenu(activeProject, branchInfo);
+  elements.workspaceBranchWrap.classList.remove("hidden");
+}
+
+function renderWorkspaceBranchMenu(activeProject, branchInfo) {
+  elements.workspaceBranchMenu.replaceChildren();
+
+  const branches = Array.isArray(branchInfo?.branches) ? branchInfo.branches : [];
+  if (branches.length === 0) {
+    elements.workspaceBranchMenu.classList.add("hidden");
+    elements.workspaceBranchWrap.classList.remove("open");
+    return;
+  }
+
+  branches.forEach(branch => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "branch-dropdown-item";
+    item.textContent = branch;
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", branch === branchInfo?.currentBranch ? "true" : "false");
+    item.classList.toggle("current", branch === branchInfo?.currentBranch);
+    item.disabled = state.branchSwitchProjectId === activeProject.projectId;
+    item.addEventListener("click", () => {
+      void handleWorkspaceBranchSelection(activeProject.projectId, branch).catch(error => {
+        console.error("Branch switch failed:", error);
+      });
+    });
+    elements.workspaceBranchMenu.append(item);
+  });
+
+  elements.workspaceBranchMenu.classList.toggle("hidden", !state.branchMenuOpen);
+  elements.workspaceBranchWrap.classList.toggle("open", state.branchMenuOpen);
+}
+
+function closeWorkspaceBranchMenu() {
+  if (!state.branchMenuOpen) {
+    return;
+  }
+
+  state.branchMenuOpen = false;
+  elements.workspaceBranchButton.setAttribute("aria-expanded", "false");
+  elements.workspaceBranchMenu.classList.add("hidden");
+  elements.workspaceBranchWrap.classList.remove("open");
+}
+
+function toggleWorkspaceBranchMenu() {
+  if (elements.workspaceBranchButton.disabled) {
+    return;
+  }
+
+  closeComposerDropdowns();
+  state.branchMenuOpen = !state.branchMenuOpen;
+  renderTopbar();
+}
+
+async function handleWorkspaceBranchSelection(projectId, branchName) {
+  const branchInfo = state.projectBranchInfoById[projectId] || null;
+  if (branchName === branchInfo?.currentBranch) {
+    closeWorkspaceBranchMenu();
+    return;
+  }
+
+  state.branchSwitchProjectId = projectId;
+  closeWorkspaceBranchMenu();
+  renderTopbar();
+
+  try {
+    const response = await requestJson(`/api/projects/${encodeURIComponent(projectId)}/branch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ branchName })
+    });
+
+    state.projectBranchInfoById[projectId] = {
+      isGitRepository: !!response?.isGitRepository,
+      currentBranch: response?.currentBranch || null,
+      branches: Array.isArray(response?.branches) ? response.branches : []
+    };
+    await loadProjects();
+  } catch (error) {
+    const latestBranchInfo = error?.data?.branchInfo
+      ? {
+        isGitRepository: !!error.data.branchInfo.isGitRepository,
+        currentBranch: error.data.branchInfo.currentBranch || null,
+        branches: Array.isArray(error.data.branchInfo.branches) ? error.data.branchInfo.branches : []
+      }
+      : branchInfo;
+
+    if (latestBranchInfo) {
+      state.projectBranchInfoById[projectId] = latestBranchInfo;
+    }
+
+    if (error?.status === 409
+      && (error?.data?.failureCode === "dirty-worktree" || error?.data?.failureCode === "checkout-conflict")) {
+      await openGitChangeReview(projectId, branchName, latestBranchInfo);
+      return;
+    }
+
+    globalThis.alert(error?.message || "Failed to switch branches.");
+  } finally {
+    state.branchSwitchProjectId = null;
+    renderTopbar();
+  }
+}
+
+async function ensureActiveProjectBranchInfo() {
+  const activeProject = getActiveProject();
+  if (!activeProject) {
+    return;
+  }
+
+  const projectId = activeProject.projectId;
+  if (state.projectBranchInfoById[projectId] || state.projectBranchRequestsInFlight.has(projectId)) {
+    return;
+  }
+
+  state.projectBranchRequestsInFlight.add(projectId);
+
+  try {
+    const response = await requestJson(`/api/projects/${encodeURIComponent(projectId)}/branch`);
+    state.projectBranchInfoById[projectId] = {
+      isGitRepository: !!response?.isGitRepository,
+      currentBranch: response?.currentBranch || null,
+      branches: Array.isArray(response?.branches) ? response.branches : []
+    };
+  } catch {
+    state.projectBranchInfoById[projectId] = {
+      isGitRepository: false,
+      currentBranch: null,
+      branches: []
+    };
+  } finally {
+    state.projectBranchRequestsInFlight.delete(projectId);
+    renderTopbar();
+  }
 }
 
 function renderComposerState() {
@@ -683,6 +1177,7 @@ function renderComposerState() {
   elements.architectureReviewChip.classList.toggle("hidden", !architectureMode);
   elements.taskPrompt.placeholder = getPromptPlaceholder();
   elements.startRun.disabled = !activeProject || !elements.taskPrompt.value.trim();
+  renderComposerDropdowns();
 }
 
 function renderProjects() {
@@ -713,6 +1208,10 @@ function renderProjects() {
 
     main.addEventListener("click", () => {
       const wasActive = project.projectId === state.activeProjectId;
+      if (!wasActive) {
+        closeWorkspaceBranchMenu();
+        closeComposerDropdowns();
+      }
       state.activeProjectId = project.projectId;
       if (wasActive) {
         if (state.expandedProjectIds.has(project.projectId)) {
@@ -761,6 +1260,10 @@ function renderProjects() {
         }
 
         runLink.addEventListener("click", () => {
+          if (project.projectId !== state.activeProjectId) {
+            closeWorkspaceBranchMenu();
+            closeComposerDropdowns();
+          }
           state.activeProjectId = project.projectId;
           state.activeRunId = run.runId;
           if (!state.activeRun?.isRunning || state.activeRun?.runId !== run.runId) {
@@ -1097,8 +1600,17 @@ async function warmModelDiscovery() {
 
 async function loadProjects() {
   state.projects = await requestJson("/api/projects?maxRunsPerProject=24") || [];
+  const knownProjectIds = new Set(state.projects.map(project => project.projectId));
+  state.projectBranchInfoById = Object.fromEntries(
+    Object.entries(state.projectBranchInfoById).filter(([projectId]) => knownProjectIds.has(projectId))
+  );
+  const previousActiveProjectId = state.activeProjectId;
   if (!state.activeProjectId || !state.projects.some(project => project.projectId === state.activeProjectId)) {
     state.activeProjectId = state.projects[0]?.projectId || null;
+  }
+  if (previousActiveProjectId !== state.activeProjectId) {
+    closeWorkspaceBranchMenu();
+    closeComposerDropdowns();
   }
   if (state.activeProjectId) {
     state.expandedProjectIds.add(state.activeProjectId);
@@ -1421,6 +1933,8 @@ async function createProject(event) {
     body: JSON.stringify(payload)
   });
 
+  closeWorkspaceBranchMenu();
+  closeComposerDropdowns();
   state.activeProjectId = project.projectId;
   closeModal();
   elements.newProjectForm.reset();
@@ -1990,6 +2504,10 @@ async function confirmDeleteProvider(displayName) {
 }
 
 async function openRunDetails(project, run) {
+  if (project.projectId !== state.activeProjectId) {
+    closeWorkspaceBranchMenu();
+    closeComposerDropdowns();
+  }
   state.activeProjectId = project.projectId;
   state.activeRunId = run.runId;
   elements.runDetailsTitle.textContent = run.runTitle || `Run ${run.runId}`;
@@ -2711,9 +3229,37 @@ function attachHandlers() {
   });
 
   document.addEventListener("visibilitychange", handleVisibilityChange);
+  document.addEventListener("click", event => {
+    if (!elements.workspaceBranchWrap.contains(event.target)) {
+      closeWorkspaceBranchMenu();
+    }
+
+    const composerDropdownClicked = getComposerDropdownConfigs().some(config => config.wrap.contains(event.target));
+    if (!composerDropdownClicked) {
+      closeComposerDropdowns();
+    }
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      closeWorkspaceBranchMenu();
+      closeComposerDropdowns();
+    }
+  });
 
   document.getElementById("review-pr-button").addEventListener("click", () => {
     void openReviewPrModal();
+  });
+  elements.workspaceBranchButton.addEventListener("click", event => {
+    event.stopPropagation();
+    toggleWorkspaceBranchMenu();
+  });
+  elements.runModeButton.addEventListener("click", event => {
+    event.stopPropagation();
+    toggleComposerDropdown("run-mode");
+  });
+  elements.permissionModeButton.addEventListener("click", event => {
+    event.stopPropagation();
+    toggleComposerDropdown("permission-mode");
   });
   document.getElementById("review-pr-close-button").addEventListener("click", closeModal);
   document.getElementById("review-pr-back-button").addEventListener("click", handleReviewPrBack);

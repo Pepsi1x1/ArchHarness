@@ -26,6 +26,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IRuntimePlatform, RuntimePlatform>();
         services.AddSingleton<ILocalCommandRunner, ProcessLocalCommandRunner>();
         services.AddSingleton<IPersonalAccessTokenProtector, PlatformPersonalAccessTokenProtector>();
+        services.AddSingleton<IGitRepositoryInfoService, LibGit2SharpRepositoryInfoService>();
         services.AddSingleton<IGlobalSettingsCatalog, FileSystemGlobalSettingsCatalog>();
         services.AddSingleton<IProviderConnectionCatalog, FileSystemProviderConnectionCatalog>();
         services.AddSingleton<SourceControlProviderFactory>();

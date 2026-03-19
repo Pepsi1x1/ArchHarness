@@ -199,6 +199,141 @@ body {
   gap: 6px;
 }
 
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.branch-dropdown,
+.composer-dropdown {
+  position: relative;
+  max-width: min(44vw, 360px);
+}
+
+.branch-dropdown-button,
+.composer-dropdown-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  transition: color 140ms ease;
+}
+
+.composer-dropdown-button {
+  min-height: 34px;
+}
+
+.branch-dropdown-button span,
+.composer-dropdown-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-dropdown-button i,
+.composer-dropdown-button i {
+  font-size: 0.55rem;
+  color: var(--muted);
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.branch-dropdown-button:hover,
+.branch-dropdown-button:focus-visible,
+.branch-dropdown.open .branch-dropdown-button,
+.composer-dropdown-button:hover,
+.composer-dropdown-button:focus-visible,
+.composer-dropdown.open .composer-dropdown-button {
+  color: var(--text);
+  outline: none;
+}
+
+.branch-dropdown-button:hover i,
+.branch-dropdown-button:focus-visible i,
+.branch-dropdown.open .branch-dropdown-button i,
+.composer-dropdown-button:hover i,
+.composer-dropdown-button:focus-visible i,
+.composer-dropdown.open .composer-dropdown-button i {
+  color: var(--text);
+}
+
+.branch-dropdown.open .branch-dropdown-button i,
+.composer-dropdown.open .composer-dropdown-button i {
+  transform: rotate(180deg);
+}
+
+.branch-dropdown-button:disabled,
+.composer-dropdown-button:disabled {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.branch-dropdown-menu,
+.composer-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 100%;
+  max-width: min(56vw, 420px);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: #050608;
+  box-shadow: var(--shadow);
+  z-index: 5;
+}
+
+.composer-dropdown-menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  z-index: 25;
+}
+
+.branch-dropdown-item,
+.composer-dropdown-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #f5f5f7;
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  padding: 9px 12px 9px 18px;
+  cursor: pointer;
+  transition: background 140ms ease, box-shadow 140ms ease, color 140ms ease;
+}
+
+.branch-dropdown-item:hover,
+.branch-dropdown-item:focus-visible,
+.composer-dropdown-item:hover,
+.composer-dropdown-item:focus-visible {
+  background: #171a20;
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.72);
+  color: #ffffff;
+  outline: none;
+}
+
+.branch-dropdown-item.current,
+.composer-dropdown-item.current {
+  font-weight: 600;
+}
+
+.branch-dropdown-item:disabled,
+.composer-dropdown-item:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
 .topbar-actions,
 .sidebar-toolbar,
 .composer-head,
@@ -939,6 +1074,32 @@ textarea {
   color: var(--muted-strong);
 }
 
+html[data-desktop-platform="win32"] .toolbar-select,
+html[data-desktop-platform="win32"] .field select {
+  color-scheme: dark;
+}
+
+html[data-desktop-platform="win32"] .toolbar-select option,
+html[data-desktop-platform="win32"] .field select option {
+  background: #050608;
+  color: #f5f5f7;
+  font-weight: 400;
+  padding: 6px 12px 6px 16px;
+}
+
+html[data-desktop-platform="win32"] .toolbar-select option:checked,
+html[data-desktop-platform="win32"] .field select option:checked {
+  background: #050608;
+  color: #f5f5f7;
+  font-weight: 600;
+}
+
+html[data-desktop-platform="win32"] .toolbar-select option:hover,
+html[data-desktop-platform="win32"] .field select option:hover {
+  background: #050608;
+  color: #f5f5f7;
+}
+
 .chip-select,
 .chip-toggle {
   display: grid;
@@ -1029,10 +1190,113 @@ textarea {
   align-content: start;
 }
 
-.artifact-preview {
+.artifact-preview,
+.git-diff-preview {
   min-height: 420px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.git-change-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.git-change-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.git-change-item:hover,
+.git-change-item:focus-visible,
+.git-change-item.active {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
+.git-change-item.active {
+  transform: translateY(-1px);
+}
+
+.git-change-item-header,
+.git-change-item-meta,
+.git-diff-layout {
+  display: grid;
+  gap: 8px;
+}
+
+.git-change-item-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.git-change-item-path {
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-change-item-meta {
+  grid-auto-flow: column;
+  justify-content: start;
+  gap: 6px;
+}
+
+.git-change-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  color: var(--muted-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.git-change-badge-status-added {
+  color: #effcf4;
+  border-color: rgba(79, 209, 139, 0.35);
+  background: #163726;
+}
+
+.git-change-badge-status-modified {
+  color: #eef5ff;
+  border-color: rgba(96, 165, 250, 0.35);
+  background: #16283d;
+}
+
+.git-change-badge-status-deleted,
+.git-change-badge-status-conflicted {
+  color: #fff1f1;
+  border-color: rgba(255, 106, 106, 0.35);
+  background: #3f181d;
+}
+
+.git-change-badge-status-renamed,
+.git-change-badge-status-type-changed {
+  color: #fff2df;
+  border-color: rgba(255, 179, 71, 0.38);
+  background: #433012;
+}
+
+.git-diff-layout {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  min-height: 520px;
+}
+
+.git-diff-preview {
+  margin: 0;
 }
 
 .sr-only {
@@ -1316,6 +1580,7 @@ textarea {
 
 @media(max-width: 1180px) {
   .run-details-layout,
+  .git-diff-layout,
   .settings-grid,
   .modal-grid,
   .composer-controls,

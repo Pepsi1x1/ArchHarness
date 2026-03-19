@@ -33,7 +33,16 @@
     <section class="workspace-shell">
       <header class="workspace-topbar">
         <div class="topbar-copy">
-          <h2 id="workspace-title">No project selected</h2>
+          <div class="topbar-title-row">
+            <h2 id="workspace-title">No project selected</h2>
+            <div id="workspace-branch-wrap" class="branch-dropdown hidden">
+              <button id="workspace-branch-button" class="branch-dropdown-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Current branch">
+                <span id="workspace-branch-label">Loading branch...</span>
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+              </button>
+              <div id="workspace-branch-menu" class="branch-dropdown-menu hidden" role="menu" aria-label="Project branches"></div>
+            </div>
+          </div>
         </div>
         <button id="settings-button" class="icon-button" type="button" aria-label="Open settings">⚙</button>
       </header>
@@ -58,13 +67,17 @@
 
         <div class="composer-toolbar">
           <div class="composer-toolbar-options">
-            <span class="toolbar-select-wrap">
-              <select id="run-mode" class="toolbar-select">
+            <div id="run-mode-wrap" class="composer-dropdown">
+              <button id="run-mode-button" class="composer-dropdown-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Run mode">
+                <span id="run-mode-label">Standard</span>
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+              </button>
+              <div id="run-mode-menu" class="composer-dropdown-menu hidden" role="menu" aria-label="Run modes"></div>
+              <select id="run-mode" class="toolbar-select hidden" aria-hidden="true" tabindex="-1">
                 <option value="standard">Standard</option>
                 <option value="architecture-review">Architecture Review</option>
               </select>
-              <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-            </span>
+            </div>
             <span id="architecture-review-chip" class="hidden">
               <span class="toolbar-select-wrap">
                 <select id="architecture-review-preset" class="toolbar-select">
@@ -74,10 +87,14 @@
                 <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
               </span>
             </span>
-            <span class="toolbar-select-wrap">
-              <select id="permission-mode" class="toolbar-select"></select>
-              <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-            </span>
+            <div id="permission-mode-wrap" class="composer-dropdown">
+              <button id="permission-mode-button" class="composer-dropdown-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Permission mode">
+                <span id="permission-mode-label">Permission mode</span>
+                <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
+              </button>
+              <div id="permission-mode-menu" class="composer-dropdown-menu hidden" role="menu" aria-label="Permission modes"></div>
+              <select id="permission-mode" class="toolbar-select hidden" aria-hidden="true" tabindex="-1"></select>
+            </div>
           </div>
           <div class="composer-toolbar-actions">
             <button id="cancel-run" class="ghost-button small-button" type="button">Stop</button>
@@ -259,13 +276,38 @@
       </div>
 
       <div class="run-details-layout">
-        <aside>
+        <aside aria-label="Run artifacts">
           <div id="artifact-list" class="artifact-list empty-state">Choose a run to load artifacts.</div>
         </aside>
         <section>
           <p id="artifact-summary" class="modal-note">Artifact previews appear here.</p>
           <pre id="artifact-preview" class="artifact-preview">Artifact previews appear here.</pre>
         </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="git-changes-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card panel large-modal">
+      <div class="section-header modal-header">
+        <h2 id="git-changes-title">Local Git Changes</h2>
+        <button data-close-modal="git-changes-modal" class="icon-button" type="button" aria-label="Close Git changes">✕</button>
+      </div>
+
+      <p id="git-changes-summary" class="modal-note">Review local changes before switching branches.</p>
+
+      <div class="git-diff-layout">
+        <aside aria-label="Changed files">
+          <div id="git-change-list" class="git-change-list empty-state">No changed files loaded yet.</div>
+        </aside>
+        <section>
+          <p id="git-diff-meta" class="modal-note">Select a changed file to view its diff.</p>
+          <pre id="git-diff-preview" class="git-diff-preview">Select a changed file to view its diff.</pre>
+        </section>
+      </div>
+
+      <div class="button-row end-row">
+        <button data-close-modal="git-changes-modal" class="secondary-button" type="button">Close</button>
       </div>
     </div>
   </section>
