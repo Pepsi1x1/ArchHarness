@@ -90,21 +90,27 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
     {
         if (TryParseSecretId(existingProtectedPersonalAccessToken, out string? secretId))
         {
-            return secretId;
+            return secretId!;
         }
 
         return Guid.NewGuid().ToString("N");
     }
 
     private static string ParseSecretId(string protectedPersonalAccessToken)
-        => TryParseSecretId(protectedPersonalAccessToken, out string? secretId)
-            ? secretId
-            : throw new FormatException("The stored Secret Service token reference is invalid.");
+    {
+        if (TryParseSecretId(protectedPersonalAccessToken, out string? secretId))
+        {
+            return secretId!;
+        }
+
+        throw new FormatException("The stored Secret Service token reference is invalid.");
+    }
 
     private static bool TryParseSecretId(string? protectedPersonalAccessToken, out string? secretId)
     {
         secretId = null;
         if (!SecureStoreTokenReference.TryParse(protectedPersonalAccessToken ?? string.Empty, out string storeKind, out string parsedSecretId)
+            || string.IsNullOrWhiteSpace(parsedSecretId)
             || !string.Equals(storeKind, StoreKind, StringComparison.Ordinal))
         {
             return false;

@@ -50,194 +50,225 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        string frontendPlan = string.Empty;
-        IReadOnlyList<string> filesTouched = Array.Empty<string>();
-        ArchitectureReview review = new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>());
-        SecurityReview securityReview = new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>());
-
-        Dictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies = new Dictionary<string, Func<ExecutionPlanStep, Task>>
-        {
-            ["FrontendDeveloper"] = async (ExecutionPlanStep s) =>
-            {
-                IReadOnlyList<string> newFiles = await this._agents.FrontendDeveloper.ImplementAsync(
-                    adapter,
-                    s.Objective,
-                    request.ModelOverrides,
-                    this._agents.FrontendDeveloper.Id,
-                    this._agents.FrontendDeveloper.Role,
-                    cancellationToken);
-
-                filesTouched = filesTouched
-                    .Concat(newFiles)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-
-                frontendPlan = newFiles.Count > 0
-                    ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
-                    : "Frontend developer step executed.";
-            },
-            ["BackendDeveloper"] = async (ExecutionPlanStep s) =>
-            {
-                IReadOnlyList<string> newFiles = await this._agents.BackendDeveloper.ImplementAsync(
-                    adapter,
-                    s.Objective,
-                    request.ModelOverrides,
-                    null,
-                    this._agents.BackendDeveloper.Id,
-                    this._agents.BackendDeveloper.Role,
-                    cancellationToken);
-
-                filesTouched = filesTouched
-                    .Concat(newFiles)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
-            },
-            ["Build"] = async (ExecutionPlanStep s) =>
-            {
-                await this._agents.Build.RunBuildAsync(
-                    adapter,
-                    s.Objective,
-                    request.BuildCommand,
-                    request.ModelOverrides,
-                    this._agents.Build.Id,
-                    this._agents.Build.Role,
-                    cancellationToken);
-            },
-            ["CodingStyle"] = async (ExecutionPlanStep s) =>
-            {
-                string latestDiff = await adapter.DiffAsync(cancellationToken);
-                string delegatedPrompt = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
-                    : s.Objective;
-                await this._agents.CodingStyle.EnforceAsync(
-                    new StyleEnforcementRequest(
-                        DelegatedPrompt: delegatedPrompt,
-                        Diff: latestDiff,
-                        WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: filesTouched,
-                        LanguageScope: s.Languages,
-                        ModelOverrides: request.ModelOverrides),
-                    this._agents.CodingStyle.Id,
-                    this._agents.CodingStyle.Role,
-                    cancellationToken);
-            },
-            ["Security"] = async (ExecutionPlanStep s) =>
-            {
-                string latestDiff = await adapter.DiffAsync(cancellationToken);
-                IReadOnlyList<string> securityFiles = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, s.Languages)
-                    : filesTouched;
-                string delegatedPrompt = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
-                    : s.Objective;
-                securityReview = await this._agents.Security.ReviewAsync(
-                    new SecurityReviewRequest(
-                        DelegatedPrompt: delegatedPrompt,
-                        Diff: latestDiff,
-                        WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: securityFiles,
-                        LanguageScope: s.Languages,
-                        ModelOverrides: request.ModelOverrides),
-                    this._agents.Security.Id,
-                    this._agents.Security.Role,
-                    cancellationToken);
-            },
-            ["Architecture"] = async (ExecutionPlanStep s) =>
-            {
-                string latestDiff = await adapter.DiffAsync(cancellationToken);
-                IReadOnlyList<string> architectureFiles = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, s.Languages)
-                    : filesTouched;
-                string delegatedPrompt = request.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(s.Objective, request.ArchitectureLoopPrompt)
-                    : s.Objective;
-                review = await this._agents.Architecture.ReviewAsync(
-                    new ArchitectureReviewRequest(
-                        DelegatedPrompt: delegatedPrompt,
-                        Diff: latestDiff,
-                        WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: architectureFiles,
-                        LanguageScope: s.Languages,
-                        ModelOverrides: request.ModelOverrides),
-                    this._agents.Architecture.Id,
-                    this._agents.Architecture.Role,
-                    cancellationToken);
-            }
-        };
+        ExecutionState state = new ExecutionState();
+        Dictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies = this.CreateAgentStrategies(adapter, request, state, cancellationToken);
 
         Dictionary<int, ExecutionPlanStep> pendingSteps = plan.Steps.ToDictionary(s => s.Id);
         HashSet<int> completedStepIds = new HashSet<int>();
         while (pendingSteps.Count > 0)
         {
-            ExecutionPlanStep? step = pendingSteps.Values
-                .OrderBy(s => s.Id)
-                .FirstOrDefault(s => DependenciesSatisfied(s, completedStepIds, pendingSteps));
-
-            if (step is null)
-            {
-                step = pendingSteps.Values.OrderBy(s => s.Id).First();
-                await this._artefactStore.AppendEventAsync(runDirectory, new
-                {
-                    runId,
-                    source = WellKnownSources.ORCHESTRATOR,
-                    message = $"Dependency deadlock detected; force-executing step {step.Id}."
-                }, cancellationToken);
-            }
-
-            await this._artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, step.Agent, "Delegated prompt started", step.Objective));
-            if (!agentStrategies.TryGetValue(step.Agent, out Func<ExecutionPlanStep, Task>? strategy))
-            {
-                throw new InvalidOperationException($"Unrecognized agent role: '{step.Agent}'.");
-            }
-
-            AgentExecutionContext? previousAgentContext = this._stateAccessors.AgentExecutionContext.Current;
-            this._stateAccessors.AgentExecutionContext.SetCurrent(this.ResolveAgentExecutionContext(step.Agent));
-            try
-            {
-                await strategy(step);
-            }
-            catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
-            {
-                await this._artefactStore.AppendEventAsync(runDirectory, new
-                {
-                    runId,
-                    source = step.Agent,
-                    status = "failed",
-                    failureType = "parse_error",
-                    stepId = step.Id,
-                    objective = step.Objective,
-                    message = ex.Message
-                }, cancellationToken);
-                throw new InvalidOperationException(
-                    $"Step {step.Id} ({step.Agent}) failed due to unparseable structured output. {ex.Message}",
-                    ex);
-            }
-            catch (Exception ex)
-            {
-                await this._artefactStore.AppendEventAsync(runDirectory, new
-                {
-                    runId,
-                    source = step.Agent,
-                    status = "failed",
-                    failureType = "execution_error",
-                    stepId = step.Id,
-                    objective = step.Objective,
-                    message = ex.Message
-                }, cancellationToken);
-                throw;
-            }
-            finally
-            {
-                this._stateAccessors.AgentExecutionContext.SetCurrent(previousAgentContext);
-            }
+            ExecutionPlanStep step = await this.ResolveNextStepAsync(pendingSteps, completedStepIds, runDirectory, runId, cancellationToken);
+            await this.ExecuteStepAsync(step, agentStrategies, runDirectory, runId, progress, cancellationToken);
 
             completedStepIds.Add(step.Id);
             pendingSteps.Remove(step.Id);
         }
 
-        return new StepExecutionResult(frontendPlan, filesTouched, review, securityReview);
+        return new StepExecutionResult(state.FrontendPlan, state.FilesTouched, state.Review, state.SecurityReview);
     }
+
+    private Dictionary<string, Func<ExecutionPlanStep, Task>> CreateAgentStrategies(
+        IWorkspaceAdapter adapter,
+        RunRequest request,
+        ExecutionState state,
+        CancellationToken cancellationToken)
+        => new Dictionary<string, Func<ExecutionPlanStep, Task>>
+        {
+            ["FrontendDeveloper"] = step => this.ExecuteFrontendDeveloperStepAsync(step, adapter, request, state, cancellationToken),
+            ["BackendDeveloper"] = step => this.ExecuteBackendDeveloperStepAsync(step, adapter, request, state, cancellationToken),
+            ["Build"] = step => this.ExecuteBuildStepAsync(step, adapter, request, cancellationToken),
+            ["CodingStyle"] = step => this.ExecuteCodingStyleStepAsync(step, adapter, request, state, cancellationToken),
+            ["Security"] = step => this.ExecuteSecurityStepAsync(step, adapter, request, state, cancellationToken),
+            ["Architecture"] = step => this.ExecuteArchitectureStepAsync(step, adapter, request, state, cancellationToken)
+        };
+
+    private async Task<ExecutionPlanStep> ResolveNextStepAsync(
+        IReadOnlyDictionary<int, ExecutionPlanStep> pendingSteps,
+        ISet<int> completedStepIds,
+        string runDirectory,
+        string runId,
+        CancellationToken cancellationToken)
+    {
+        ExecutionPlanStep? step = pendingSteps.Values
+            .OrderBy(candidate => candidate.Id)
+            .FirstOrDefault(candidate => DependenciesSatisfied(candidate, completedStepIds, pendingSteps));
+
+        if (step is not null)
+        {
+            return step;
+        }
+
+        ExecutionPlanStep fallbackStep = pendingSteps.Values.OrderBy(candidate => candidate.Id).First();
+        await this._artefactStore.AppendEventAsync(runDirectory, new
+        {
+            runId,
+            source = WellKnownSources.ORCHESTRATOR,
+            message = $"Dependency deadlock detected; force-executing step {fallbackStep.Id}."
+        }, cancellationToken);
+        return fallbackStep;
+    }
+
+    private async Task ExecuteStepAsync(
+        ExecutionPlanStep step,
+        IReadOnlyDictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies,
+        string runDirectory,
+        string runId,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        await this._artefactStore.AppendEventAsync(runDirectory, new { runId, source = step.Agent, message = step.Objective }, cancellationToken);
+        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, step.Agent, "Delegated prompt started", step.Objective));
+
+        if (!agentStrategies.TryGetValue(step.Agent, out Func<ExecutionPlanStep, Task>? strategy))
+        {
+            throw new InvalidOperationException($"Unrecognized agent role: '{step.Agent}'.");
+        }
+
+        AgentExecutionContext? previousAgentContext = this._stateAccessors.AgentExecutionContext.Current;
+        this._stateAccessors.AgentExecutionContext.SetCurrent(this.ResolveAgentExecutionContext(step.Agent));
+        try
+        {
+            await strategy(step);
+        }
+        catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
+        {
+            await this.AppendStepFailureAsync(runDirectory, runId, step, "parse_error", ex.Message, cancellationToken);
+            throw new InvalidOperationException(
+                $"Step {step.Id} ({step.Agent}) failed due to unparseable structured output. {ex.Message}",
+                ex);
+        }
+        catch (Exception ex)
+        {
+            await this.AppendStepFailureAsync(runDirectory, runId, step, "execution_error", ex.Message, cancellationToken);
+            throw;
+        }
+        finally
+        {
+            this._stateAccessors.AgentExecutionContext.SetCurrent(previousAgentContext);
+        }
+    }
+
+    private Task AppendStepFailureAsync(
+        string runDirectory,
+        string runId,
+        ExecutionPlanStep step,
+        string failureType,
+        string message,
+        CancellationToken cancellationToken)
+        => this._artefactStore.AppendEventAsync(runDirectory, new
+        {
+            runId,
+            source = step.Agent,
+            status = "failed",
+            failureType,
+            stepId = step.Id,
+            objective = step.Objective,
+            message
+        }, cancellationToken);
+
+    private async Task ExecuteFrontendDeveloperStepAsync(ExecutionPlanStep step, IWorkspaceAdapter adapter, RunRequest request, ExecutionState state, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> newFiles = await this._agents.FrontendDeveloper.ImplementAsync(
+            adapter,
+            step.Objective,
+            request.ModelOverrides,
+            this._agents.FrontendDeveloper.Id,
+            this._agents.FrontendDeveloper.Role,
+            cancellationToken);
+
+        state.FilesTouched = MergeFilesTouched(state.FilesTouched, newFiles);
+        state.FrontendPlan = newFiles.Count > 0
+            ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
+            : "Frontend developer step executed.";
+    }
+
+    private async Task ExecuteBackendDeveloperStepAsync(ExecutionPlanStep step, IWorkspaceAdapter adapter, RunRequest request, ExecutionState state, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> newFiles = await this._agents.BackendDeveloper.ImplementAsync(
+            adapter,
+            step.Objective,
+            request.ModelOverrides,
+            null,
+            this._agents.BackendDeveloper.Id,
+            this._agents.BackendDeveloper.Role,
+            cancellationToken);
+
+        state.FilesTouched = MergeFilesTouched(state.FilesTouched, newFiles);
+    }
+
+    private Task ExecuteBuildStepAsync(ExecutionPlanStep step, IWorkspaceAdapter adapter, RunRequest request, CancellationToken cancellationToken)
+        => this._agents.Build.RunBuildAsync(
+            adapter,
+            step.Objective,
+            request.BuildCommand,
+            request.ModelOverrides,
+            this._agents.Build.Id,
+            this._agents.Build.Role,
+            cancellationToken);
+
+    private async Task ExecuteCodingStyleStepAsync(ExecutionPlanStep step, IWorkspaceAdapter adapter, RunRequest request, ExecutionState state, CancellationToken cancellationToken)
+    {
+        string latestDiff = await adapter.DiffAsync(cancellationToken);
+        await this._agents.CodingStyle.EnforceAsync(
+            new StyleEnforcementRequest(
+                DelegatedPrompt: BuildDelegatedPrompt(step.Objective, request),
+                Diff: latestDiff,
+                WorkspaceRoot: adapter.RootPath,
+                FilesTouched: state.FilesTouched,
+                LanguageScope: step.Languages,
+                ModelOverrides: request.ModelOverrides),
+            this._agents.CodingStyle.Id,
+            this._agents.CodingStyle.Role,
+            cancellationToken);
+    }
+
+    private async Task ExecuteSecurityStepAsync(ExecutionPlanStep step, IWorkspaceAdapter adapter, RunRequest request, ExecutionState state, CancellationToken cancellationToken)
+    {
+        string latestDiff = await adapter.DiffAsync(cancellationToken);
+        state.SecurityReview = await this._agents.Security.ReviewAsync(
+            new SecurityReviewRequest(
+                DelegatedPrompt: BuildDelegatedPrompt(step.Objective, request),
+                Diff: latestDiff,
+                WorkspaceRoot: adapter.RootPath,
+                FilesTouched: ResolveReviewFiles(adapter, request, state.FilesTouched, step.Languages),
+                LanguageScope: step.Languages,
+                ModelOverrides: request.ModelOverrides),
+            this._agents.Security.Id,
+            this._agents.Security.Role,
+            cancellationToken);
+    }
+
+    private async Task ExecuteArchitectureStepAsync(ExecutionPlanStep step, IWorkspaceAdapter adapter, RunRequest request, ExecutionState state, CancellationToken cancellationToken)
+    {
+        string latestDiff = await adapter.DiffAsync(cancellationToken);
+        state.Review = await this._agents.Architecture.ReviewAsync(
+            new ArchitectureReviewRequest(
+                DelegatedPrompt: BuildDelegatedPrompt(step.Objective, request),
+                Diff: latestDiff,
+                WorkspaceRoot: adapter.RootPath,
+                FilesTouched: ResolveReviewFiles(adapter, request, state.FilesTouched, step.Languages),
+                LanguageScope: step.Languages,
+                ModelOverrides: request.ModelOverrides),
+            this._agents.Architecture.Id,
+            this._agents.Architecture.Role,
+            cancellationToken);
+    }
+
+    private static IReadOnlyList<string> MergeFilesTouched(IReadOnlyList<string> existingFiles, IReadOnlyList<string> newFiles)
+        => existingFiles
+            .Concat(newFiles)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private static string BuildDelegatedPrompt(string objective, RunRequest request)
+        => request.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(objective, request.ArchitectureLoopPrompt)
+            : objective;
+
+    private static IReadOnlyList<string> ResolveReviewFiles(IWorkspaceAdapter adapter, RunRequest request, IReadOnlyList<string> filesTouched, IReadOnlyList<string>? languageScope)
+        => request.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, languageScope)
+            : filesTouched;
 
     private static bool DependenciesSatisfied(
         ExecutionPlanStep step,
@@ -288,6 +319,17 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         IReadOnlyList<string> FilesTouched,
         ArchitectureReview Review,
         SecurityReview SecurityReview);
+
+    private sealed class ExecutionState
+    {
+        public string FrontendPlan { get; set; } = string.Empty;
+
+        public IReadOnlyList<string> FilesTouched { get; set; } = Array.Empty<string>();
+
+        public ArchitectureReview Review { get; set; } = new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>());
+
+        public SecurityReview SecurityReview { get; set; } = new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>());
+    }
 
     /// <summary>
     /// Groups the agent references required for plan step execution, reducing constructor over-injection.

@@ -9,6 +9,8 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class GitHubSourceControlService : ISourceControlReviewProviderService
 {
+    private const string OrganizationFieldName = "Organization";
+    private const int GitHubPageSize = 100;
     private static readonly Regex SensitiveHeaderPattern = new Regex(
         "(?i)\\b(authorization|token|pat)\\b\\s*[:=]\\s*[^,;\\s]+",
         RegexOptions.Compiled);
@@ -36,7 +38,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                 throw new InvalidOperationException("GitHub configuration requires the GitHub provider type.");
             }
 
-            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, "https://api.github.com/user", settings.PersonalAccessToken, "token");
+            using HttpRequestMessage request = CreateRequest(HttpMethod.Get, BuildUserEndpoint(), settings.PersonalAccessToken, "token");
             using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
@@ -65,7 +67,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         string? repositoryFilter = null,
         string? authorFilter = null)
     {
-        string owner = RequireValue(settings.Organization, "Organization");
+        string owner = RequireValue(settings.Organization, OrganizationFieldName);
         if (!MatchesOptionalFilter(owner, projectFilter))
         {
             return Array.Empty<PullRequestSummary>();
@@ -163,9 +165,11 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         string checkedPullRequestId = RequireValue(pullRequestId, "pullRequestId");
         List<PullRequestFile> files = new List<PullRequestFile>();
 
-        for (int page = 1; ; page++)
+        int page = 1;
+        bool hasMorePages = true;
+        while (hasMorePages)
         {
-            string requestUri = $"{BuildRepositoryEndpoint(settings, checkedRepositoryName)}/pulls/{Uri.EscapeDataString(checkedPullRequestId)}/files?per_page=100&page={page}";
+            string requestUri = $"{BuildRepositoryEndpoint(settings, checkedRepositoryName)}/pulls/{Uri.EscapeDataString(checkedPullRequestId)}/files?per_page={GitHubPageSize}&page={page}";
             JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
@@ -178,11 +182,10 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                         PullRequestFileChangeTypes.Normalize(GetStringValue(file, "status"))));
                 }
 
-                if (fileCount < 100)
-                {
-                    break;
-                }
+                hasMorePages = fileCount >= GitHubPageSize;
             }
+
+            page++;
         }
 
         return files;
@@ -224,7 +227,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
             throw new InvalidOperationException("GitHub configuration requires the GitHub provider type.");
         }
 
-        string owner = RequireValue(settings.Organization, "Organization");
+        string owner = RequireValue(settings.Organization, OrganizationFieldName);
         string escapedOwner = Uri.EscapeDataString(owner);
         string escapedRepository = Uri.EscapeDataString(repositoryName);
         return $"https://api.github.com/repos/{escapedOwner}/{escapedRepository}";
@@ -237,10 +240,16 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
             throw new InvalidOperationException("GitHub configuration requires the GitHub provider type.");
         }
 
-        string owner = RequireValue(settings.Organization, "Organization");
+        string owner = RequireValue(settings.Organization, OrganizationFieldName);
         string escapedOwner = Uri.EscapeDataString(owner);
         return $"https://api.github.com/orgs/{escapedOwner}/repos";
     }
+
+    private static string BuildUserEndpoint()
+        => new UriBuilder(Uri.UriSchemeHttps, "api.github.com")
+        {
+            Path = "/user"
+        }.Uri.ToString();
 
     private static string RequireValue(string? value, string fieldName)
         => string.IsNullOrWhiteSpace(value)
@@ -361,9 +370,11 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         string? authorFilter,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        for (int page = 1; ; page++)
+        int page = 1;
+        bool hasMorePages = true;
+        while (hasMorePages)
         {
-            string requestUri = $"{BuildRepositoryEndpoint(settings, repositoryName)}/pulls?state=open&per_page=100&page={page}";
+            string requestUri = $"{BuildRepositoryEndpoint(settings, repositoryName)}/pulls?state=open&per_page={GitHubPageSize}&page={page}";
             JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
@@ -395,11 +406,10 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                     yield return batch;
                 }
 
-                if (pullRequestCount < 100)
-                {
-                    break;
-                }
+                hasMorePages = pullRequestCount >= GitHubPageSize;
             }
+
+            page++;
         }
     }
 
@@ -409,9 +419,11 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         CancellationToken cancellationToken)
     {
         List<string> repositories = new List<string>();
-        for (int page = 1; ; page++)
+        int page = 1;
+        bool hasMorePages = true;
+        while (hasMorePages)
         {
-            string requestUri = $"{BuildRepositoriesEndpoint(settings)}?type=all&per_page=100&page={page}";
+            string requestUri = $"{BuildRepositoriesEndpoint(settings)}?type=all&per_page={GitHubPageSize}&page={page}";
             JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
@@ -426,11 +438,10 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                     }
                 }
 
-                if (repositoryCount < 100)
-                {
-                    break;
-                }
+                hasMorePages = repositoryCount >= GitHubPageSize;
             }
+
+            page++;
         }
 
         return repositories;

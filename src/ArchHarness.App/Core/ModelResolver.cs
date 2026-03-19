@@ -24,7 +24,7 @@ public interface IModelResolver
     void ValidateOrThrow(string model);
 
     /// <summary>Gets the collection of discovered model identifiers, if available.</summary>
-    IReadOnlyCollection<string> SupportedModels { get; }
+    IReadOnlyCollection<string> GetSupportedModels();
 
     /// <summary>
     /// Validates the configured default models and any request overrides against the discovered Copilot model catalog when available.
@@ -62,7 +62,7 @@ public sealed class ModelResolver : IModelResolver
     }
 
     /// <inheritdoc />
-    public IReadOnlyCollection<string> SupportedModels
+    public IReadOnlyCollection<string> GetSupportedModels()
         => this._catalog.HasModels
             ? this._catalog.GetModels().Select(model => model.Id).ToArray()
             : Array.Empty<string>();
@@ -98,7 +98,7 @@ public sealed class ModelResolver : IModelResolver
     /// <inheritdoc />
     public void ValidateOrThrow(string model)
     {
-        IReadOnlyCollection<string> supported = this.SupportedModels;
+        IReadOnlyCollection<string> supported = this.GetSupportedModels();
         if (supported.Count == 0)
         {
             return;
@@ -115,7 +115,7 @@ public sealed class ModelResolver : IModelResolver
     /// <inheritdoc />
     public void ValidateConfiguredModelsOrThrow(IDictionary<string, string>? overrides = null)
     {
-        IReadOnlyCollection<string> supported = this.SupportedModels;
+        IReadOnlyCollection<string> supported = this.GetSupportedModels();
         if (supported.Count == 0)
         {
             return;

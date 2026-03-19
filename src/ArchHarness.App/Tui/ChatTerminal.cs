@@ -62,43 +62,88 @@ public sealed class ChatTerminal
     /// <param name="cancellationToken">Token to signal cancellation.</param>
     public async Task RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
-        Task<PreflightValidationResult> preflightTask = this._preflightValidator.ValidateAsync(cancellationToken);
         ContentScreenRenderer.RenderSplash();
 
-        PreflightValidationResult preflight = await preflightTask;
-        if (!preflight.IsSuccess)
+        if (!await this.ValidatePreflightAsync(cancellationToken))
         {
-            RunResultRenderer.RenderPreflightFailure(preflight);
             return;
         }
 
-        RunRequest request;
-        string setupSummary;
+        BuildRunRequestResult? requestResult = await this.TryBuildRunRequestAsync(args, cancellationToken);
+        if (requestResult is null)
+        {
+            return;
+        }
+
+        await WaitForSetupAcknowledgementAsync(requestResult.Request, requestResult.SetupSummary);
+
+        List<RuntimeProgressEvent> runEvents = new List<RuntimeProgressEvent>();
+        Progress<RuntimeProgressEvent> progress = CreateRunProgress(runEvents);
+
+        AgentStreamState agentStreamState = new AgentStreamState(this._agentStreamEventStream);
+        using CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using CancellationTokenSource agentStreamCts = CancellationTokenSource.CreateLinkedTokenSource(runCts.Token);
+        Task agentStreamTask = agentStreamState.ConsumeAsync(agentStreamCts.Token);
+        Task<RunArtefacts> runTask = this._runtime.RunAsync(requestResult.Request, progress, cancellationToken: runCts.Token);
+
+        bool userCanceledRun = await this.MonitorRunAsync(runTask, runEvents, agentStreamState, runCts);
+        await StopAgentStreamAsync(agentStreamCts, agentStreamTask);
+
+        RunArtefacts? artefacts = await TryAwaitRunArtefactsAsync(runTask, userCanceledRun, cancellationToken);
+        if (artefacts is null)
+        {
+            return;
+        }
+
+        await ScreenLoopAsync(requestResult.Request, requestResult.SetupSummary, artefacts, runEvents, cancellationToken);
+    }
+
+    private async Task<bool> ValidatePreflightAsync(CancellationToken cancellationToken)
+    {
+        PreflightValidationResult preflight = await this._preflightValidator.ValidateAsync(cancellationToken);
+        if (preflight.IsSuccess)
+        {
+            return true;
+        }
+
+        RunResultRenderer.RenderPreflightFailure(preflight);
+        return false;
+    }
+
+    private async Task<BuildRunRequestResult?> TryBuildRunRequestAsync(string[] args, CancellationToken cancellationToken)
+    {
         try
         {
-            (request, setupSummary) = await this._conversationController.BuildRunRequestAsync(args, cancellationToken);
+            (RunRequest request, string setupSummary) = await this._conversationController.BuildRunRequestAsync(args, cancellationToken);
+            return new BuildRunRequestResult(request, setupSummary);
         }
         catch (OperationCanceledException)
         {
             RunResultRenderer.RenderExitMessage();
-            return;
+            return null;
         }
         catch (InvalidOperationException ex)
         {
             RunResultRenderer.RenderRunFailure(ex);
-            return;
+            return null;
         }
+    }
 
+    private static async Task WaitForSetupAcknowledgementAsync(RunRequest request, string setupSummary)
+    {
         SetupScreenRenderer.RenderSetupScreen(request, setupSummary);
         Console.CursorVisible = true;
         if (!Console.IsInputRedirected)
         {
             _ = TryReadKey(out _);
         }
-        Console.CursorVisible = false;
 
-        List<RuntimeProgressEvent> runEvents = new List<RuntimeProgressEvent>();
-        Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
+        Console.CursorVisible = false;
+        await Task.CompletedTask;
+    }
+
+    private static Progress<RuntimeProgressEvent> CreateRunProgress(List<RuntimeProgressEvent> runEvents)
+        => new Progress<RuntimeProgressEvent>(evt =>
         {
             lock (runEvents)
             {
@@ -106,12 +151,12 @@ public sealed class ChatTerminal
             }
         });
 
-        AgentStreamState agentStreamState = new AgentStreamState(this._agentStreamEventStream);
-        using CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        using CancellationTokenSource agentStreamCts = CancellationTokenSource.CreateLinkedTokenSource(runCts.Token);
-        Task agentStreamTask = agentStreamState.ConsumeAsync(agentStreamCts.Token);
-
-        Task<RunArtefacts> runTask = this._runtime.RunAsync(request, progress, cancellationToken: runCts.Token);
+    private async Task<bool> MonitorRunAsync(
+        Task<RunArtefacts> runTask,
+        List<RuntimeProgressEvent> runEvents,
+        AgentStreamState agentStreamState,
+        CancellationTokenSource runCts)
+    {
         char[] spinner = new[] { '|', '/', '-', '\\' };
         int spinnerIndex = 0;
         bool liveScreenInitialized = false;
@@ -122,59 +167,21 @@ public sealed class ChatTerminal
         {
             while (!runTask.IsCompleted)
             {
-                if (this._userInputState.IsAwaitingInput)
+                (bool isAwaitingInput, awaitingInputBannerShown, liveScreenInitialized) = await this.HandleAwaitingInputAsync(
+                    runCts.Token,
+                    awaitingInputBannerShown,
+                    liveScreenInitialized);
+                if (isAwaitingInput)
                 {
-                    if (!awaitingInputBannerShown)
-                    {
-                        FooterRenderer.RenderAwaitingInputBanner(this._userInputState.ActiveQuestion);
-                        awaitingInputBannerShown = true;
-                        liveScreenInitialized = false;
-                    }
-
-                    await Task.Delay(140, runCts.Token);
                     continue;
                 }
 
-                if (awaitingInputBannerShown)
-                {
-                    awaitingInputBannerShown = false;
-                }
-
-                while (!Console.IsInputRedirected && Console.KeyAvailable)
-                {
-                    if (!TryReadKey(out ConsoleKeyInfo keyInfo))
-                    {
-                        break;
-                    }
-
-                    if (ScreenRouter.IsQuitKey(keyInfo.Key))
-                    {
-                        userCanceledRun = true;
-                        await runCts.CancelAsync();
-                        break;
-                    }
-
-                    if (keyInfo.Key == ConsoleKey.A)
-                    {
-                        agentStreamState.CycleSelectedAgent();
-                    }
-                }
-
-                if (userCanceledRun)
+                if (ProcessLiveRunKeys(agentStreamState, runCts, ref userCanceledRun))
                 {
                     break;
                 }
 
-                IEnumerable<(string Id, string Role)> availableAgents = agentStreamState.GetAvailableAgents();
-
-                RunMonitor.RenderLiveWithAgentView(
-                    runEvents,
-                    agentStreamState.Events,
-                    agentStreamState.SelectedAgentId,
-                    availableAgents,
-                    spinner[spinnerIndex],
-                    ref liveScreenInitialized);
-
+                RenderLiveRun(runEvents, agentStreamState, spinner[spinnerIndex], ref liveScreenInitialized);
                 spinnerIndex = (spinnerIndex + 1) % spinner.Length;
                 await Task.Delay(160, runCts.Token);
             }
@@ -184,6 +191,78 @@ public sealed class ChatTerminal
             // Expected when the user quits during the live run or the caller cancels the session.
         }
 
+        return userCanceledRun;
+    }
+
+    private async Task<(bool IsAwaitingInput, bool AwaitingInputBannerShown, bool LiveScreenInitialized)> HandleAwaitingInputAsync(
+        CancellationToken cancellationToken,
+        bool awaitingInputBannerShown,
+        bool liveScreenInitialized)
+    {
+        if (!this._userInputState.IsAwaitingInput)
+        {
+            if (awaitingInputBannerShown)
+            {
+                awaitingInputBannerShown = false;
+            }
+
+            return (false, awaitingInputBannerShown, liveScreenInitialized);
+        }
+
+        if (!awaitingInputBannerShown)
+        {
+            FooterRenderer.RenderAwaitingInputBanner(this._userInputState.ActiveQuestion);
+            awaitingInputBannerShown = true;
+            liveScreenInitialized = false;
+        }
+
+        await Task.Delay(140, cancellationToken);
+        return (true, awaitingInputBannerShown, liveScreenInitialized);
+    }
+
+    private static bool ProcessLiveRunKeys(AgentStreamState agentStreamState, CancellationTokenSource runCts, ref bool userCanceledRun)
+    {
+        while (!Console.IsInputRedirected && Console.KeyAvailable)
+        {
+            if (!TryReadKey(out ConsoleKeyInfo keyInfo))
+            {
+                break;
+            }
+
+            if (ScreenRouter.IsQuitKey(keyInfo.Key))
+            {
+                userCanceledRun = true;
+                runCts.Cancel();
+                return true;
+            }
+
+            if (keyInfo.Key == ConsoleKey.A)
+            {
+                agentStreamState.CycleSelectedAgent();
+            }
+        }
+
+        return userCanceledRun;
+    }
+
+    private static void RenderLiveRun(
+        List<RuntimeProgressEvent> runEvents,
+        AgentStreamState agentStreamState,
+        char spinner,
+        ref bool liveScreenInitialized)
+    {
+        IEnumerable<(string Id, string Role)> availableAgents = agentStreamState.GetAvailableAgents();
+        RunMonitor.RenderLiveWithAgentView(
+            runEvents,
+            agentStreamState.Events,
+            agentStreamState.SelectedAgentId,
+            availableAgents,
+            spinner,
+            ref liveScreenInitialized);
+    }
+
+    private static async Task StopAgentStreamAsync(CancellationTokenSource agentStreamCts, Task agentStreamTask)
+    {
         if (!agentStreamCts.IsCancellationRequested)
         {
             await agentStreamCts.CancelAsync();
@@ -197,24 +276,24 @@ public sealed class ChatTerminal
         {
             // Expected on run shutdown.
         }
+    }
 
-        RunArtefacts artefacts;
+    private static async Task<RunArtefacts?> TryAwaitRunArtefactsAsync(Task<RunArtefacts> runTask, bool userCanceledRun, CancellationToken cancellationToken)
+    {
         try
         {
-            artefacts = await runTask;
+            return await runTask;
         }
         catch (OperationCanceledException) when (userCanceledRun || cancellationToken.IsCancellationRequested)
         {
             RunResultRenderer.RenderExitMessage();
-            return;
+            return null;
         }
         catch (Exception ex)
         {
             RunResultRenderer.RenderRunFailure(ex);
-            return;
+            return null;
         }
-
-        await ScreenLoopAsync(request, setupSummary, artefacts, runEvents, cancellationToken);
     }
 
     private static async Task ScreenLoopAsync(
@@ -286,4 +365,6 @@ public sealed class ChatTerminal
             return false;
         }
     }
+
+    private sealed record BuildRunRequestResult(RunRequest Request, string SetupSummary);
 }
