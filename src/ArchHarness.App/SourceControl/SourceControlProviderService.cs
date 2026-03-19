@@ -63,7 +63,7 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
             storageMode = existing?.PersonalAccessTokenStorageMode ?? storageMode;
         }
 
-        if (string.IsNullOrWhiteSpace(personalAccessToken))
+        if (string.IsNullOrWhiteSpace(personalAccessToken) && RequiresPersonalAccessTokenForSave(normalized.Provider))
         {
             throw new InvalidOperationException("PersonalAccessToken is required when creating a provider connection.");
         }
@@ -143,6 +143,9 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
             throw new InvalidOperationException("PersonalAccessToken is required.");
         }
     }
+
+    private static bool RequiresPersonalAccessTokenForSave(SourceControlProvider provider)
+        => provider is not SourceControlProvider.GitHub;
 
     private static string? NormalizeText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
