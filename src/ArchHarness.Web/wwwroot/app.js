@@ -510,7 +510,19 @@ function createEmptyGitChangeReviewState() {
   };
 }
 
+function isGitChangeReviewBranchSwitch(currentBranch, targetBranch) {
+  if (!currentBranch || !targetBranch) {
+    return false;
+  }
+
+  return !equalIgnoringCase(currentBranch, targetBranch);
+}
+
 function getGitChangeReviewSummary(currentBranch = "the current branch", targetBranch = "another branch") {
+  if (!isGitChangeReviewBranchSwitch(currentBranch, targetBranch)) {
+    return `Local changes were found on ${currentBranch}. Review them here before continuing.`;
+  }
+
   const sourceLabel = currentBranch;
   const targetLabel = targetBranch;
   return `Switching from ${sourceLabel} to ${targetLabel} is blocked because there are local changes. Review them here, or stash them and continue the switch.`;
@@ -808,21 +820,23 @@ function applyWorkingTreeStatusToGitChangeReview(workingTreeStatus) {
 function renderGitChangeReview() {
   const review = state.gitChangeReview;
   const currentBranch = review.currentBranch || "Current branch";
+  const requiresBranchSwitch = isGitChangeReviewBranchSwitch(review.currentBranch, review.targetBranch);
   let stashButtonLabel = "Stash changes";
   if (review.stashInFlight) {
     stashButtonLabel = "Stashing...";
-  } else if (review.targetBranch) {
+  } else if (requiresBranchSwitch) {
     stashButtonLabel = `Stash and switch to ${review.targetBranch}`;
   }
 
   elements.gitChangesTitle.textContent = `Local changes on ${currentBranch}`;
   elements.gitChangesSummary.textContent = getGitChangeReviewSummary(review.currentBranch, review.targetBranch);
-  elements.gitChangesActionStatus.textContent = review.actionError || (review.stashInFlight ? "Creating stash and continuing the branch switch..." : "");
+  elements.gitChangesActionStatus.textContent = review.actionError || (review.stashInFlight && requiresBranchSwitch ? "Creating stash and continuing the branch switch..." : "");
   elements.gitChangesStashButton.textContent = stashButtonLabel;
+  elements.gitChangesStashButton.classList.toggle("hidden", !requiresBranchSwitch);
   elements.gitChangesStashButton.disabled = review.loading
     || review.stashInFlight
     || !review.projectId
-    || !review.targetBranch
+    || !requiresBranchSwitch
     || !Array.isArray(review.files)
     || review.files.length === 0;
   elements.gitChangeList.replaceChildren();
@@ -969,7 +983,7 @@ async function openGitChangeReview(projectId, targetBranch, branchInfo, options 
   state.gitChangeReview = createEmptyGitChangeReviewState();
   state.gitChangeReview.projectId = projectId;
   state.gitChangeReview.currentBranch = branchInfo?.currentBranch || null;
-  state.gitChangeReview.targetBranch = targetBranch || null;
+  state.gitChangeReview.targetBranch = isGitChangeReviewBranchSwitch(branchInfo?.currentBranch, targetBranch) ? targetBranch || null : null;
   state.gitChangeReview.onCompleted = typeof options.onCompleted === "function" ? options.onCompleted : null;
   state.gitChangeReview.onClosed = typeof options.onClosed === "function" ? options.onClosed : null;
   state.gitChangeReview.loading = true;
@@ -979,6 +993,9 @@ async function openGitChangeReview(projectId, targetBranch, branchInfo, options 
   try {
     const response = await requestJson(`/api/projects/${encodeURIComponent(projectId)}/git/changes`);
     state.gitChangeReview.currentBranch = response?.currentBranch || state.gitChangeReview.currentBranch;
+    if (!isGitChangeReviewBranchSwitch(state.gitChangeReview.currentBranch, state.gitChangeReview.targetBranch)) {
+      state.gitChangeReview.targetBranch = null;
+    }
     state.gitChangeReview.files = Array.isArray(response?.files) ? response.files : [];
     state.gitChangeReview.selectedPath = state.gitChangeReview.files[0]?.path || null;
     state.gitChangeReview.loading = false;
@@ -3187,23 +3204,36 @@ async function prepareReviewPrWorkspace() {
     }
 
     const workingTreeStatus = await requestJson(`/api/projects/${encodeURIComponent(project.projectId)}/git/changes`);
+    const currentBranch = branchInfo?.currentBranch || null;
+    const needsBranchSwitch = !currentBranch || !equalIgnoringCase(currentBranch, branchName);
     if (workingTreeStatus?.hasChanges) {
       reviewPrState.isPreparingWorkspace = false;
       updateReviewPrNavigation();
-      await openGitChangeReview(project.projectId, branchName, branchInfo, {
-        onCompleted: async () => {
-          await finalizeReviewPrWorkspace(project.projectId);
-        },
-        onClosed: () => {
-          openModal("review-pr-modal");
-          showReviewPrStep(2);
-          renderFolderStep();
-        }
-      });
+      await openGitChangeReview(
+        project.projectId,
+        needsBranchSwitch ? branchName : null,
+        branchInfo,
+        needsBranchSwitch
+          ? {
+              onCompleted: async () => {
+                await finalizeReviewPrWorkspace(project.projectId);
+              },
+              onClosed: () => {
+                openModal("review-pr-modal");
+                showReviewPrStep(2);
+                renderFolderStep();
+              }
+            }
+          : {
+              onClosed: () => {
+                openModal("review-pr-modal");
+                void finalizeReviewPrWorkspace(project.projectId);
+              }
+            }
+      );
       return false;
     }
 
-    const currentBranch = branchInfo?.currentBranch || null;
     if (currentBranch && !equalIgnoringCase(currentBranch, branchName)) {
       const confirmMessage = `Switch ${project.displayName} from ${currentBranch} to ${branchName} to review this pull request?`;
       if (!globalThis.confirm(confirmMessage)) {
