@@ -926,6 +926,7 @@ internal static class ProgramHandlers
         ValidateProviderType(settings, errors);
         ValidateDisplayName(settings, errors);
         ValidateOrganization(settings, errors);
+        ValidateGitHubOwnerType(settings, errors);
         ValidateServerUrl(settings, errors, serverUrlKey);
         ValidatePersonalAccessToken(settings, requirePersonalAccessToken, errors);
 
@@ -960,6 +961,19 @@ internal static class ProgramHandlers
         if (string.IsNullOrWhiteSpace(NormalizeText(settings.Organization)))
         {
             AddProviderValidationError(errors, "organization", "Organization is required.");
+        }
+    }
+
+    private static void ValidateGitHubOwnerType(ProviderConnectionSettings settings, IDictionary<string, List<string>> errors)
+    {
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            return;
+        }
+
+        if (!Enum.IsDefined(settings.GitHubOwnerType))
+        {
+            AddProviderValidationError(errors, "gitHubOwnerType", "GitHubOwnerType is required for GitHub providers.");
         }
     }
 

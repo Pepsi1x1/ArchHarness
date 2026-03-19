@@ -167,6 +167,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             DisplayName = persisted.DisplayName,
             ServerUrl = persisted.ServerUrl,
             Organization = persisted.Organization,
+            GitHubOwnerType = persisted.GitHubOwnerType,
             PersonalAccessToken = personalAccessToken,
             PersonalAccessTokenStorageMode = storageMode,
             IsEnabled = persisted.IsEnabled
@@ -202,6 +203,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             settings.DisplayName,
             settings.ServerUrl,
             settings.Organization,
+            settings.GitHubOwnerType,
             encryptedPersonalAccessToken,
             plainTextPersonalAccessToken,
             settings.PersonalAccessTokenStorageMode,
@@ -219,6 +221,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
         string? DisplayName,
         string? ServerUrl,
         string? Organization,
+        GitHubOwnerType GitHubOwnerType,
         string? EncryptedPersonalAccessToken,
         string? PlainTextPersonalAccessToken,
         PersonalAccessTokenStorageMode PersonalAccessTokenStorageMode,

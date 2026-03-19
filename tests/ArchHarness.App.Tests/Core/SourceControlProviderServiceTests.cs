@@ -4,11 +4,15 @@ using System.Text;
 using System.Globalization;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Tests.TestHelpers;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace ArchHarness.App.Tests.Core;
 
 public sealed class SourceControlProviderServiceTests
 {
+  private static GitHubSourceControlService CreateGitHubService(HttpMessageHandler handler)
+    => new GitHubSourceControlService(new HttpClient(handler), NullLogger<GitHubSourceControlService>.Instance);
+
     [Fact]
     public async Task AzureDevOpsServer_GetPullRequestsAsync_ParsesSummaries()
     {
@@ -105,7 +109,7 @@ public sealed class SourceControlProviderServiceTests
             };
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
@@ -512,7 +516,7 @@ public sealed class SourceControlProviderServiceTests
             };
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
@@ -564,7 +568,7 @@ public sealed class SourceControlProviderServiceTests
             };
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
@@ -686,7 +690,7 @@ public sealed class SourceControlProviderServiceTests
             };
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
@@ -720,7 +724,7 @@ public sealed class SourceControlProviderServiceTests
           };
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
           Provider = SourceControlProvider.GitHub,
@@ -738,34 +742,27 @@ public sealed class SourceControlProviderServiceTests
       }
 
       [Fact]
-      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_FallsBackToUserEndpointWhenOwnerIsNotAnOrganization()
+      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_UsesUserEndpointWhenConfigured()
       {
-        List<string> requestUris = new List<string>();
+        string? requestUri = null;
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
-          string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-          requestUris.Add(requestUri);
-
-          return requestUri switch
-          {
-            "https://api.github.com/orgs/octocat" => new HttpResponseMessage(HttpStatusCode.NotFound)
-            {
-              Content = new StringContent("""{ "message": "Not Found" }""", Encoding.UTF8, "application/json")
-            },
-            "https://api.github.com/users/octocat" => new HttpResponseMessage(HttpStatusCode.OK)
+          requestUri = request.RequestUri?.ToString();
+          return requestUri == "https://api.github.com/users/octocat"
+            ? new HttpResponseMessage(HttpStatusCode.OK)
             {
               Content = new StringContent("""{ "login": "octocat" }""", Encoding.UTF8, "application/json")
-            },
-            _ => throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}")
-          };
+            }
+            : throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
           Provider = SourceControlProvider.GitHub,
           DisplayName = "GitHub",
           Organization = "octocat",
+          GitHubOwnerType = GitHubOwnerType.User,
           PersonalAccessToken = null,
           IsEnabled = true
         };
@@ -773,28 +770,23 @@ public sealed class SourceControlProviderServiceTests
         ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
 
         Assert.True(result.Success, result.Message);
-        Assert.Equal(new[]
-        {
-          "https://api.github.com/orgs/octocat",
-          "https://api.github.com/users/octocat"
-        }, requestUris);
+        Assert.Equal("https://api.github.com/users/octocat", requestUri);
       }
 
       [Fact]
-      public async Task GitHub_GetPullRequestsAsync_FallsBackToUserRepositoriesEndpointWhenOwnerIsNotAnOrganization()
+      public async Task GitHub_GetPullRequestsAsync_UsesUserRepositoriesEndpointWhenConfigured()
       {
-        List<string> requestUris = new List<string>();
+        string? repositoryRequestUri = null;
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
           string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-          requestUris.Add(requestUri);
+          if (requestUri.Contains("/repos?type=all&per_page=100&page=1", StringComparison.Ordinal))
+          {
+            repositoryRequestUri = requestUri;
+          }
 
           return requestUri switch
           {
-            "https://api.github.com/orgs/octocat/repos?type=all&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.NotFound)
-            {
-              Content = new StringContent("""{ "message": "Not Found" }""", Encoding.UTF8, "application/json")
-            },
             "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
             {
               Content = new StringContent("""
@@ -831,12 +823,13 @@ public sealed class SourceControlProviderServiceTests
           };
         });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
           Provider = SourceControlProvider.GitHub,
           DisplayName = "GitHub",
           Organization = "octocat",
+          GitHubOwnerType = GitHubOwnerType.User,
           PersonalAccessToken = null,
           IsEnabled = true
         };
@@ -847,9 +840,58 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("21", pullRequest.Id);
         Assert.Equal("octocat", pullRequest.ProjectName);
         Assert.Equal("archharness", pullRequest.RepositoryName);
-        Assert.Contains("https://api.github.com/orgs/octocat/repos?type=all&per_page=100&page=1", requestUris);
-        Assert.Contains("https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1", requestUris);
+        Assert.Equal("https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1", repositoryRequestUri);
       }
+
+    [Fact]
+    public async Task GitHub_GetPullRequestsAsync_DoesNotSendAuthorizationHeaderWhenPersonalAccessTokenIsMissing()
+    {
+        AuthenticationHeaderValue? authorization = null;
+        StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
+        {
+            authorization = request.Headers.Authorization;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    [
+                      {
+                        "number": 21,
+                        "title": "Public repo review",
+                        "user": {
+                          "login": "octocat"
+                        },
+                        "head": {
+                          "ref": "feature/review-pr"
+                        },
+                        "base": {
+                          "ref": "main"
+                        },
+                        "state": "open",
+                        "draft": false,
+                        "html_url": "https://github.com/octo-org/archharness/pull/21",
+                        "created_at": "2026-03-18T09:00:00Z"
+                      }
+                    ]
+                    """, Encoding.UTF8, "application/json")
+            };
+        });
+
+        GitHubSourceControlService service = CreateGitHubService(handler);
+        ProviderConnectionSettings settings = new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = null,
+            IsEnabled = true
+        };
+
+        IReadOnlyList<PullRequestSummary> pullRequests = await service.GetPullRequestsAsync(settings, null, "archharness", CancellationToken.None);
+
+        PullRequestSummary pullRequest = Assert.Single(pullRequests);
+        Assert.Equal("21", pullRequest.Id);
+        Assert.Null(authorization);
+    }
 
     [Fact]
     public async Task GitHub_TestConnectionAsync_RedactsSensitiveProviderErrors()
@@ -860,7 +902,7 @@ public sealed class SourceControlProviderServiceTests
                 Content = new StringContent("""{ "message": "token github-pat is invalid" }""", Encoding.UTF8, "application/json")
             });
 
-        GitHubSourceControlService service = new GitHubSourceControlService(new HttpClient(handler));
+        GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,

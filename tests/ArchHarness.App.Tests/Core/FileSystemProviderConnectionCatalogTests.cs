@@ -55,6 +55,25 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     }
 
     [Fact]
+    public void SaveProvider_PersistsGitHubOwnerType()
+    {
+        FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
+
+        catalog.SaveProvider(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub User",
+            Organization = "octocat",
+            GitHubOwnerType = GitHubOwnerType.User,
+            PersonalAccessToken = null,
+            IsEnabled = true
+        });
+
+        ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
+        Assert.Equal(GitHubOwnerType.User, persisted.GitHubOwnerType);
+    }
+
+    [Fact]
     public void SaveProvider_ThrowsWhenProtectedStorageIsUnavailable()
     {
         FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(

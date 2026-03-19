@@ -26,6 +26,11 @@ public sealed record ProviderConnectionSettings
     public string? Organization { get; init; }
 
     /// <summary>
+    /// Gets how a GitHub owner should be resolved when applicable.
+    /// </summary>
+    public GitHubOwnerType GitHubOwnerType { get; init; } = GitHubOwnerType.Organization;
+
+    /// <summary>
     /// Gets the provider personal access token.
     /// </summary>
     public string? PersonalAccessToken { get; init; }

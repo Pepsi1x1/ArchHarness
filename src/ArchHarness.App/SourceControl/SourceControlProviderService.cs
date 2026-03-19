@@ -59,8 +59,15 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
         PersonalAccessTokenStorageMode storageMode = normalized.PersonalAccessTokenStorageMode;
         if (string.IsNullOrWhiteSpace(personalAccessToken))
         {
-            personalAccessToken = existing?.PersonalAccessToken;
-            storageMode = existing?.PersonalAccessTokenStorageMode ?? storageMode;
+            if (normalized.Provider == SourceControlProvider.GitHub)
+            {
+                personalAccessToken = null;
+            }
+            else
+            {
+                personalAccessToken = existing?.PersonalAccessToken;
+                storageMode = existing?.PersonalAccessTokenStorageMode ?? storageMode;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(personalAccessToken) && RequiresPersonalAccessTokenForSave(normalized.Provider))
@@ -123,6 +130,11 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
         if (string.IsNullOrWhiteSpace(settings.Organization))
         {
             throw new InvalidOperationException("Organization is required.");
+        }
+
+        if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubOwnerType))
+        {
+            throw new InvalidOperationException("GitHubOwnerType is required for GitHub providers.");
         }
 
         if (settings.Provider == SourceControlProvider.AzureDevOpsServer)

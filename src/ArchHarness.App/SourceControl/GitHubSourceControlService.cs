@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 
 namespace ArchHarness.App.SourceControl;
 
@@ -21,14 +22,16 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         "(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_=\\-.]+",
         RegexOptions.Compiled);
     private readonly HttpClient _httpClient;
+    private readonly ILogger<GitHubSourceControlService> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GitHubSourceControlService"/> class.
     /// </summary>
     /// <param name="httpClient">The HTTP client used for GitHub API calls.</param>
-    public GitHubSourceControlService(HttpClient httpClient)
+    public GitHubSourceControlService(HttpClient httpClient, ILogger<GitHubSourceControlService> logger)
     {
         this._httpClient = httpClient;
+        this._logger = logger;
     }
 
     /// <inheritdoc />
@@ -44,7 +47,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
             bool hasPersonalAccessToken = !string.IsNullOrWhiteSpace(settings.PersonalAccessToken);
             using HttpResponseMessage response = hasPersonalAccessToken
                 ? await SendRequestAsync(BuildUserEndpoint(), settings.PersonalAccessToken, TokenAuthorizationScheme, cancellationToken)
-                : await SendOwnerObjectRequestWithFallbackAsync(settings, settings.PersonalAccessToken, TokenAuthorizationScheme, cancellationToken);
+                : await SendRequestAsync(BuildOwnerEndpoint(settings), settings.PersonalAccessToken, TokenAuthorizationScheme, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return new ConnectionTestResult(false, await BuildFailureMessageAsync(response, cancellationToken));
@@ -245,6 +248,18 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
             throw new InvalidOperationException(InvalidProviderMessage);
         }
 
+        return settings.GitHubOwnerType == GitHubOwnerType.User
+            ? BuildUserRepositoriesEndpoint(settings)
+            : BuildOrganizationRepositoriesEndpoint(settings);
+    }
+
+    private static string BuildOrganizationRepositoriesEndpoint(ProviderConnectionSettings settings)
+    {
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            throw new InvalidOperationException(InvalidProviderMessage);
+        }
+
         string owner = RequireValue(settings.Organization, OrganizationFieldName);
         string escapedOwner = Uri.EscapeDataString(owner);
         return $"https://api.github.com/orgs/{escapedOwner}/repos";
@@ -261,6 +276,11 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         string escapedOwner = Uri.EscapeDataString(owner);
         return $"https://api.github.com/users/{escapedOwner}/repos";
     }
+
+    private static string BuildOwnerEndpoint(ProviderConnectionSettings settings)
+        => settings.GitHubOwnerType == GitHubOwnerType.User
+            ? BuildUserOwnerEndpoint(settings)
+            : BuildOrganizationEndpoint(settings);
 
     private static string BuildOrganizationEndpoint(ProviderConnectionSettings settings)
     {
@@ -464,7 +484,8 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         bool hasMorePages = true;
         while (hasMorePages)
         {
-            JsonDocument document = await SendRepositoryListRequestWithFallbackAsync(settings, page, cancellationToken);
+            string requestUri = $"{BuildRepositoriesEndpoint(settings)}?type=all&per_page={GitHubPageSize}&page={page}";
+            JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
                 int repositoryCount = 0;
@@ -487,46 +508,13 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         return repositories;
     }
 
-    private async Task<JsonDocument> SendRepositoryListRequestWithFallbackAsync(
-        ProviderConnectionSettings settings,
-        int page,
-        CancellationToken cancellationToken)
-    {
-        string query = $"type=all&per_page={GitHubPageSize}&page={page}";
-        string organizationRequestUri = $"{BuildRepositoriesEndpoint(settings)}?{query}";
-        using HttpResponseMessage response = await SendRequestAsync(organizationRequestUri, settings.PersonalAccessToken, BearerAuthorizationScheme, cancellationToken);
-        if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
-        {
-            return await ParseArrayResponseAsync(response, "pull request data retrieval", cancellationToken);
-        }
-
-        string userRequestUri = $"{BuildUserRepositoriesEndpoint(settings)}?{query}";
-        using HttpResponseMessage fallbackResponse = await SendRequestAsync(userRequestUri, settings.PersonalAccessToken, BearerAuthorizationScheme, cancellationToken);
-        return await ParseArrayResponseAsync(fallbackResponse, "pull request data retrieval", cancellationToken);
-    }
-
-    private async Task<HttpResponseMessage> SendOwnerObjectRequestWithFallbackAsync(
-        ProviderConnectionSettings settings,
-        string? personalAccessToken,
-        string authorizationScheme,
-        CancellationToken cancellationToken)
-    {
-        HttpResponseMessage response = await SendRequestAsync(BuildOrganizationEndpoint(settings), personalAccessToken, authorizationScheme, cancellationToken);
-        if (response.StatusCode != System.Net.HttpStatusCode.NotFound)
-        {
-            return response;
-        }
-
-        response.Dispose();
-        return await SendRequestAsync(BuildUserOwnerEndpoint(settings), personalAccessToken, authorizationScheme, cancellationToken);
-    }
-
     private async Task<HttpResponseMessage> SendRequestAsync(
         string requestUri,
         string? personalAccessToken,
         string authorizationScheme,
         CancellationToken cancellationToken)
     {
+        _logger.LogDebug("Sending GitHub API request to {RequestUri}.", requestUri);
         HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, personalAccessToken, authorizationScheme);
         try
         {

@@ -219,6 +219,8 @@ const elements = {
   providerOrgWrap: document.getElementById("pf-org-wrap"),
   providerOrgLabel: document.getElementById("pf-org-label"),
   providerOrg: document.getElementById("pf-org"),
+  providerGitHubOwnerTypeWrap: document.getElementById("pf-github-owner-type-wrap"),
+  providerGitHubOwnerType: document.getElementById("pf-github-owner-type"),
   providerPatWrap: document.getElementById("pf-pat-wrap"),
   providerPat: document.getElementById("pf-pat"),
   providerPatHint: document.getElementById("pf-pat-hint"),
@@ -2479,12 +2481,13 @@ const PROVIDER_META = {
     label: "GitHub",
     badgeClass: "provider-badge-github",
     radioValue: "github",
-    visibleFields: ["organization", "personalAccessToken"],
+    visibleFields: ["organization", "gitHubOwnerType", "personalAccessToken"],
     fieldLabels: {
       organization: "Owner / Organization"
     },
     formValueFields: {
-      organization: "organization"
+      organization: "organization",
+      gitHubOwnerType: "gitHubOwnerType"
     },
     patHint: "Optional for public repos; required for private repos.",
     orgRequiredMessage: "Owner or organization is required for GitHub."
@@ -2505,6 +2508,11 @@ const PROVIDER_FORM_FIELDS = {
     wrapper: elements.providerOrgWrap,
     labelElement: elements.providerOrgLabel,
     defaultLabel: "Organization"
+  },
+  gitHubOwnerType: {
+    input: elements.providerGitHubOwnerType,
+    wrapper: elements.providerGitHubOwnerTypeWrap,
+    defaultValue: "0"
   },
   personalAccessToken: {
     input: elements.providerPat,
@@ -2562,6 +2570,9 @@ function normalizeProviderSummary(provider) {
     displayName: normalizeProviderField(provider.displayName) || null,
     serverUrl: normalizeProviderField(provider.serverUrl) || null,
     organization: normalizeProviderField(provider.organization) || null,
+    gitHubOwnerType: Number.isInteger(provider.gitHubOwnerType)
+      ? Number(provider.gitHubOwnerType)
+      : 0,
     personalAccessToken: null,
     personalAccessTokenStorageMode: Number.isInteger(provider.personalAccessTokenStorageMode)
       ? Number(provider.personalAccessTokenStorageMode)
@@ -2620,9 +2631,15 @@ function buildProviderPatHint(providerMeta) {
 
   const baseHint = providerMeta.patHint || "Requires Code (Read) permission.";
 
-  return state.editingProviderName
-    ? `${baseHint} Leave blank to keep the current token.`
-    : baseHint;
+  if (!state.editingProviderName) {
+    return baseHint;
+  }
+
+  if (providerMeta.numericValue === 2) {
+    return `${baseHint} Leave blank to save without a token.`;
+  }
+
+  return `${baseHint} Leave blank to keep the current token.`;
 }
 
 function validateProviderServerUrl(serverUrl) {
@@ -2724,7 +2741,7 @@ function openProviderSetup(provider = null) {
   elements.providerTypeRadios.forEach(radio => { radio.checked = false; });
   elements.providerDisplayName.value = "";
   Object.values(PROVIDER_FORM_FIELDS).forEach(field => {
-    field.input.value = "";
+    field.input.value = field.defaultValue || "";
     field.wrapper.classList.add("hidden");
     if (field.labelElement) {
       field.labelElement.textContent = field.defaultLabel || "";
@@ -2786,6 +2803,68 @@ function onProviderSetupTypeChange() {
   setProviderStatus();
 }
 
+function getProviderFieldValues(providerMeta) {
+  return Object.fromEntries(
+    Object.entries(providerMeta.formValueFields).map(([fieldKey, providerKey]) => [
+      providerKey,
+      normalizeProviderField(PROVIDER_FORM_FIELDS[fieldKey].input.value)
+    ])
+  );
+}
+
+function syncProviderFieldValues(providerMeta, normalizedFieldValues) {
+  Object.entries(providerMeta.formValueFields).forEach(([fieldKey, providerKey]) => {
+    PROVIDER_FORM_FIELDS[fieldKey].input.value = normalizedFieldValues[providerKey]
+      || PROVIDER_FORM_FIELDS[fieldKey].defaultValue
+      || "";
+  });
+}
+
+function validateGitHubOwnerType(providerMeta, gitHubOwnerType) {
+  if (providerMeta.numericValue !== 2) {
+    return null;
+  }
+
+  return Number.isInteger(gitHubOwnerType)
+    ? null
+    : "Select whether the GitHub owner is an organization or a user.";
+}
+
+function validateProviderPayloadInputs(providerMeta, values) {
+  if (!values.displayName) {
+    return "Display name is required.";
+  }
+
+  if (/[\\/]/.test(values.displayName)) {
+    return "Display name cannot contain path separator characters.";
+  }
+
+  if (!values.organization) {
+    return providerMeta.orgRequiredMessage;
+  }
+
+  if (providerMeta.visibleFields.includes("serverUrl")) {
+    if (!values.serverUrl) {
+      return "Server URL is required for Azure DevOps Server.";
+    }
+
+    const serverUrlError = validateProviderServerUrl(values.serverUrl);
+    if (serverUrlError) {
+      return serverUrlError;
+    }
+  }
+
+  if (values.requirePersonalAccessToken && !values.personalAccessToken) {
+    return "Enter a personal access token to test the connection.";
+  }
+
+  if (values.personalAccessToken && looksLikeProviderUrl(values.personalAccessToken)) {
+    return "Personal access token looks like a URL. Check browser autofill and re-enter the token.";
+  }
+
+  return validateGitHubOwnerType(providerMeta, values.gitHubOwnerType);
+}
+
 function collectProviderPayload(options = {}) {
   const personalAccessTokenStorageMode = Number.isInteger(options.personalAccessTokenStorageMode)
     ? options.personalAccessTokenStorageMode
@@ -2800,50 +2879,25 @@ function collectProviderPayload(options = {}) {
 
   const displayName = normalizeProviderField(elements.providerDisplayName.value);
   const personalAccessToken = normalizeProviderToken(elements.providerPat.value);
-  const normalizedFieldValues = Object.fromEntries(
-    Object.entries(providerMeta.formValueFields).map(([fieldKey, providerKey]) => [
-      providerKey,
-      normalizeProviderField(PROVIDER_FORM_FIELDS[fieldKey].input.value)
-    ])
-  );
+  const normalizedFieldValues = getProviderFieldValues(providerMeta);
   const organization = normalizedFieldValues.organization || "";
   const serverUrl = normalizedFieldValues.serverUrl || null;
+  const gitHubOwnerType = Number.parseInt(normalizedFieldValues.gitHubOwnerType || "0", 10);
 
   elements.providerDisplayName.value = displayName;
   elements.providerPat.value = personalAccessToken;
-  Object.entries(providerMeta.formValueFields).forEach(([fieldKey, providerKey]) => {
-    PROVIDER_FORM_FIELDS[fieldKey].input.value = normalizedFieldValues[providerKey] || "";
+  syncProviderFieldValues(providerMeta, normalizedFieldValues);
+
+  const validationError = validateProviderPayloadInputs(providerMeta, {
+    displayName,
+    organization,
+    serverUrl,
+    personalAccessToken,
+    requirePersonalAccessToken,
+    gitHubOwnerType
   });
-
-  if (!displayName) {
-    return { payload: null, error: "Display name is required." };
-  }
-
-  if (/[\\/]/.test(displayName)) {
-    return { payload: null, error: "Display name cannot contain path separator characters." };
-  }
-
-  if (!organization) {
-    return { payload: null, error: providerMeta.orgRequiredMessage };
-  }
-
-  if (providerMeta.visibleFields.includes("serverUrl")) {
-    if (!serverUrl) {
-      return { payload: null, error: "Server URL is required for Azure DevOps Server." };
-    }
-
-    const serverUrlError = validateProviderServerUrl(serverUrl);
-    if (serverUrlError) {
-      return { payload: null, error: serverUrlError };
-    }
-  }
-
-  if (requirePersonalAccessToken && !personalAccessToken) {
-    return { payload: null, error: "Enter a personal access token to test the connection." };
-  }
-
-  if (personalAccessToken && looksLikeProviderUrl(personalAccessToken)) {
-    return { payload: null, error: "Personal access token looks like a URL. Check browser autofill and re-enter the token." };
+  if (validationError) {
+    return { payload: null, error: validationError };
   }
 
   const payload = {
@@ -2854,7 +2908,8 @@ function collectProviderPayload(options = {}) {
     isEnabled: true,
     serverUrl,
     organizationUrl: null,
-    organization
+    organization,
+    gitHubOwnerType: providerMeta.numericValue === 2 ? gitHubOwnerType : 0
   };
 
   return { payload, error: null };
@@ -2944,6 +2999,7 @@ async function saveProvider() {
 
   if (state.editingProviderName
     && state.editingProviderName !== payload.displayName
+    && payload.provider !== 2
     && !payload.personalAccessToken) {
     setProviderStatus("Enter a personal access token when renaming a provider so the saved credential can be preserved.", "error");
     return;

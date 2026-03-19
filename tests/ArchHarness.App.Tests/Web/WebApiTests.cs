@@ -542,7 +542,7 @@ public sealed class WebApiTests
     }
 
         [Fact]
-        public async Task ProviderPullRequestsEndpoint_FallsBackToGitHubUserRepositoriesWhenOwnerIsNotAnOrganization()
+        public async Task ProviderPullRequestsEndpoint_UsesGitHubUserRepositoriesWhenConfigured()
         {
                 using TestWebApplicationFactory factory = new TestWebApplicationFactory();
                 factory.SeedProviderConnections(new ProviderConnectionSettings
@@ -550,20 +550,13 @@ public sealed class WebApiTests
                         Provider = SourceControlProvider.GitHub,
                         DisplayName = "GitHub",
                         Organization = "octocat",
+                GitHubOwnerType = GitHubOwnerType.User,
                         PersonalAccessToken = null,
                         IsEnabled = true
                 });
                 factory.ConfigureGitHubResponse((request, _) =>
                 {
                         string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        if (requestUri == "https://api.github.com/orgs/octocat/repos?type=all&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.NotFound)
-                                {
-                                        Content = new StringContent("""{ "message": "Not Found" }""", Encoding.UTF8, "application/json")
-                                };
-                        }
-
                         if (requestUri == "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1")
                         {
                                 return new HttpResponseMessage(HttpStatusCode.OK)
@@ -617,6 +610,87 @@ public sealed class WebApiTests
                 Assert.Equal("21", pullRequest.GetProperty("id").GetString());
                 Assert.Equal("octocat", pullRequest.GetProperty("projectName").GetString());
                 Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
+        }
+
+        [Fact]
+        public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenSavedBlank()
+        {
+                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+                factory.SeedProviderConnections(new ProviderConnectionSettings
+                {
+                        Provider = SourceControlProvider.GitHub,
+                        DisplayName = "GitHub",
+                        Organization = "octo-org",
+                        PersonalAccessToken = "github-pat",
+                        IsEnabled = true
+                });
+                factory.ConfigureGitHubResponse((request, _) =>
+                {
+                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+                        Assert.Null(request.Headers.Authorization);
+
+                        if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
+                        {
+                                return new HttpResponseMessage(HttpStatusCode.OK)
+                                {
+                                        Content = new StringContent("""
+                                                [
+                                                    { "name": "archharness" }
+                                                ]
+                                                """, Encoding.UTF8, "application/json")
+                                };
+                        }
+
+                        if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
+                        {
+                                return new HttpResponseMessage(HttpStatusCode.OK)
+                                {
+                                        Content = new StringContent("""
+                                                [
+                                                    {
+                                                        "number": 21,
+                                                        "title": "Public repo review",
+                                                        "user": {
+                                                            "login": "octocat"
+                                                        },
+                                                        "head": {
+                                                            "ref": "feature/review-pr"
+                                                        },
+                                                        "base": {
+                                                            "ref": "main"
+                                                        },
+                                                        "state": "open",
+                                                        "draft": false,
+                                                        "html_url": "https://github.com/octo-org/archharness/pull/21",
+                                                        "created_at": "2026-03-18T09:00:00Z"
+                                                    }
+                                                ]
+                                                """, Encoding.UTF8, "application/json")
+                                };
+                        }
+
+                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+                });
+                using HttpClient client = factory.CreateClient();
+
+                HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
+                {
+                        provider = (int)SourceControlProvider.GitHub,
+                        displayName = "GitHub",
+                        serverUrl = (string?)null,
+                        organization = "octo-org",
+                        personalAccessToken = (string?)null,
+                        isEnabled = true
+                });
+
+                Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+
+                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
+
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+                Assert.Equal("21", pullRequest.GetProperty("id").GetString());
         }
 
         [Fact]
