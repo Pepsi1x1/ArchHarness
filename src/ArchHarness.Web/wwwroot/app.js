@@ -198,6 +198,7 @@ const elements = {
   gitDiffPreview: document.getElementById("git-diff-preview"),
   gitChangesActionStatus: document.getElementById("git-changes-action-status"),
   gitChangesStashButton: document.getElementById("git-changes-stash-button"),
+  gitChangesCloseButton: document.getElementById("git-changes-close-button"),
   projectTemplate: document.getElementById("project-template"),
   runTemplate: document.getElementById("run-template"),
   artifactTemplate: document.getElementById("artifact-template"),
@@ -832,6 +833,7 @@ function renderGitChangeReview() {
   elements.gitChangesSummary.textContent = getGitChangeReviewSummary(review.currentBranch, review.targetBranch);
   elements.gitChangesActionStatus.textContent = review.actionError || (review.stashInFlight && requiresBranchSwitch ? "Creating stash and continuing the branch switch..." : "");
   elements.gitChangesStashButton.textContent = stashButtonLabel;
+  elements.gitChangesCloseButton.textContent = requiresBranchSwitch ? "Close" : "Next";
   elements.gitChangesStashButton.classList.toggle("hidden", !requiresBranchSwitch);
   elements.gitChangesStashButton.disabled = review.loading
     || review.stashInFlight
