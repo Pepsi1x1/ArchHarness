@@ -907,6 +907,33 @@ public sealed class WebApiTests
     }
 
     [Fact]
+    public async Task ProvidersEndpoint_AllowsGitHubProviderWithoutPersonalAccessToken()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/providers", new
+        {
+            provider = (int)SourceControlProvider.GitHub,
+            displayName = "GitHub Public",
+            serverUrl = (string?)null,
+            organization = "octo-org",
+            personalAccessToken = (string?)null,
+            isEnabled = true
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        JsonDocument savedDocument = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("GitHub Public", savedDocument.RootElement.GetProperty("displayName").GetString());
+        Assert.Equal(JsonValueKind.Null, savedDocument.RootElement.GetProperty("personalAccessToken").ValueKind);
+
+        JsonDocument providersDocument = JsonDocument.Parse(await client.GetStringAsync("/api/providers"));
+        JsonElement provider = Assert.Single(providersDocument.RootElement.EnumerateArray());
+        Assert.Equal("GitHub Public", provider.GetProperty("displayName").GetString());
+        Assert.Equal(JsonValueKind.Null, provider.GetProperty("personalAccessToken").ValueKind);
+    }
+
+    [Fact]
     public async Task ProvidersTestEndpoint_Succeeds_WhenProjectFieldIsAbsent()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
