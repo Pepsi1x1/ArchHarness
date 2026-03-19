@@ -12,6 +12,8 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
     private const string FailureCodeDirtyWorktree = "dirty-worktree";
     private const string FailureCodeCheckoutConflict = "checkout-conflict";
     private const string FailureCodeInvalidRequest = "invalid-request";
+    private const string FailureCodeNoChanges = "no-changes";
+    private const string FailureCodeStashFailed = "stash-failed";
     private const string NotGitRepositoryMessage = "The selected project is not a Git repository.";
 
     /// <inheritdoc />
@@ -240,6 +242,59 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
         }
     }
 
+    /// <inheritdoc />
+    public GitStashChangesResult StashWorkingTreeChanges(string workspacePath, string? message)
+    {
+        try
+        {
+            using Repository repository = OpenRepository(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = BuildWorkingTreeStatus(repository);
+            if (!workingTreeStatus.HasChanges)
+            {
+                GitRepositoryBranchInfo branchInfo = BuildBranchInfo(repository);
+                return new GitStashChangesResult(false, FailureCodeNoChanges, "There are no local changes to stash.", branchInfo, workingTreeStatus);
+            }
+
+            Signature signature = BuildStashSignature(repository);
+            string stashMessage = string.IsNullOrWhiteSpace(message)
+                ? $"ArchHarness stash before switching branches from {repository.Head?.FriendlyName ?? "current branch"}"
+                : message.Trim();
+
+            repository.Stashes.Add(signature, stashMessage, StashModifiers.IncludeUntracked);
+
+            GitRepositoryBranchInfo updatedBranchInfo = BuildBranchInfo(repository);
+            GitWorkingTreeStatus updatedWorkingTreeStatus = BuildWorkingTreeStatus(repository);
+            return new GitStashChangesResult(true, null, null, updatedBranchInfo, updatedWorkingTreeStatus);
+        }
+        catch (RepositoryNotFoundException)
+        {
+            return new GitStashChangesResult(
+                false,
+                FailureCodeNotGitRepository,
+                NotGitRepositoryMessage,
+                new GitRepositoryBranchInfo(false, null, Array.Empty<string>()),
+                new GitWorkingTreeStatus(false, null, false, Array.Empty<GitWorkingTreeFileChange>()));
+        }
+        catch (LibGit2SharpException ex)
+        {
+            GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
+            return new GitStashChangesResult(false, FailureCodeStashFailed, ex.Message, branchInfo, workingTreeStatus);
+        }
+        catch (IOException)
+        {
+            GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
+            return new GitStashChangesResult(false, FailureCodeStashFailed, "Git could not create the stash because the repository files are not currently accessible.", branchInfo, workingTreeStatus);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
+            return new GitStashChangesResult(false, FailureCodeStashFailed, "Git could not create the stash because the repository files are not currently accessible.", branchInfo, workingTreeStatus);
+        }
+    }
+
     private static GitRepositoryBranchInfo BuildBranchInfo(Repository repository)
     {
         string? currentBranch = repository.Head?.FriendlyName;
@@ -354,5 +409,31 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
     {
         return state.HasFlag(FileStatus.NewInWorkdir)
             && !state.HasFlag(FileStatus.NewInIndex);
+    }
+
+    private static Signature BuildStashSignature(Repository repository)
+    {
+        string? configuredName = repository.Config.Get<string>("user.name")?.Value;
+        string? configuredEmail = repository.Config.Get<string>("user.email")?.Value;
+
+        string name = string.IsNullOrWhiteSpace(configuredName)
+            ? Environment.UserName
+            : configuredName.Trim();
+        string email = string.IsNullOrWhiteSpace(configuredEmail)
+            ? $"{NormalizeEmailLocalPart(name)}@local.archharness"
+            : configuredEmail.Trim();
+
+        return new Signature(name, email, DateTimeOffset.Now);
+    }
+
+    private static string NormalizeEmailLocalPart(string value)
+    {
+        string normalized = string.Concat(value
+            .Trim()
+            .ToLowerInvariant()
+            .Select(character => char.IsLetterOrDigit(character) ? character : '-'))
+            .Trim('-');
+
+        return string.IsNullOrWhiteSpace(normalized) ? "archharness" : normalized;
     }
 }

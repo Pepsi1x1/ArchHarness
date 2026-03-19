@@ -221,6 +221,56 @@ app.MapGet("/api/projects/{projectId}/git/diff", (string projectId, string path,
     });
 });
 
+app.MapPost("/api/projects/{projectId}/git/stash", (string projectId, StashProjectChangesRequest request, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
+{
+    PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
+    if (project is null)
+    {
+        return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
+    }
+
+    GitStashChangesResult stashResult = gitRepositoryInfoService.StashWorkingTreeChanges(project.WorkspacePath, request.Message);
+    object responsePayload = new
+    {
+        projectId = project.ProjectId,
+        success = stashResult.Succeeded,
+        error = stashResult.ErrorMessage,
+        failureCode = stashResult.FailureCode,
+        branchInfo = new
+        {
+            isGitRepository = stashResult.BranchInfo.IsGitRepository,
+            currentBranch = stashResult.BranchInfo.CurrentBranch,
+            branches = stashResult.BranchInfo.Branches
+        },
+        workingTreeStatus = new
+        {
+            isGitRepository = stashResult.WorkingTreeStatus.IsGitRepository,
+            currentBranch = stashResult.WorkingTreeStatus.CurrentBranch,
+            hasChanges = stashResult.WorkingTreeStatus.HasChanges,
+            files = stashResult.WorkingTreeStatus.Files.Select(file => new
+            {
+                path = file.Path,
+                status = file.Status,
+                previousPath = file.PreviousPath,
+                isStaged = file.IsStaged,
+                isUntracked = file.IsUntracked
+            })
+        }
+    };
+
+    if (!stashResult.Succeeded)
+    {
+        return stashResult.FailureCode switch
+        {
+            "not-git-repository" => Results.BadRequest(responsePayload),
+            "no-changes" => Results.Conflict(responsePayload),
+            _ => Results.Conflict(responsePayload)
+        };
+    }
+
+    return Results.Ok(responsePayload);
+});
+
 app.MapPost("/api/projects/{projectId}/branch", (string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IGitRepositoryInfoService gitRepositoryInfoService) =>
 {
     PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);

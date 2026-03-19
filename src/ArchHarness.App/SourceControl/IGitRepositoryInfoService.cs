@@ -24,6 +24,11 @@ public interface IGitRepositoryInfoService
     /// Returns the Git diff for a changed file in the working tree.
     /// </summary>
     GitWorkingTreeDiffResult GetWorkingTreeDiff(string workspacePath, string relativePath);
+
+    /// <summary>
+    /// Creates a stash entry for the current working tree.
+    /// </summary>
+    GitStashChangesResult StashWorkingTreeChanges(string workspacePath, string? message);
 }
 
 /// <summary>
@@ -71,3 +76,13 @@ public sealed record GitWorkingTreeFileChange(string Path, string Status, string
 /// <param name="DiffText">Unified diff text for the file, when available.</param>
 /// <param name="ErrorMessage">Human-readable error when no diff is available.</param>
 public sealed record GitWorkingTreeDiffResult(bool IsGitRepository, bool HasDiff, string? Path, string? DiffText, string? ErrorMessage);
+
+/// <summary>
+/// Describes the outcome of a stash request.
+/// </summary>
+/// <param name="Succeeded">Whether the stash was created successfully.</param>
+/// <param name="FailureCode">Machine-readable failure code when stashing fails.</param>
+/// <param name="ErrorMessage">Human-readable error when stashing fails.</param>
+/// <param name="BranchInfo">Current branch information after the stash attempt.</param>
+/// <param name="WorkingTreeStatus">Working tree status after the stash attempt.</param>
+public sealed record GitStashChangesResult(bool Succeeded, string? FailureCode, string? ErrorMessage, GitRepositoryBranchInfo BranchInfo, GitWorkingTreeStatus WorkingTreeStatus);

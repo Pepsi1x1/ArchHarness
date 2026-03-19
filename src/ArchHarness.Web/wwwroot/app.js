@@ -192,6 +192,8 @@ const elements = {
   gitChangeList: document.getElementById("git-change-list"),
   gitDiffMeta: document.getElementById("git-diff-meta"),
   gitDiffPreview: document.getElementById("git-diff-preview"),
+  gitChangesActionStatus: document.getElementById("git-changes-action-status"),
+  gitChangesStashButton: document.getElementById("git-changes-stash-button"),
   projectTemplate: document.getElementById("project-template"),
   runTemplate: document.getElementById("run-template"),
   artifactTemplate: document.getElementById("artifact-template"),
@@ -496,25 +498,80 @@ function createEmptyGitChangeReviewState() {
     diffByPath: {},
     loading: false,
     diffLoadingPath: null,
-    error: ""
+    error: "",
+    stashInFlight: false,
+    actionError: ""
   };
 }
 
 function getGitChangeReviewSummary(currentBranch = "the current branch", targetBranch = "another branch") {
   const sourceLabel = currentBranch;
   const targetLabel = targetBranch;
-  return `Switching from ${sourceLabel} to ${targetLabel} is blocked because there are local changes. Review them here. Stash support is coming next.`;
+  return `Switching from ${sourceLabel} to ${targetLabel} is blocked because there are local changes. Review them here, or stash them and continue the switch.`;
 }
 
 function getGitChangeStatusClass(status) {
   return String(status || "modified").toLowerCase().replaceAll(/[^a-z0-9]+/g, "-");
 }
 
+function toProjectBranchInfo(branchInfo) {
+  if (!branchInfo) {
+    return null;
+  }
+
+  return {
+    isGitRepository: !!branchInfo.isGitRepository,
+    currentBranch: branchInfo.currentBranch || null,
+    branches: Array.isArray(branchInfo.branches) ? branchInfo.branches : []
+  };
+}
+
+function applyProjectBranchInfo(projectId, branchInfo) {
+  if (!projectId || !branchInfo) {
+    return;
+  }
+
+  state.projectBranchInfoById[projectId] = toProjectBranchInfo(branchInfo);
+}
+
+function applyWorkingTreeStatusToGitChangeReview(workingTreeStatus) {
+  if (!workingTreeStatus) {
+    return;
+  }
+
+  state.gitChangeReview.currentBranch = workingTreeStatus.currentBranch || state.gitChangeReview.currentBranch;
+  state.gitChangeReview.files = Array.isArray(workingTreeStatus.files) ? workingTreeStatus.files : [];
+
+  const stillSelected = state.gitChangeReview.files.some(file => file.path === state.gitChangeReview.selectedPath);
+  if (!stillSelected) {
+    state.gitChangeReview.selectedPath = state.gitChangeReview.files[0]?.path || null;
+  }
+
+  state.gitChangeReview.diffByPath = Object.fromEntries(
+    Object.entries(state.gitChangeReview.diffByPath).filter(([path]) => state.gitChangeReview.files.some(file => file.path === path))
+  );
+}
+
 function renderGitChangeReview() {
   const review = state.gitChangeReview;
   const currentBranch = review.currentBranch || "Current branch";
+  let stashButtonLabel = "Stash changes";
+  if (review.stashInFlight) {
+    stashButtonLabel = "Stashing...";
+  } else if (review.targetBranch) {
+    stashButtonLabel = `Stash and switch to ${review.targetBranch}`;
+  }
+
   elements.gitChangesTitle.textContent = `Local changes on ${currentBranch}`;
   elements.gitChangesSummary.textContent = getGitChangeReviewSummary(review.currentBranch, review.targetBranch);
+  elements.gitChangesActionStatus.textContent = review.actionError || (review.stashInFlight ? "Creating stash and continuing the branch switch..." : "");
+  elements.gitChangesStashButton.textContent = stashButtonLabel;
+  elements.gitChangesStashButton.disabled = review.loading
+    || review.stashInFlight
+    || !review.projectId
+    || !review.targetBranch
+    || !Array.isArray(review.files)
+    || review.files.length === 0;
   elements.gitChangeList.replaceChildren();
 
   if (review.loading && review.files.length === 0) {
@@ -676,6 +733,44 @@ async function openGitChangeReview(projectId, targetBranch, branchInfo) {
     state.gitChangeReview.loading = false;
     state.gitChangeReview.error = error?.message || "Failed to load local Git changes.";
     renderGitChangeReview();
+  }
+}
+
+async function stashGitChangesAndContinue() {
+  const review = state.gitChangeReview;
+  if (!review.projectId || !review.targetBranch || review.stashInFlight) {
+    return;
+  }
+
+  state.gitChangeReview.stashInFlight = true;
+  state.gitChangeReview.actionError = "";
+  renderGitChangeReview();
+
+  try {
+    const stashMessage = `ArchHarness stash before switching to ${review.targetBranch}`;
+    const response = await requestJson(`/api/projects/${encodeURIComponent(review.projectId)}/git/stash`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: stashMessage })
+    });
+
+    applyProjectBranchInfo(review.projectId, response?.branchInfo);
+    applyWorkingTreeStatusToGitChangeReview(response?.workingTreeStatus);
+
+    const targetBranch = review.targetBranch;
+    const projectId = review.projectId;
+    closeModal();
+    await handleWorkspaceBranchSelection(projectId, targetBranch);
+  } catch (error) {
+    applyProjectBranchInfo(review.projectId, error?.data?.branchInfo);
+    applyWorkingTreeStatusToGitChangeReview(error?.data?.workingTreeStatus);
+    state.gitChangeReview.actionError = error?.message || "Failed to stash local changes.";
+    renderGitChangeReview();
+  } finally {
+    if (state.openModalId === "git-changes-modal") {
+      state.gitChangeReview.stashInFlight = false;
+      renderGitChangeReview();
+    }
   }
 }
 
@@ -1107,20 +1202,10 @@ async function handleWorkspaceBranchSelection(projectId, branchName) {
       body: JSON.stringify({ branchName })
     });
 
-    state.projectBranchInfoById[projectId] = {
-      isGitRepository: !!response?.isGitRepository,
-      currentBranch: response?.currentBranch || null,
-      branches: Array.isArray(response?.branches) ? response.branches : []
-    };
+    applyProjectBranchInfo(projectId, response);
     await loadProjects();
   } catch (error) {
-    const latestBranchInfo = error?.data?.branchInfo
-      ? {
-        isGitRepository: !!error.data.branchInfo.isGitRepository,
-        currentBranch: error.data.branchInfo.currentBranch || null,
-        branches: Array.isArray(error.data.branchInfo.branches) ? error.data.branchInfo.branches : []
-      }
-      : branchInfo;
+    const latestBranchInfo = error?.data?.branchInfo ? toProjectBranchInfo(error.data.branchInfo) : branchInfo;
 
     if (latestBranchInfo) {
       state.projectBranchInfoById[projectId] = latestBranchInfo;
@@ -3260,6 +3345,11 @@ function attachHandlers() {
   elements.permissionModeButton.addEventListener("click", event => {
     event.stopPropagation();
     toggleComposerDropdown("permission-mode");
+  });
+  elements.gitChangesStashButton.addEventListener("click", () => {
+    void stashGitChangesAndContinue().catch(error => {
+      console.error("Stash and switch failed:", error);
+    });
   });
   document.getElementById("review-pr-close-button").addEventListener("click", closeModal);
   document.getElementById("review-pr-back-button").addEventListener("click", handleReviewPrBack);
