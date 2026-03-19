@@ -174,6 +174,7 @@ const elements = {
   newProjectPath: document.getElementById("new-project-path"),
   pickProjectFolder: document.getElementById("pick-project-folder"),
   reviewPrPickFolder: document.getElementById("review-pr-pick-folder"),
+  reviewPrGoButton: document.getElementById("review-pr-go-button"),
   newProjectPermission: document.getElementById("new-project-permission"),
   newProjectArchitecture: document.getElementById("new-project-architecture"),
   newProjectArchitecturePrompt: document.getElementById("new-project-architecture-prompt"),
@@ -1184,6 +1185,40 @@ function buildArchitecturePrompt(prompt) {
   }
 
   return prompt;
+}
+
+function buildPullRequestArchitecturePrompt(project) {
+  const pr = reviewPrState.selectedPr;
+  const title = pr?.Title || pr?.title || "Pull request";
+  const pullRequestId = getReviewPrId(pr) || "unknown";
+  const sourceBranch = getReviewPrSourceBranch(pr);
+  const targetBranch = getReviewPrTargetBranch(pr);
+  const repositoryName = pr?.RepositoryName || pr?.repositoryName || project?.displayName || "repository";
+  const basePrompt = project?.architectureReviewPrompt
+    || state.settings?.defaults?.architectureReviewPrompt
+    || "Run an architecture review focused on the selected pull request changes.";
+  const changedFiles = reviewPrState.prFiles
+    .map(file => file.Path || file.path || file.FileName || file.fileName || "")
+    .filter(Boolean)
+    .slice(0, 200);
+
+  const promptLines = [
+    basePrompt,
+    `Review pull request #${pullRequestId}: ${title}.`,
+    `Repository: ${repositoryName}.`,
+    sourceBranch ? `Source branch: ${sourceBranch}.` : "",
+    targetBranch ? `Target branch: ${targetBranch}.` : "",
+    changedFiles.length > 0 ? "Concentrate on these changed files first:" : ""
+  ].filter(Boolean);
+
+  if (changedFiles.length > 0) {
+    changedFiles.forEach(path => {
+      promptLines.push(`- ${path}`);
+    });
+  }
+
+  promptLines.push("Identify architectural risks, boundary violations, coupling issues, missing abstractions, and regressions introduced by these changes.");
+  return promptLines.join("\n");
 }
 
 function clearPendingInteractionPoll() {
@@ -3007,9 +3042,19 @@ function showReviewPrStep(i) {
 
 function updateReviewPrNavigation() {
   const nextBtn = document.getElementById("review-pr-next-button");
+  const goBtn = elements.reviewPrGoButton;
   if (!nextBtn) {
     return;
   }
+
+  if (goBtn) {
+    const showGoButton = reviewPrState.step === 3;
+    goBtn.classList.toggle("hidden", !showGoButton);
+    goBtn.disabled = !showGoButton || reviewPrState.isStartingReview || !reviewPrState.projectId;
+    goBtn.textContent = reviewPrState.isStartingReview ? "..." : "GO";
+  }
+
+  nextBtn.classList.toggle("hidden", reviewPrState.step === 3);
 
   if (reviewPrState.step === 3) {
     nextBtn.textContent = reviewPrState.isStartingReview ? "Starting review..." : "Start Review";
@@ -3235,11 +3280,15 @@ async function startPullRequestReview() {
   updateReviewPrNavigation();
 
   try {
+    setSelectValue(elements.runMode, "architecture-review");
+    setSelectValue(elements.architectureReviewPreset, "focused-review");
+    renderComposerState();
+
     await submitRunRequest({
-      taskPrompt: buildPullRequestReviewPrompt(),
+      taskPrompt: "",
       workspacePath: project.workspacePath,
-      workspaceMode: "existing-git",
-      workflow: "auto",
+      workspaceMode: project.workspaceMode || "existing-git",
+      workflow: "architecture-loop",
       projectName: project.displayName,
       projectId: project.projectId,
       modelOverrides: null,
@@ -3250,9 +3299,9 @@ async function startPullRequestReview() {
         securityEnabled: true,
         architectureEnabled: true
       },
-      architectureLoopMode: false,
-      architectureLoopPrompt: null,
-      runTitle: `PR #${getReviewPrId() || ""} review`.trim()
+      architectureLoopMode: true,
+      architectureLoopPrompt: buildPullRequestArchitecturePrompt(project),
+      runTitle: `PR #${getReviewPrId() || ""} architecture review`.trim()
     });
 
     closeModal();
@@ -3895,6 +3944,14 @@ function attachHandlers() {
   });
   document.getElementById("review-pr-close-button").addEventListener("click", closeModal);
   document.getElementById("review-pr-back-button").addEventListener("click", handleReviewPrBack);
+  elements.reviewPrGoButton.addEventListener("click", () => {
+    void startPullRequestReview().catch(error => {
+      setReviewPrFolderHint(error?.message || "Failed to start the PR architecture review.");
+      reviewPrState.isStartingReview = false;
+      updateReviewPrNavigation();
+      console.error("PR architecture review failed:", error);
+    });
+  });
   document.getElementById("review-pr-next-button").addEventListener("click", () => {
     void handleReviewPrNext().catch(error => {
       setReviewPrFolderHint(error?.message || "Failed to prepare the PR workspace.");

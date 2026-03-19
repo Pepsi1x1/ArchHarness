@@ -509,6 +509,34 @@ button {
   pointer-events: none;
 }
 
+.review-pr-go-button {
+  width: 56px;
+  height: 56px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 999px;
+  background: radial-gradient(circle at 30% 30%, #83f6a5 0%, #2ecc71 45%, #15803d 100%);
+  color: #04110a;
+  font: 700 0.92rem/1 "Space Grotesk", sans-serif;
+  letter-spacing: 0.08em;
+  box-shadow: 0 0 0 1px rgba(131, 246, 165, 0.24), 0 14px 30px rgba(22, 128, 61, 0.32);
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+.review-pr-go-button:hover {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow: 0 0 0 1px rgba(131, 246, 165, 0.32), 0 18px 34px rgba(22, 128, 61, 0.4);
+  filter: saturate(1.08);
+}
+
+.review-pr-go-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+
 .project-card,
 .stream-section,
 .inline-interaction,
