@@ -164,6 +164,9 @@ const elements = {
   permissionModeMenu: document.getElementById("permission-mode-menu"),
   permissionMode: document.getElementById("permission-mode"),
   architectureReviewChip: document.getElementById("architecture-review-chip"),
+  architectureReviewPresetButton: document.getElementById("architecture-review-preset-button"),
+  architectureReviewPresetLabel: document.getElementById("architecture-review-preset-label"),
+  architectureReviewPresetMenu: document.getElementById("architecture-review-preset-menu"),
   architectureReviewPreset: document.getElementById("architecture-review-preset"),
   startRun: document.getElementById("start-run"),
   cancelRun: document.getElementById("cancel-run"),
@@ -421,6 +424,14 @@ function getComposerDropdownConfigs() {
       button: elements.permissionModeButton,
       label: elements.permissionModeLabel,
       menu: elements.permissionModeMenu
+    },
+    {
+      id: "architecture-review-preset",
+      select: elements.architectureReviewPreset,
+      wrap: elements.architectureReviewChip,
+      button: elements.architectureReviewPresetButton,
+      label: elements.architectureReviewPresetLabel,
+      menu: elements.architectureReviewPresetMenu
     }
   ];
 }
@@ -4014,6 +4025,10 @@ function attachHandlers() {
   elements.permissionModeButton.addEventListener("click", event => {
     event.stopPropagation();
     toggleComposerDropdown("permission-mode");
+  });
+  elements.architectureReviewPresetButton.addEventListener("click", event => {
+    event.stopPropagation();
+    toggleComposerDropdown("architecture-review-preset");
   });
   elements.gitChangesStashButton.addEventListener("click", () => {
     void stashGitChangesAndContinue().catch(error => {

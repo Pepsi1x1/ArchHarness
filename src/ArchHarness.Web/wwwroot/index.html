@@ -78,15 +78,17 @@
                 <option value="architecture-review">Architecture Review</option>
               </select>
             </div>
-            <span id="architecture-review-chip" class="hidden">
-              <span class="toolbar-select-wrap">
-                <select id="architecture-review-preset" class="toolbar-select">
-                  <option value="focused-review">Focused Review</option>
-                  <option value="full-review">Full Workspace Review</option>
-                </select>
+            <div id="architecture-review-chip" class="composer-dropdown hidden">
+              <button id="architecture-review-preset-button" class="composer-dropdown-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Architecture review mode">
+                <span id="architecture-review-preset-label">Focused Review</span>
                 <i class="fa-solid fa-chevron-down" aria-hidden="true"></i>
-              </span>
-            </span>
+              </button>
+              <div id="architecture-review-preset-menu" class="composer-dropdown-menu hidden" role="menu" aria-label="Architecture review modes"></div>
+              <select id="architecture-review-preset" class="toolbar-select hidden" aria-hidden="true" tabindex="-1">
+                <option value="focused-review">Focused Review</option>
+                <option value="full-review">Full Workspace Review</option>
+              </select>
+            </div>
             <div id="permission-mode-wrap" class="composer-dropdown">
               <button id="permission-mode-button" class="composer-dropdown-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Permission mode">
                 <span id="permission-mode-label">Permission mode</span>
