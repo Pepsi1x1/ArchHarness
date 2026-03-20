@@ -10,6 +10,9 @@ public sealed class ModelMetadataProviderTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "ArchHarnessModelMetadataTests", Guid.NewGuid().ToString("N"));
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void GetAvailableModels_CombinesDiscoveredAndConfiguredFallbacks()
     {

@@ -13,9 +13,9 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class OrchestratorRuntime
 {
-    private const string RunCompletedMessage = "Run completed";
-    private const string RunStartedMessage = "Run started";
-    private const string RunResumedMessage = "Run resumed";
+    private const string RUN_COMPLETED_MESSAGE = "Run completed";
+    private const string RUN_STARTED_MESSAGE = "Run started";
+    private const string RUN_RESUMED_MESSAGE = "Run resumed";
 
     private readonly AgentsOptions _agentsOptions;
     private readonly OrchestratorAgentDependencies _agentDependencies;
@@ -86,7 +86,7 @@ public sealed class OrchestratorRuntime
 
         try
         {
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunStartedMessage }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RUN_STARTED_MESSAGE }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
@@ -126,7 +126,7 @@ public sealed class OrchestratorRuntime
                 RunPhases.PLANNING,
                 null,
                 cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunStartedMessage));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_STARTED_MESSAGE));
 
             PlanExecutionResult planResult;
             try
@@ -243,7 +243,7 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunCompletedMessage }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RUN_COMPLETED_MESSAGE }, cancellationToken);
             await this.WriteRunStateAsync(
                 checkpoint,
                 new RunProgressSnapshot(
@@ -257,7 +257,7 @@ public sealed class OrchestratorRuntime
                 null,
                 cancellationToken,
                 RunPhases.COMPLETED);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunCompletedMessage));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_COMPLETED_MESSAGE));
 
             await sessionEventCts.CancelAsync();
             await agentEventCts.CancelAsync();
@@ -365,8 +365,8 @@ public sealed class OrchestratorRuntime
 
         try
         {
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunResumedMessage }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunResumedMessage));
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RUN_RESUMED_MESSAGE }, cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_RESUMED_MESSAGE));
 
             PlanExecutionResult planResult;
             ExecutionPlan plan;
@@ -483,7 +483,7 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunCompletedMessage }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RUN_COMPLETED_MESSAGE }, cancellationToken);
             await this.WriteRunStateAsync(
                 checkpoint,
                 new RunProgressSnapshot(
@@ -497,7 +497,7 @@ public sealed class OrchestratorRuntime
                 null,
                 cancellationToken,
                 RunPhases.COMPLETED);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunCompletedMessage));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_COMPLETED_MESSAGE));
 
             await sessionEventCts.CancelAsync();
             await agentEventCts.CancelAsync();

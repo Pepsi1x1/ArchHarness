@@ -10,9 +10,12 @@ namespace ArchHarness.App.Tests.Core;
 
 public sealed class SourceControlProviderServiceTests
 {
-  private static GitHubSourceControlService CreateGitHubService(HttpMessageHandler handler)
-    => new GitHubSourceControlService(new HttpClient(handler), NullLogger<GitHubSourceControlService>.Instance);
+    private static GitHubSourceControlService CreateGitHubService(HttpMessageHandler handler)
+        => new GitHubSourceControlService(new HttpClient(handler), NullLogger<GitHubSourceControlService>.Instance);
 
+    /// <summary>
+    /// AzureDevOpsServer — GetPullRequestsAsync — ParsesSummaries
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_GetPullRequestsAsync_ParsesSummaries()
     {
@@ -72,6 +75,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal(DateTimeOffset.Parse("2026-03-17T12:00:00Z", CultureInfo.InvariantCulture), pullRequest.CreatedDate);
     }
 
+    /// <summary>
+    /// GitHub — GetPullRequestsAsync — UsesUserAgentAndBearerToken
+    /// </summary>
     [Fact]
     public async Task GitHub_GetPullRequestsAsync_UsesUserAgentAndBearerToken()
     {
@@ -134,6 +140,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("archharness", pullRequest.RepositoryName);
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — GetPullRequestFilesAsync — ParsesChangedFiles
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_GetPullRequestFilesAsync_ParsesChangedFiles()
     {
@@ -213,6 +222,9 @@ public sealed class SourceControlProviderServiceTests
             });
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — GetPullRequestsAsync — SkipsProjectsThatRejectEnumeration
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_GetPullRequestsAsync_SkipsProjectsThatRejectEnumeration()
     {
@@ -296,6 +308,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Contains("https://ado.contoso.local/tfs/DefaultCollection/Accessible Project/_apis/git/repositories?api-version=7.0", requestUris);
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — GetPullRequestsAsync — UsesProjectFilterWithoutListingAllProjects
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_GetPullRequestsAsync_UsesProjectFilterWithoutListingAllProjects()
     {
@@ -371,6 +386,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.DoesNotContain("https://ado.contoso.local/tfs/DefaultCollection/_apis/projects?api-version=6.0", requestUris);
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — StreamPullRequestBatchesAsync — YieldsRepositoryBatches
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_StreamPullRequestBatchesAsync_YieldsRepositoryBatches()
     {
@@ -476,6 +494,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("Repo Two", Assert.Single(batches[1]).RepositoryName);
     }
 
+    /// <summary>
+    /// GitHub — StreamPullRequestBatchesAsync — YieldsPagedBatches
+    /// </summary>
     [Fact]
     public async Task GitHub_StreamPullRequestBatchesAsync_YieldsPagedBatches()
     {
@@ -536,6 +557,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("21", Assert.Single(batches[0]).Id);
     }
 
+    /// <summary>
+    /// GitHub — GetPullRequestFilesAsync — MapsProviderStatuses
+    /// </summary>
     [Fact]
     public async Task GitHub_GetPullRequestFilesAsync_MapsProviderStatuses()
     {
@@ -610,6 +634,9 @@ public sealed class SourceControlProviderServiceTests
             });
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — TestConnectionForProviderConnections — UsesProjectsEndpointAndBasicAuth
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_TestConnectionForProviderConnections_UsesProjectsEndpointAndBasicAuth()
     {
@@ -645,6 +672,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal(Convert.ToBase64String(Encoding.ASCII.GetBytes(":ado-pat")), authorization.Parameter);
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — TestConnectionForProviderConnections — DoesNotDuplicateCollectionSegment
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_TestConnectionForProviderConnections_DoesNotDuplicateCollectionSegment()
     {
@@ -675,6 +705,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("https://ado.contoso.local/tfs/DefaultCollection/_apis/projects?api-version=6.0", requestUri);
     }
 
+    /// <summary>
+    /// GitHub — TestConnectionForProviderConnections — UsesUserEndpointAndTokenHeader
+    /// </summary>
     [Fact]
     public async Task GitHub_TestConnectionForProviderConnections_UsesUserEndpointAndTokenHeader()
     {
@@ -709,29 +742,32 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("github-pat", authorization.Parameter);
     }
 
-      [Fact]
-      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_UsesOrganizationEndpointWithoutAuthorizationHeader()
-      {
+    /// <summary>
+    /// GitHub — TestConnectionWithoutPersonalAccessToken — UsesOrganizationEndpointWithoutAuthorizationHeader
+    /// </summary>
+    [Fact]
+    public async Task GitHub_TestConnectionWithoutPersonalAccessToken_UsesOrganizationEndpointWithoutAuthorizationHeader()
+    {
         string? requestUri = null;
         AuthenticationHeaderValue? authorization = null;
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
-          requestUri = request.RequestUri?.ToString();
-          authorization = request.Headers.Authorization;
-          return new HttpResponseMessage(HttpStatusCode.OK)
-          {
-            Content = new StringContent("""{ \"login\": \"octo-org\" }""", Encoding.UTF8, "application/json")
-          };
+            requestUri = request.RequestUri?.ToString();
+            authorization = request.Headers.Authorization;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{ \"login\": \"octo-org\" }""", Encoding.UTF8, "application/json")
+            };
         });
 
         GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
-          Provider = SourceControlProvider.GitHub,
-          DisplayName = "GitHub",
-          Organization = "octo-org",
-          PersonalAccessToken = null,
-          IsEnabled = true
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = null,
+            IsEnabled = true
         };
 
         ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
@@ -739,62 +775,68 @@ public sealed class SourceControlProviderServiceTests
         Assert.True(result.Success, result.Message);
         Assert.Equal("https://api.github.com/orgs/octo-org", requestUri);
         Assert.Null(authorization);
-      }
+    }
 
-      [Fact]
-      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_UsesUserEndpointWhenConfigured()
-      {
+    /// <summary>
+    /// GitHub — TestConnectionWithoutPersonalAccessToken — UsesUserEndpointWhenConfigured
+    /// </summary>
+    [Fact]
+    public async Task GitHub_TestConnectionWithoutPersonalAccessToken_UsesUserEndpointWhenConfigured()
+    {
         string? requestUri = null;
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
-          requestUri = request.RequestUri?.ToString();
-          return requestUri == "https://api.github.com/users/octocat"
-            ? new HttpResponseMessage(HttpStatusCode.OK)
-            {
-              Content = new StringContent("""{ "login": "octocat" }""", Encoding.UTF8, "application/json")
-            }
-            : throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+            requestUri = request.RequestUri?.ToString();
+            return requestUri == "https://api.github.com/users/octocat"
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "login": "octocat" }""", Encoding.UTF8, "application/json")
+                }
+                : throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
         });
 
         GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
-          Provider = SourceControlProvider.GitHub,
-          DisplayName = "GitHub",
-          Organization = "octocat",
-          GitHubOwnerType = GitHubOwnerType.User,
-          PersonalAccessToken = null,
-          IsEnabled = true
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octocat",
+            GitHubOwnerType = GitHubOwnerType.User,
+            PersonalAccessToken = null,
+            IsEnabled = true
         };
 
         ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
 
         Assert.True(result.Success, result.Message);
         Assert.Equal("https://api.github.com/users/octocat", requestUri);
-      }
+    }
 
-      [Fact]
-      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_DoesNotReportAuthRejectedWhenUserEndpointReturnsForbidden()
-      {
+    /// <summary>
+    /// GitHub — TestConnectionWithoutPersonalAccessToken — DoesNotReportAuthRejectedWhenUserEndpointReturnsForbidden
+    /// </summary>
+    [Fact]
+    public async Task GitHub_TestConnectionWithoutPersonalAccessToken_DoesNotReportAuthRejectedWhenUserEndpointReturnsForbidden()
+    {
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
-          Assert.Equal("https://api.github.com/users/octocat", request.RequestUri?.ToString());
-          Assert.Null(request.Headers.Authorization);
-          return new HttpResponseMessage(HttpStatusCode.Forbidden)
-          {
-            Content = new StringContent("""{ "message": "API rate limit exceeded" }""", Encoding.UTF8, "application/json")
-          };
+            Assert.Equal("https://api.github.com/users/octocat", request.RequestUri?.ToString());
+            Assert.Null(request.Headers.Authorization);
+            return new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("""{ "message": "API rate limit exceeded" }""", Encoding.UTF8, "application/json")
+            };
         });
 
         GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
-          Provider = SourceControlProvider.GitHub,
-          DisplayName = "GitHub",
-          Organization = "octocat",
-          GitHubOwnerType = GitHubOwnerType.User,
-          PersonalAccessToken = null,
-          IsEnabled = true
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octocat",
+            GitHubOwnerType = GitHubOwnerType.User,
+            PersonalAccessToken = null,
+            IsEnabled = true
         };
 
         ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
@@ -802,67 +844,70 @@ public sealed class SourceControlProviderServiceTests
         Assert.False(result.Success);
         Assert.Contains("failed without authentication", result.Message, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("authentication was rejected", result.Message, StringComparison.OrdinalIgnoreCase);
-      }
+    }
 
-      [Fact]
-      public async Task GitHub_GetPullRequestsAsync_UsesUserRepositoriesEndpointWhenConfigured()
-      {
+    /// <summary>
+    /// GitHub — GetPullRequestsAsync — UsesUserRepositoriesEndpointWhenConfigured
+    /// </summary>
+    [Fact]
+    public async Task GitHub_GetPullRequestsAsync_UsesUserRepositoriesEndpointWhenConfigured()
+    {
         string? repositoryRequestUri = null;
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
-          string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-          if (requestUri.Contains("/repos?type=all&per_page=100&page=1", StringComparison.Ordinal))
-          {
-            repositoryRequestUri = requestUri;
-          }
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            if (requestUri.Contains("/repos?type=all&per_page=100&page=1", StringComparison.Ordinal))
+            {
+                repositoryRequestUri = requestUri;
+            }
 
-          return requestUri switch
-          {
-            "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
+            return requestUri switch
             {
-              Content = new StringContent("""
-                [
-                  { "name": "archharness" }
-                ]
-                """, Encoding.UTF8, "application/json")
-            },
-            "https://api.github.com/repos/octocat/archharness/pulls?state=open&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
-            {
-              Content = new StringContent("""
-                [
-                  {
-                  "number": 21,
-                  "title": "Fix review PR flow",
-                  "user": {
-                    "login": "octocat"
-                  },
-                  "head": {
-                    "ref": "feature/review-pr"
-                  },
-                  "base": {
-                    "ref": "main"
-                  },
-                  "state": "open",
-                  "draft": false,
-                  "html_url": "https://github.com/octocat/archharness/pull/21",
-                  "created_at": "2026-03-18T09:00:00Z"
-                  }
-                ]
-                """, Encoding.UTF8, "application/json")
-            },
-            _ => throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}")
-          };
+                "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                        [
+                            { "name": "archharness" }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                },
+                "https://api.github.com/repos/octocat/archharness/pulls?state=open&per_page=100&page=1" => new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
+                        [
+                            {
+                            "number": 21,
+                            "title": "Fix review PR flow",
+                            "user": {
+                                "login": "octocat"
+                            },
+                            "head": {
+                                "ref": "feature/review-pr"
+                            },
+                            "base": {
+                                "ref": "main"
+                            },
+                            "state": "open",
+                            "draft": false,
+                            "html_url": "https://github.com/octocat/archharness/pull/21",
+                            "created_at": "2026-03-18T09:00:00Z"
+                            }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                },
+                _ => throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}")
+            };
         });
 
         GitHubSourceControlService service = CreateGitHubService(handler);
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
-          Provider = SourceControlProvider.GitHub,
-          DisplayName = "GitHub",
-          Organization = "octocat",
-          GitHubOwnerType = GitHubOwnerType.User,
-          PersonalAccessToken = null,
-          IsEnabled = true
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octocat",
+            GitHubOwnerType = GitHubOwnerType.User,
+            PersonalAccessToken = null,
+            IsEnabled = true
         };
 
         IReadOnlyList<PullRequestSummary> pullRequests = await service.GetPullRequestsAsync(settings, null, null, CancellationToken.None);
@@ -872,8 +917,11 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("octocat", pullRequest.ProjectName);
         Assert.Equal("archharness", pullRequest.RepositoryName);
         Assert.Equal("https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1", repositoryRequestUri);
-      }
+    }
 
+    /// <summary>
+    /// GitHub — GetPullRequestsAsync — DoesNotSendAuthorizationHeaderWhenPersonalAccessTokenIsMissing
+    /// </summary>
     [Fact]
     public async Task GitHub_GetPullRequestsAsync_DoesNotSendAuthorizationHeaderWhenPersonalAccessTokenIsMissing()
     {
@@ -924,6 +972,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Null(authorization);
     }
 
+    /// <summary>
+    /// GitHub — TestConnectionAsync — RedactsSensitiveProviderErrors
+    /// </summary>
     [Fact]
     public async Task GitHub_TestConnectionAsync_RedactsSensitiveProviderErrors()
     {
@@ -950,6 +1001,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.DoesNotContain("github-pat", result.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — TestConnectionAsync — RejectsNonHttpsUrls
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_TestConnectionAsync_RejectsNonHttpsUrls()
     {
@@ -974,6 +1028,9 @@ public sealed class SourceControlProviderServiceTests
         Assert.Equal("Azure DevOps Server URL must use HTTPS.", result.Message);
     }
 
+    /// <summary>
+    /// AzureDevOpsServer — GetPullRequestFilesAsync — RedactsSensitiveAuthErrors
+    /// </summary>
     [Fact]
     public async Task AzureDevOpsServer_GetPullRequestFilesAsync_RedactsSensitiveAuthErrors()
     {

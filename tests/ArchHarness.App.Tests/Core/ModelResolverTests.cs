@@ -8,6 +8,9 @@ namespace ArchHarness.App.Tests.Core;
 
 public sealed class ModelResolverTests
 {
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void ValidateConfiguredModelsOrThrow_AllConfiguredModelsDiscovered_DoesNotThrow()
     {
@@ -25,6 +28,9 @@ public sealed class ModelResolverTests
         Assert.Null(exception);
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void ValidateConfiguredModelsOrThrow_MissingConfiguredModel_ThrowsWithRoleDetails()
     {
@@ -42,6 +48,9 @@ public sealed class ModelResolverTests
         Assert.Contains("CliPath: copilot", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void ValidateConfiguredModelsOrThrow_MissingOverrideModel_ThrowsWithOverrideDetails()
     {
@@ -64,6 +73,9 @@ public sealed class ModelResolverTests
         Assert.Contains("CliPath: copilot", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void ValidateConfiguredModelsOrThrow_NoDiscoveredModels_DoesNotThrow()
     {

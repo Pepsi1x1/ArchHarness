@@ -6,6 +6,9 @@ public sealed class RunHistoryServiceTests : IDisposable
 {
     private readonly string _workspaceRoot = Path.Combine(Path.GetTempPath(), "ArchHarnessDesktopTests", Guid.NewGuid().ToString("N"));
 
+    /// <summary>
+    /// Verifies that recent runs are returned in descending order by run directory name.
+    /// </summary>
     [Fact]
     public void GetRecentRuns_ReturnsDescendingRunDirectories()
     {
@@ -25,6 +28,9 @@ public sealed class RunHistoryServiceTests : IDisposable
             run => Assert.Equal("20260314T120000000", run.RunId));
     }
 
+    /// <summary>
+    /// Verifies that large artifact content is truncated and that a truncation marker is appended.
+    /// </summary>
     [Fact]
     public void GetArtifacts_TruncatesLargePreviews()
     {
@@ -42,6 +48,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Assert.Equal("JSON lines", artifacts[0].Kind);
     }
 
+    /// <summary>
+    /// Verifies that JSON artifacts are pretty-printed and include a description with the file name.
+    /// </summary>
     [Fact]
     public void GetArtifacts_PrettyPrintsJsonAndAddsMetadata()
     {
@@ -59,6 +68,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Assert.Contains("BuildResult.json", artifacts[0].Description);
     }
 
+    /// <summary>
+    /// Verifies that a friendly preview message is returned when a file cannot be read (non-Windows only).
+    /// </summary>
     [Fact]
     public void GetArtifacts_ReturnsFriendlyPreviewForUnreadableFiles()
     {
@@ -88,6 +100,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Verifies that run titles and project metadata are read from the persisted run log.
+    /// </summary>
     [Fact]
     public void GetRecentRuns_ReadsRunTitlesAndProjectMetadataFromRunLog()
     {
@@ -111,6 +126,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Assert.Equal("Alpha Workspace", run.ProjectName);
     }
 
+    /// <summary>
+    /// Verifies that a run title and project metadata are synthesized from the request event when no run-log is present.
+    /// </summary>
     [Fact]
     public void GetRecentRuns_SynthesizesTitleAndProjectMetadataFromRequestEvent()
     {
@@ -129,6 +147,9 @@ public sealed class RunHistoryServiceTests : IDisposable
         Assert.Equal("Beta Workspace", run.ProjectName);
     }
 
+    /// <summary>
+    /// Verifies that events are returned in chronological order by timestamp.
+    /// </summary>
     [Fact]
     public void GetEvents_ReturnsReplayableRunEventsInChronologicalOrder()
     {

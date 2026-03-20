@@ -6,6 +6,9 @@ namespace ArchHarness.App.Tests.Core;
 
 public sealed class ArchHarnessServiceCollectionExtensionsTests
 {
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void AddArchHarnessRuntimeServices_RegistersGitHubOAuthDeviceFlowServiceAsSingleton()
     {

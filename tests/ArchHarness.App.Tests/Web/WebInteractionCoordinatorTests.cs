@@ -6,6 +6,9 @@ namespace ArchHarness.App.Tests.Web;
 
 public sealed class WebInteractionCoordinatorTests
 {
+    /// <summary>
+    /// RequestUserInputAsync — ExposesPendingPromptAndReturnsSubmittedAnswer
+    /// </summary>
     [Fact]
     public async Task RequestUserInputAsync_ExposesPendingPromptAndReturnsSubmittedAnswer()
     {
@@ -33,6 +36,9 @@ public sealed class WebInteractionCoordinatorTests
         Assert.Null(coordinator.GetPending());
     }
 
+    /// <summary>
+    /// RequestPermissionAsync — ExposesPendingPermissionAndReturnsApproval
+    /// </summary>
     [Fact]
     public async Task RequestPermissionAsync_ExposesPendingPermissionAndReturnsApproval()
     {

@@ -10,6 +10,9 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "ArchHarnessProviderConnectionTests", Guid.NewGuid().ToString("N"));
     private readonly TestPersonalAccessTokenProtector _protector = new TestPersonalAccessTokenProtector(canProtect: true);
 
+    /// <summary>
+    /// Verifies that saving a provider with a PAT stores it in encrypted form and allows retrieval.
+    /// </summary>
     [Fact]
     public void SaveProvider_PersistsEncryptedPersonalAccessToken()
     {
@@ -32,6 +35,9 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
         Assert.Equal(PersonalAccessTokenStorageMode.Protected, persisted.PersonalAccessTokenStorageMode);
     }
 
+    /// <summary>
+    /// Verifies that a provider saved with plain-text storage mode retains the token as plain text.
+    /// </summary>
     [Fact]
     public void SaveProvider_PersistsPlainTextPersonalAccessTokenWhenRequested()
     {
@@ -54,6 +60,9 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
         Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
     }
 
+    /// <summary>
+    /// Verifies that the GitHub owner type is persisted and restored correctly.
+    /// </summary>
     [Fact]
     public void SaveProvider_PersistsGitHubOwnerType()
     {
@@ -73,6 +82,9 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
         Assert.Equal(GitHubOwnerType.User, persisted.GitHubOwnerType);
     }
 
+    /// <summary>
+    /// Verifies that GitHub OAuth metadata (authentication mode and authenticated user) is persisted correctly.
+    /// </summary>
     [Fact]
     public void SaveProvider_PersistsGitHubOAuthMetadata()
     {
@@ -95,6 +107,9 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
         Assert.Equal("oauth-token", persisted.PersonalAccessToken);
     }
 
+    /// <summary>
+    /// Verifies that saving when protected storage is unavailable throws and requires plain-text confirmation.
+    /// </summary>
     [Fact]
     public void SaveProvider_ThrowsWhenProtectedStorageIsUnavailable()
     {
@@ -115,6 +130,9 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
         Assert.Contains("plain text", ex.WarningMessage, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Verifies that deleting a provider by display name is case-insensitive.
+    /// </summary>
     [Fact]
     public void DeleteProvider_RemovesMatchingProviderIgnoringCase()
     {

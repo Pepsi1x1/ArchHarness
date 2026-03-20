@@ -8,6 +8,9 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "ArchHarnessGlobalSettingsTests", Guid.NewGuid().ToString("N"));
     private readonly TestPersonalAccessTokenProtector _protector = new TestPersonalAccessTokenProtector(canProtect: true);
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void GetSettings_WithoutFile_ReturnsDefaultsFromConfiguredOptions()
     {
@@ -22,6 +25,9 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
         Assert.Equal("Review the architecture", settings.DefaultArchitectureReviewPrompt);
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void UpdateSettings_PersistsUpdatedValues()
     {

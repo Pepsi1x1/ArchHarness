@@ -4,6 +4,9 @@ namespace ArchHarness.App.Tests.Core;
 
 public sealed class NativePersonalAccessTokenProtectorTests
 {
+    /// <summary>
+    /// Verifies that a Keychain protector reuses the existing secret reference when updating a stored token.
+    /// </summary>
     [Fact]
     public void KeychainProtector_ReusesExistingReferenceOnUpdate()
     {
@@ -44,6 +47,9 @@ public sealed class NativePersonalAccessTokenProtectorTests
         Assert.Equal("pat-2", protector.Unprotect(secondReference));
     }
 
+    /// <summary>
+    /// Verifies that a Secret Service protector stores the token via standard input.
+    /// </summary>
     [Fact]
     public void SecretServiceProtector_StoresSecretUsingStandardInput()
     {

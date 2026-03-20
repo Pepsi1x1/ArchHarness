@@ -12,12 +12,12 @@ namespace ArchHarness.Web.Services;
 public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposable
 {
     private const int MAX_BUFFERED_EVENTS = 256;
-    private const string InternalErrorMessage = "The run failed due to an internal error.";
+    private const string INTERNAL_ERROR_MESSAGE = "The run failed due to an internal error.";
     private const string RUN_STATE_EVENT_KIND = "run-state";
     private const string RUNTIME_PROGRESS_EVENT_KIND = "runtime-progress";
     private const string AGENT_DELTA_EVENT_KIND = "agent-delta";
-    private const string RunCanceledMessage = "Run canceled by browser client.";
-    private const string RunStoppedMessage = "Run stopped because the local web host is shutting down.";
+    private const string RUN_CANCELED_MESSAGE = "Run canceled by browser client.";
+    private const string RUN_STOPPED_MESSAGE = "Run stopped because the local web host is shutting down.";
     private const string COPILOT_SESSION_EVENT_KIND = "copilot-session";
     private const string WEB_HOST_EVENT_SOURCE = "web-host";
     private const string ORCHESTRATOR_EVENT_SOURCE = "orchestrator";
@@ -213,16 +213,16 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !this._disposeCts.IsCancellationRequested)
         {
-            this.FailRun("canceled", RunCanceledMessage, WEB_HOST_EVENT_SOURCE, RunCanceledMessage);
+            this.FailRun("canceled", RUN_CANCELED_MESSAGE, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE);
         }
         catch (OperationCanceledException) when (this._disposeCts.IsCancellationRequested)
         {
-            this.FailRun("stopped", "Web host is shutting down.", WEB_HOST_EVENT_SOURCE, RunStoppedMessage);
+            this.FailRun("stopped", "Web host is shutting down.", WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE);
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"[WebRunSessionManager] Run failed: {ex}");
-            this.FailRun("failed", InternalErrorMessage, ORCHESTRATOR_EVENT_SOURCE, "Run failed.");
+            this.FailRun("failed", INTERNAL_ERROR_MESSAGE, ORCHESTRATOR_EVENT_SOURCE, "Run failed.");
         }
         finally
         {
@@ -245,16 +245,16 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !this._disposeCts.IsCancellationRequested)
         {
-            this.FailRun("canceled", RunCanceledMessage, WEB_HOST_EVENT_SOURCE, RunCanceledMessage);
+            this.FailRun("canceled", RUN_CANCELED_MESSAGE, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE);
         }
         catch (OperationCanceledException) when (this._disposeCts.IsCancellationRequested)
         {
-            this.FailRun("stopped", "Web host is shutting down.", WEB_HOST_EVENT_SOURCE, RunStoppedMessage);
+            this.FailRun("stopped", "Web host is shutting down.", WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE);
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"[WebRunSessionManager] Resume failed: {ex}");
-            this.FailRun("failed", InternalErrorMessage, ORCHESTRATOR_EVENT_SOURCE, "Run failed.");
+            this.FailRun("failed", INTERNAL_ERROR_MESSAGE, ORCHESTRATOR_EVENT_SOURCE, "Run failed.");
         }
         finally
         {

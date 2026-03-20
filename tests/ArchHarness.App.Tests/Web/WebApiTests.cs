@@ -11,7 +11,9 @@ namespace ArchHarness.App.Tests.Web;
 
 public sealed class WebApiTests
 {
-
+    /// <summary>
+    /// BootstrapEndpoint — ReportsWhetherGitHubOAuthIsEnabled
+    /// </summary>
     [Fact]
     public async Task BootstrapEndpoint_ReportsWhetherGitHubOAuthIsEnabled()
     {
@@ -24,6 +26,9 @@ public sealed class WebApiTests
         Assert.True(document.RootElement.GetProperty("gitHubOAuthEnabled").GetBoolean());
     }
 
+    /// <summary>
+    /// GitHubOAuthDeviceFlowEndpoints — ReturnConfiguredResults
+    /// </summary>
     [Fact]
     public async Task GitHubOAuthDeviceFlowEndpoints_ReturnConfiguredResults()
     {
@@ -56,6 +61,9 @@ public sealed class WebApiTests
         Assert.Equal("octocat", pollDocument.RootElement.GetProperty("authenticatedUser").GetString());
     }
 
+    /// <summary>
+    /// ProjectsEndpoint — CreatesProjectAndReturnsGroupedRuns
+    /// </summary>
     [Fact]
     public async Task ProjectsEndpoint_CreatesProjectAndReturnsGroupedRuns()
     {
@@ -95,6 +103,9 @@ public sealed class WebApiTests
         Assert.Equal("Initial Scaffold", run.GetProperty("runTitle").GetString());
     }
 
+    /// <summary>
+    /// ProjectsEndpoint — SynthesizesRunTitlesFromPersistedRequestEvents
+    /// </summary>
     [Fact]
     public async Task ProjectsEndpoint_SynthesizesRunTitlesFromPersistedRequestEvents()
     {
@@ -127,6 +138,9 @@ public sealed class WebApiTests
         Assert.Equal("Create the web shell and connect", run.GetProperty("runTitle").GetString());
     }
 
+    /// <summary>
+    /// RunEventsEndpoint — ReturnsPersistedReplayEvents
+    /// </summary>
     [Fact]
     public async Task RunEventsEndpoint_ReturnsPersistedReplayEvents()
     {
@@ -163,78 +177,84 @@ public sealed class WebApiTests
         Assert.Equal("Rendered output", events[1].GetProperty("message").GetString());
     }
 
-        [Fact]
-        public async Task RunStateAndResumeEndpoints_ExposeResumableRuns()
+    /// <summary>
+    /// RunStateAndResumeEndpoints — ExposeResumableRuns
+    /// </summary>
+    [Fact]
+    public async Task RunStateAndResumeEndpoints_ExposeResumableRuns()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("project-api-run-state-workspace");
+
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                using HttpClient client = factory.CreateClient();
-                string workspacePath = factory.CreateWorkspace("project-api-run-state-workspace");
+            displayName = "Resume Workspace",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
 
-                HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        string runId = "20260315T121700000";
+        string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", runId);
+        Directory.CreateDirectory(runDirectory);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-state.json"), $$"""
                 {
-                        displayName = "Resume Workspace",
-                        workspacePath,
-                        workspaceMode = "existing-folder",
-                        permissionHandlerMode = "approve-all",
-                        architectureReviewMode = false,
-                        architectureReviewPrompt = (string?)null
-                });
+                    "runId": "{{runId}}",
+                    "runDirectory": "{{runDirectory.Replace("\\", "\\\\")}}",
+                    "workspaceRoot": "{{workspacePath.Replace("\\", "\\\\")}}",
+                    "status": "running",
+                    "phase": "executing-plan",
+                    "startedAtUtc": "2026-03-15T12:17:00Z",
+                    "updatedAtUtc": "2026-03-15T12:18:00Z",
+                    "request": {
+                        "taskPrompt": "Resume the interrupted run",
+                        "workspacePath": "{{workspacePath.Replace("\\", "\\\\")}}",
+                        "workspaceMode": "existing-folder",
+                        "workflow": "auto",
+                        "projectName": "Resume Workspace",
+                        "projectId": "resume-project",
+                        "modelOverrides": null,
+                        "buildCommand": null,
+                        "permissionHandlerMode": "approve-all",
+                        "reviewLoopAgents": {
+                            "codingStyleEnabled": true,
+                            "securityEnabled": true,
+                            "architectureEnabled": true
+                        },
+                        "architectureLoopMode": false,
+                        "architectureLoopPrompt": null,
+                        "runTitle": "Resume interrupted run"
+                    },
+                    "completedStepIds": [1, 2],
+                    "reviewIteration": 1,
+                    "frontendPlan": "Continue work",
+                    "filesTouched": ["src/Program.cs"],
+                    "review": { "findings": [], "requiredActions": [] },
+                    "securityReview": { "findings": [], "requiredActions": [] },
+                    "failureMessage": null
+                }
+                """);
 
-                Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
+        Assert.True(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
+        Assert.Equal("executing-plan", stateDocument.RootElement.GetProperty("phase").GetString());
 
-                string runId = "20260315T121700000";
-                string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", runId);
-                Directory.CreateDirectory(runDirectory);
-                await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-state.json"), $$"""
-                        {
-                            "runId": "{{runId}}",
-                            "runDirectory": "{{runDirectory.Replace("\\", "\\\\")}}",
-                            "workspaceRoot": "{{workspacePath.Replace("\\", "\\\\")}}",
-                            "status": "running",
-                            "phase": "executing-plan",
-                            "startedAtUtc": "2026-03-15T12:17:00Z",
-                            "updatedAtUtc": "2026-03-15T12:18:00Z",
-                            "request": {
-                                "taskPrompt": "Resume the interrupted run",
-                                "workspacePath": "{{workspacePath.Replace("\\", "\\\\")}}",
-                                "workspaceMode": "existing-folder",
-                                "workflow": "auto",
-                                "projectName": "Resume Workspace",
-                                "projectId": "resume-project",
-                                "modelOverrides": null,
-                                "buildCommand": null,
-                                "permissionHandlerMode": "approve-all",
-                                "reviewLoopAgents": {
-                                    "codingStyleEnabled": true,
-                                    "securityEnabled": true,
-                                    "architectureEnabled": true
-                                },
-                                "architectureLoopMode": false,
-                                "architectureLoopPrompt": null,
-                                "runTitle": "Resume interrupted run"
-                            },
-                            "completedStepIds": [1, 2],
-                            "reviewIteration": 1,
-                            "frontendPlan": "Continue work",
-                            "filesTouched": ["src/Program.cs"],
-                            "review": { "findings": [], "requiredActions": [] },
-                            "securityReview": { "findings": [], "requiredActions": [] },
-                            "failureMessage": null
-                        }
-                        """);
+        HttpResponseMessage resumeResponse = await client.PostAsync($"/api/runs/{runId}/resume?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
+        Assert.Equal(HttpStatusCode.Accepted, resumeResponse.StatusCode);
 
-                JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
-                Assert.True(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
-                Assert.Equal("executing-plan", stateDocument.RootElement.GetProperty("phase").GetString());
+        JsonDocument resumeDocument = JsonDocument.Parse(await resumeResponse.Content.ReadAsStringAsync());
+        Assert.Equal("resuming", resumeDocument.RootElement.GetProperty("status").GetString());
+        Assert.Equal(runId, resumeDocument.RootElement.GetProperty("runId").GetString());
+    }
 
-                HttpResponseMessage resumeResponse = await client.PostAsync($"/api/runs/{runId}/resume?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
-                Assert.Equal(HttpStatusCode.Accepted, resumeResponse.StatusCode);
-
-                JsonDocument resumeDocument = JsonDocument.Parse(await resumeResponse.Content.ReadAsStringAsync());
-                Assert.Equal("resuming", resumeDocument.RootElement.GetProperty("status").GetString());
-                Assert.Equal(runId, resumeDocument.RootElement.GetProperty("runId").GetString());
-        }
-
+    /// <summary>
+    /// RunEndpoint — TransitionsNewProjectModeAfterFirstAcceptedRun
+    /// </summary>
     [Fact]
     public async Task RunEndpoint_TransitionsNewProjectModeAfterFirstAcceptedRun()
     {
@@ -281,6 +301,9 @@ public sealed class WebApiTests
         Assert.Equal("existing-folder", project.GetProperty("workspaceMode").GetString());
     }
 
+    /// <summary>
+    /// SettingsAndModelsEndpoints — ReturnStructuredGlobalSettingsPayloads
+    /// </summary>
     [Fact]
     public async Task SettingsAndModelsEndpoints_ReturnStructuredGlobalSettingsPayloads()
     {
@@ -325,6 +348,9 @@ public sealed class WebApiTests
                 && model.GetProperty("costBand").GetString() == "3x");
     }
 
+    /// <summary>
+    /// ProvidersEndpoints — SaveListAndDeleteConfiguredProviders
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoints_SaveListAndDeleteConfiguredProviders()
     {
@@ -357,13 +383,16 @@ public sealed class WebApiTests
         JsonElement configuredProvider = Assert.Single(providersDocument.RootElement.EnumerateArray());
         Assert.Equal("contoso", configuredProvider.GetProperty("organization").GetString());
 
-        HttpResponseMessage deleteResponse= await client.DeleteAsync("/api/providers/Contoso%20Cloud");
+        HttpResponseMessage deleteResponse = await client.DeleteAsync("/api/providers/Contoso%20Cloud");
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
         JsonDocument emptyDocument = JsonDocument.Parse(await client.GetStringAsync("/api/providers"));
         Assert.Empty(emptyDocument.RootElement.EnumerateArray());
     }
 
+    /// <summary>
+    /// ProvidersEndpoint — ReturnsValidationProblemForMissingAzureDevOpsServerUrl
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoint_ReturnsValidationProblemForMissingAzureDevOpsServerUrl()
     {
@@ -386,6 +415,9 @@ public sealed class WebApiTests
         Assert.Contains("serverUrl", payload);
     }
 
+    /// <summary>
+    /// ProvidersTestEndpoint — ReturnsValidationProblemWhenPatLooksLikeUrl
+    /// </summary>
     [Fact]
     public async Task ProvidersTestEndpoint_ReturnsValidationProblemWhenPatLooksLikeUrl()
     {
@@ -408,6 +440,9 @@ public sealed class WebApiTests
         Assert.Contains("PersonalAccessToken looks like a URL", payload);
     }
 
+    /// <summary>
+    /// ProvidersTestEndpoint — ReturnsConnectionResult
+    /// </summary>
     [Fact]
     public async Task ProvidersTestEndpoint_ReturnsConnectionResult()
     {
@@ -442,6 +477,9 @@ public sealed class WebApiTests
         Assert.Equal("Successfully connected to GitHub.", document.RootElement.GetProperty("message").GetString());
     }
 
+    /// <summary>
+    /// ProvidersTestEndpoint — AllowsGitHubWithoutPersonalAccessToken
+    /// </summary>
     [Fact]
     public async Task ProvidersTestEndpoint_AllowsGitHubWithoutPersonalAccessToken()
     {
@@ -474,6 +512,9 @@ public sealed class WebApiTests
         Assert.Equal("Successfully connected to GitHub.", document.RootElement.GetProperty("message").GetString());
     }
 
+    /// <summary>
+    /// ProvidersTestEndpoint — ReturnsHelpfulMessageForUnauthenticatedGitHubUserConnectionFailure
+    /// </summary>
     [Fact]
     public async Task ProvidersTestEndpoint_ReturnsHelpfulMessageForUnauthenticatedGitHubUserConnectionFailure()
     {
@@ -508,6 +549,9 @@ public sealed class WebApiTests
         Assert.DoesNotContain("authentication was rejected", document.RootElement.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// ProvidersEndpoint — ReturnsConflictWhenProtectedStorageIsUnavailable
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoint_ReturnsConflictWhenProtectedStorageIsUnavailable()
     {
@@ -533,6 +577,9 @@ public sealed class WebApiTests
         Assert.Equal((int)PersonalAccessTokenStorageMode.PlainText, document.RootElement.GetProperty("suggestedStorageMode").GetInt32());
     }
 
+    /// <summary>
+    /// ProvidersEndpoint — AllowsPlainTextStorageAfterExplicitSelection
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoint_AllowsPlainTextStorageAfterExplicitSelection()
     {
@@ -559,6 +606,9 @@ public sealed class WebApiTests
         Assert.Equal(JsonValueKind.Null, provider.GetProperty("personalAccessToken").ValueKind);
     }
 
+    /// <summary>
+    /// PullRequestsEndpoint — ReturnsBadRequestWhenSourceControlIsNotConfigured
+    /// </summary>
     [Fact]
     public async Task PullRequestsEndpoint_ReturnsBadRequestWhenSourceControlIsNotConfigured()
     {
@@ -582,6 +632,9 @@ public sealed class WebApiTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    /// <summary>
+    /// PullRequestsEndpoint — ReturnsConfiguredProviderPullRequests
+    /// </summary>
     [Fact]
     public async Task PullRequestsEndpoint_ReturnsConfiguredProviderPullRequests()
     {
@@ -657,6 +710,9 @@ public sealed class WebApiTests
         Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
     }
 
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — ReturnsFilteredProviderPullRequests
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestsEndpoint_ReturnsFilteredProviderPullRequests()
     {
@@ -728,237 +784,249 @@ public sealed class WebApiTests
         Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
     }
 
-        [Fact]
-        public async Task ProviderPullRequestsEndpoint_UsesGitHubUserRepositoriesWhenConfigured()
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — UsesGitHubUserRepositoriesWhenConfigured
+    /// </summary>
+    [Fact]
+    public async Task ProviderPullRequestsEndpoint_UsesGitHubUserRepositoriesWhenConfigured()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.SeedProviderConnections(new ProviderConnectionSettings
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                factory.SeedProviderConnections(new ProviderConnectionSettings
-                {
-                        Provider = SourceControlProvider.GitHub,
-                        DisplayName = "GitHub",
-                        Organization = "octocat",
-                GitHubOwnerType = GitHubOwnerType.User,
-                        PersonalAccessToken = null,
-                        IsEnabled = true
-                });
-                factory.ConfigureGitHubResponse((request, _) =>
-                {
-                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        if (requestUri == "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                [
-                                                    { "name": "archharness" }
-                                                ]
-                                                """, Encoding.UTF8, "application/json")
-                                };
-                        }
-
-                        if (requestUri == "https://api.github.com/repos/octocat/archharness/pulls?state=open&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                [
-                                                    {
-                                                        "number": 21,
-                                                        "title": "Fix review PR flow",
-                                                        "user": {
-                                                            "login": "octocat"
-                                                        },
-                                                        "head": {
-                                                            "ref": "feature/review-pr"
-                                                        },
-                                                        "base": {
-                                                            "ref": "main"
-                                                        },
-                                                        "state": "open",
-                                                        "draft": false,
-                                                        "html_url": "https://github.com/octocat/archharness/pull/21",
-                                                        "created_at": "2026-03-18T09:00:00Z"
-                                                    }
-                                                ]
-                                                """, Encoding.UTF8, "application/json")
-                                };
-                        }
-
-                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
-                });
-                using HttpClient client = factory.CreateClient();
-
-                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests");
-
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
-                Assert.Equal("21", pullRequest.GetProperty("id").GetString());
-                Assert.Equal("octocat", pullRequest.GetProperty("projectName").GetString());
-                Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
-        }
-
-        [Fact]
-        public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenSavedBlank()
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octocat",
+            GitHubOwnerType = GitHubOwnerType.User,
+            PersonalAccessToken = null,
+            IsEnabled = true
+        });
+        factory.ConfigureGitHubResponse((request, _) =>
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                factory.SeedProviderConnections(new ProviderConnectionSettings
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            if (requestUri == "https://api.github.com/users/octocat/repos?type=all&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                        Provider = SourceControlProvider.GitHub,
-                        DisplayName = "GitHub",
-                        Organization = "octo-org",
-                        PersonalAccessToken = "github-pat",
-                        IsEnabled = true
-                });
-                factory.ConfigureGitHubResponse((request, _) =>
+                    Content = new StringContent("""
+                        [
+                          { "name": "archharness" }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (requestUri == "https://api.github.com/repos/octocat/archharness/pulls?state=open&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        Assert.Null(request.Headers.Authorization);
+                    Content = new StringContent("""
+                        [
+                          {
+                            "number": 21,
+                            "title": "Fix review PR flow",
+                            "user": {
+                              "login": "octocat"
+                            },
+                            "head": {
+                              "ref": "feature/review-pr"
+                            },
+                            "base": {
+                              "ref": "main"
+                            },
+                            "state": "open",
+                            "draft": false,
+                            "html_url": "https://github.com/octocat/archharness/pull/21",
+                            "created_at": "2026-03-18T09:00:00Z"
+                          }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
 
-                        if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                [
-                                                    { "name": "archharness" }
-                                                ]
-                                                """, Encoding.UTF8, "application/json")
-                                };
-                        }
+            throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+        });
+        using HttpClient client = factory.CreateClient();
 
-                        if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                [
-                                                    {
-                                                        "number": 21,
-                                                        "title": "Public repo review",
-                                                        "user": {
-                                                            "login": "octocat"
-                                                        },
-                                                        "head": {
-                                                            "ref": "feature/review-pr"
-                                                        },
-                                                        "base": {
-                                                            "ref": "main"
-                                                        },
-                                                        "state": "open",
-                                                        "draft": false,
-                                                        "html_url": "https://github.com/octo-org/archharness/pull/21",
-                                                        "created_at": "2026-03-18T09:00:00Z"
-                                                    }
-                                                ]
-                                                """, Encoding.UTF8, "application/json")
-                                };
-                        }
+        HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests");
 
-                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
-                });
-                using HttpClient client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-                HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
-                {
-                        provider = (int)SourceControlProvider.GitHub,
-                        displayName = "GitHub",
-                        serverUrl = (string?)null,
-                        organization = "octo-org",
-                        personalAccessToken = (string?)null,
-                        isEnabled = true
-                });
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("21", pullRequest.GetProperty("id").GetString());
+        Assert.Equal("octocat", pullRequest.GetProperty("projectName").GetString());
+        Assert.Equal("archharness", pullRequest.GetProperty("repositoryName").GetString());
+    }
 
-                Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
-
-                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
-
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
-                Assert.Equal("21", pullRequest.GetProperty("id").GetString());
-        }
-
-        [Fact]
-        public async Task ProviderPullRequestsEndpoint_UsesAzureDevOpsProjectFilterWithoutListingAllProjects()
+    /// <summary>
+    /// ProvidersEndpoint — ClearsGitHubPersonalAccessTokenWhenSavedBlank
+    /// </summary>
+    [Fact]
+    public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenSavedBlank()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.SeedProviderConnections(new ProviderConnectionSettings
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                factory.SeedProviderConnections(new ProviderConnectionSettings
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureGitHubResponse((request, _) =>
+        {
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            Assert.Null(request.Headers.Authorization);
+
+            if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                        Provider = SourceControlProvider.AzureDevOpsServer,
-                        DisplayName = "Carpenters",
-                        ServerUrl = "https://devops.carpenters-law.co.uk",
-                        Organization = "DefaultCollection",
-                        PersonalAccessToken = "ado-pat",
-                        IsEnabled = true
-                });
-                factory.ConfigureAzureDevOpsResponse((request, _) =>
+                    Content = new StringContent("""
+                        [
+                          { "name": "archharness" }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        if (requestUri == "https://devops.carpenters-law.co.uk/DefaultCollection/Harness Project/_apis/git/repositories?api-version=7.0")
+                    Content = new StringContent("""
+                        [
+                          {
+                            "number": 21,
+                            "title": "Public repo review",
+                            "user": {
+                              "login": "octocat"
+                            },
+                            "head": {
+                              "ref": "feature/review-pr"
+                            },
+                            "base": {
+                              "ref": "main"
+                            },
+                            "state": "open",
+                            "draft": false,
+                            "html_url": "https://github.com/octo-org/archharness/pull/21",
+                            "created_at": "2026-03-18T09:00:00Z"
+                          }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
+
+            throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+        });
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
+        {
+            provider = (int)SourceControlProvider.GitHub,
+            displayName = "GitHub",
+            serverUrl = (string?)null,
+            organization = "octo-org",
+            personalAccessToken = (string?)null,
+            isEnabled = true
+        });
+
+        Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+
+        HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("21", pullRequest.GetProperty("id").GetString());
+    }
+
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — UsesAzureDevOpsProjectFilterWithoutListingAllProjects
+    /// </summary>
+    [Fact]
+    public async Task ProviderPullRequestsEndpoint_UsesAzureDevOpsProjectFilterWithoutListingAllProjects()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.SeedProviderConnections(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.AzureDevOpsServer,
+            DisplayName = "Carpenters",
+            ServerUrl = "https://devops.carpenters-law.co.uk",
+            Organization = "DefaultCollection",
+            PersonalAccessToken = "ado-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureAzureDevOpsResponse((request, _) =>
+        {
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            if (requestUri == "https://devops.carpenters-law.co.uk/DefaultCollection/Harness Project/_apis/git/repositories?api-version=7.0")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
                         {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                {
-                                                    "value": [
-                                                        { "name": "ArchHarness Repo" }
-                                                    ]
-                                                }
-                                                """, Encoding.UTF8, "application/json")
-                                };
+                          "value": [
+                            { "name": "ArchHarness Repo" }
+                          ]
                         }
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
 
-                        if (requestUri == "https://devops.carpenters-law.co.uk/DefaultCollection/Harness Project/_apis/git/repositories/ArchHarness Repo/pullrequests?api-version=7.0&searchCriteria.status=active")
+            if (requestUri == "https://devops.carpenters-law.co.uk/DefaultCollection/Harness Project/_apis/git/repositories/ArchHarness Repo/pullrequests?api-version=7.0&searchCriteria.status=active")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
                         {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                {
-                                                    "value": [
-                                                        {
-                                                            "pullRequestId": 11,
-                                                            "title": "Visible PR",
-                                                            "createdBy": {
-                                                                "displayName": "Dana"
-                                                            },
-                                                            "sourceRefName": "refs/heads/feature/visible-pr",
-                                                            "targetRefName": "refs/heads/main",
-                                                            "status": "active",
-                                                            "creationDate": "2026-03-18T09:00:00Z",
-                                                            "_links": {
-                                                                "web": {
-                                                                    "href": "https://devops.carpenters-law.co.uk/pr/11"
-                                                                }
-                                                            }
-                                                        }
-                                                    ]
-                                                }
-                                                """, Encoding.UTF8, "application/json")
-                                };
+                          "value": [
+                            {
+                              "pullRequestId": 11,
+                              "title": "Visible PR",
+                              "createdBy": {
+                                "displayName": "Dana"
+                              },
+                              "sourceRefName": "refs/heads/feature/visible-pr",
+                              "targetRefName": "refs/heads/main",
+                              "status": "active",
+                              "creationDate": "2026-03-18T09:00:00Z",
+                              "_links": {
+                                "web": {
+                                  "href": "https://devops.carpenters-law.co.uk/pr/11"
+                                }
+                              }
+                            }
+                          ]
                         }
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
 
-                        if (requestUri == "https://devops.carpenters-law.co.uk/DefaultCollection/_apis/projects?api-version=6.0")
-                        {
-                                throw new Xunit.Sdk.XunitException("Projects endpoint should not be called when the project filter is supplied.");
-                        }
+            if (requestUri == "https://devops.carpenters-law.co.uk/DefaultCollection/_apis/projects?api-version=6.0")
+            {
+                throw new Xunit.Sdk.XunitException("Projects endpoint should not be called when the project filter is supplied.");
+            }
 
-                        throw new Xunit.Sdk.XunitException($"Unexpected Azure DevOps request URI: {requestUri}");
-                });
-                using HttpClient client = factory.CreateClient();
+            throw new Xunit.Sdk.XunitException($"Unexpected Azure DevOps request URI: {requestUri}");
+        });
+        using HttpClient client = factory.CreateClient();
 
-                HttpResponseMessage response = await client.GetAsync("/api/providers/Carpenters/pullrequests?project=Harness%20Project");
+        HttpResponseMessage response = await client.GetAsync("/api/providers/Carpenters/pullrequests?project=Harness%20Project");
 
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
-                Assert.Equal("11", pullRequest.GetProperty("id").GetString());
-                Assert.Equal("Harness Project", pullRequest.GetProperty("projectName").GetString());
-                Assert.Equal("ArchHarness Repo", pullRequest.GetProperty("repositoryName").GetString());
-        }
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("11", pullRequest.GetProperty("id").GetString());
+        Assert.Equal("Harness Project", pullRequest.GetProperty("projectName").GetString());
+        Assert.Equal("ArchHarness Repo", pullRequest.GetProperty("repositoryName").GetString());
+    }
 
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — ReturnsValidationProblemForInvalidProviderName
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestsEndpoint_ReturnsValidationProblemForInvalidProviderName()
     {
@@ -972,6 +1040,9 @@ public sealed class WebApiTests
         Assert.Contains("providerName", payload);
     }
 
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — ReturnsValidationProblemForInvalidFilter
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestsEndpoint_ReturnsValidationProblemForInvalidFilter()
     {
@@ -993,6 +1064,9 @@ public sealed class WebApiTests
         Assert.Contains("author", payload);
     }
 
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — ReturnsUnauthorizedWhenProviderAuthenticationIsRejected
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestsEndpoint_ReturnsUnauthorizedWhenProviderAuthenticationIsRejected()
     {
@@ -1023,6 +1097,9 @@ public sealed class WebApiTests
         Assert.Contains("authentication was rejected", payload, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// ProviderPullRequestsStreamEndpoint — ReturnsFriendlyErrorWhenTransportFails
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestsStreamEndpoint_ReturnsFriendlyErrorWhenTransportFails()
     {
@@ -1046,76 +1123,82 @@ public sealed class WebApiTests
         Assert.Contains("Azure DevOps pull request retrieval failed. Unable to reach the server over HTTPS.", payload, StringComparison.Ordinal);
     }
 
-        [Fact]
-        public async Task ProviderPullRequestsStreamEndpoint_ReturnsServerSentEvents()
+    /// <summary>
+    /// ProviderPullRequestsStreamEndpoint — ReturnsServerSentEvents
+    /// </summary>
+    [Fact]
+    public async Task ProviderPullRequestsStreamEndpoint_ReturnsServerSentEvents()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.SeedProviderConnections(new ProviderConnectionSettings
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                factory.SeedProviderConnections(new ProviderConnectionSettings
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureGitHubResponse((request, _) =>
+        {
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                        Provider = SourceControlProvider.GitHub,
-                        DisplayName = "GitHub",
-                        Organization = "octo-org",
-                        PersonalAccessToken = "github-pat",
-                        IsEnabled = true
-                });
-                factory.ConfigureGitHubResponse((request, _) =>
+                    Content = new StringContent("""
+                        [
+                          { "name": "archharness" }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
+
+            if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                [
-                                                    { "name": "archharness" }
-                                                ]
-                                                """, Encoding.UTF8, "application/json")
-                                };
-                        }
+                    Content = new StringContent("""
+                        [
+                          {
+                            "number": 21,
+                            "title": "Add review PR backend",
+                            "user": {
+                              "login": "octocat"
+                            },
+                            "head": {
+                              "ref": "feature/review-pr"
+                            },
+                            "base": {
+                              "ref": "main"
+                            },
+                            "state": "open",
+                            "draft": false,
+                            "html_url": "https://github.com/octo-org/archharness/pull/21",
+                            "created_at": "2026-03-18T09:00:00Z"
+                          }
+                        ]
+                        """, Encoding.UTF8, "application/json")
+                };
+            }
 
-                        if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
-                                                [
-                                                    {
-                                                        "number": 21,
-                                                        "title": "Add review PR backend",
-                                                        "user": {
-                                                            "login": "octocat"
-                                                        },
-                                                        "head": {
-                                                            "ref": "feature/review-pr"
-                                                        },
-                                                        "base": {
-                                                            "ref": "main"
-                                                        },
-                                                        "state": "open",
-                                                        "draft": false,
-                                                        "html_url": "https://github.com/octo-org/archharness/pull/21",
-                                                        "created_at": "2026-03-18T09:00:00Z"
-                                                    }
-                                                ]
-                                                """, Encoding.UTF8, "application/json")
-                                };
-                        }
+            throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+        });
+        using HttpClient client = factory.CreateClient();
 
-                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
-                });
-                using HttpClient client = factory.CreateClient();
+        HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests/stream", HttpCompletionOption.ResponseHeadersRead);
 
-                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests/stream", HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
 
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+        string payload = await response.Content.ReadAsStringAsync();
+        Assert.Contains("event: batch", payload, StringComparison.Ordinal);
+        Assert.Contains("event: completed", payload, StringComparison.Ordinal);
+        Assert.Contains("\"id\":\"21\"", payload, StringComparison.Ordinal);
+    }
 
-                string payload = await response.Content.ReadAsStringAsync();
-                Assert.Contains("event: batch", payload, StringComparison.Ordinal);
-                Assert.Contains("event: completed", payload, StringComparison.Ordinal);
-                Assert.Contains("\"id\":\"21\"", payload, StringComparison.Ordinal);
-        }
-
+    /// <summary>
+    /// ProviderPullRequestFilesEndpoint — ReturnsFilesForPullRequest
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestFilesEndpoint_ReturnsFilesForPullRequest()
     {
@@ -1161,6 +1244,9 @@ public sealed class WebApiTests
         Assert.Equal("Modified", files[1].GetProperty("changeType").GetString());
     }
 
+    /// <summary>
+    /// ProviderPullRequestFilesEndpoint — ReturnsFriendlyErrorWhenTransportFails
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestFilesEndpoint_ReturnsFriendlyErrorWhenTransportFails()
     {
@@ -1183,6 +1269,9 @@ public sealed class WebApiTests
         Assert.Contains("GitHub pull request file retrieval failed. Unable to reach GitHub over HTTPS.", payload, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// ProviderPullRequestFilesEndpoint — ReturnsValidationProblemForInvalidPullRequestId
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestFilesEndpoint_ReturnsValidationProblemForInvalidPullRequestId()
     {
@@ -1196,6 +1285,9 @@ public sealed class WebApiTests
         Assert.Contains("pullRequestId", payload);
     }
 
+    /// <summary>
+    /// ProviderPullRequestFilesEndpoint — ReturnsUnauthorizedWhenProviderAuthenticationIsRejected
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestFilesEndpoint_ReturnsUnauthorizedWhenProviderAuthenticationIsRejected()
     {
@@ -1222,6 +1314,9 @@ public sealed class WebApiTests
         Assert.Contains("authentication was rejected", payload, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// ProvidersEndpoint — RejectsInsecureAzureDevOpsServerUrl
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoint_RejectsInsecureAzureDevOpsServerUrl()
     {
@@ -1243,6 +1338,9 @@ public sealed class WebApiTests
         Assert.Contains("HTTPS", payload, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// ProviderPullRequestsEndpoint — DoesNotExposeUnhandledExceptionDetails
+    /// </summary>
     [Fact]
     public async Task ProviderPullRequestsEndpoint_DoesNotExposeUnhandledExceptionDetails()
     {
@@ -1266,6 +1364,9 @@ public sealed class WebApiTests
         Assert.DoesNotContain("top-secret-stack-trace", payload, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// ProvidersEndpoint — SavesAllProviderTypes
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoint_SavesAllProviderTypes()
     {
@@ -1322,6 +1423,9 @@ public sealed class WebApiTests
         Assert.Contains(configuredProviders, provider => provider.GetProperty("displayName").GetString() == "GitHub No Project");
     }
 
+    /// <summary>
+    /// ProvidersEndpoint — AllowsGitHubProviderWithoutPersonalAccessToken
+    /// </summary>
     [Fact]
     public async Task ProvidersEndpoint_AllowsGitHubProviderWithoutPersonalAccessToken()
     {
@@ -1349,6 +1453,9 @@ public sealed class WebApiTests
         Assert.Equal(JsonValueKind.Null, provider.GetProperty("personalAccessToken").ValueKind);
     }
 
+    /// <summary>
+    /// ProvidersTestEndpoint — Succeeds — WhenProjectFieldIsAbsent
+    /// </summary>
     [Fact]
     public async Task ProvidersTestEndpoint_Succeeds_WhenProjectFieldIsAbsent()
     {
@@ -1414,6 +1521,9 @@ public sealed class WebApiTests
         Assert.True(githubDocument.RootElement.GetProperty("success").GetBoolean());
     }
 
+    /// <summary>
+    /// SettingsEndpoint — DoesNotContainLegacySingleProviderFields
+    /// </summary>
     [Fact]
     public async Task SettingsEndpoint_DoesNotContainLegacySingleProviderFields()
     {

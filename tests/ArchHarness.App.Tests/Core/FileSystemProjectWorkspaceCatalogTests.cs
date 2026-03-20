@@ -6,6 +6,9 @@ public sealed class FileSystemProjectWorkspaceCatalogTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "ArchHarnessProjectCatalogTests", Guid.NewGuid().ToString("N"));
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void EnsureProject_PersistsAndReusesWorkspaceEntry()
     {
@@ -38,6 +41,9 @@ public sealed class FileSystemProjectWorkspaceCatalogTests : IDisposable
         Assert.Equal("Review architecture only", projects[0].ArchitectureReviewPrompt);
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void EnsureProject_NewProjectModeCanTransitionAfterFirstRun()
     {
