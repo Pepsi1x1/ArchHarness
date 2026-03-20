@@ -1240,7 +1240,8 @@ function isSelectedRunLive() {
   return !!state.activeRun?.isRunning && state.activeRun?.runId === state.activeRunId;
 }
 
-function applyPersistedRunEvents(events) {
+function applyPersistedRunEvents(events, options = {}) {
+  const isLive = options.isLive === true;
   resetStream();
 
   let submittedPrompt = null;
@@ -1261,7 +1262,13 @@ function applyPersistedRunEvents(events) {
   }
 
   if (state.streamOrder.length > 0) {
-    showStreamCompleted();
+    if (isLive) {
+      renderStream();
+    } else {
+      showStreamCompleted();
+    }
+  } else if (isLive) {
+    showStreamStarting();
   } else {
     elements.streamEmpty.textContent = DEFAULT_STREAM_EMPTY_MESSAGE;
     renderStream();
@@ -1287,12 +1294,7 @@ async function loadSelectedRunStream() {
     return;
   }
 
-  if (isSelectedRunLive()) {
-    resetStream();
-    syncSubmittedPromptSection(state.activeRun?.taskPrompt);
-    connectEventStream();
-    return;
-  }
+  const isLiveRun = isSelectedRunLive();
 
   closeEventStream("reconnecting");
   resetStream();
@@ -1304,16 +1306,30 @@ async function loadSelectedRunStream() {
       return;
     }
 
-    applyPersistedRunEvents(events);
+    applyPersistedRunEvents(events, { isLive: isLiveRun });
   } catch (error) {
     if (token !== state.selectedRunLoadToken) {
       return;
     }
 
-    resetStream();
-    elements.streamEmpty.classList.remove("hidden");
-    elements.streamEmpty.textContent = error?.message || "Failed to load persisted run events.";
+    if (!isLiveRun) {
+      resetStream();
+      elements.streamEmpty.classList.remove("hidden");
+      elements.streamEmpty.textContent = error?.message || "Failed to load persisted run events.";
+      return;
+    }
   }
+
+  if (!isLiveRun || token !== state.selectedRunLoadToken) {
+    return;
+  }
+
+  syncSubmittedPromptSection(state.activeRun?.taskPrompt);
+  if (state.streamOrder.length === 0) {
+    showStreamStarting();
+  }
+
+  connectEventStream();
 }
 
 function isArchitectureModeEnabled() {

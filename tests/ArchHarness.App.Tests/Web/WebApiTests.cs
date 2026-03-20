@@ -163,7 +163,7 @@ public sealed class WebApiTests
         string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", "20260315T121500000");
         Directory.CreateDirectory(runDirectory);
         await File.WriteAllTextAsync(Path.Combine(runDirectory, "events.jsonl"), """
-            {"runId":"20260315T121500000","source":"request","message":"Run request received","taskPrompt":"Show the persisted stream output","timestampUtc":"2026-03-15T12:15:00Z"}
+            {"runId":"20260315T121500000","source":"request","message":"Run request received","taskPrompt":"Show the persisted stream output"}
             {"runId":"20260315T121500000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Rendered output","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-15T12:15:01Z"}
             """);
 
@@ -172,6 +172,7 @@ public sealed class WebApiTests
 
         Assert.Equal(2, events.Length);
         Assert.Equal("request", events[0].GetProperty("kind").GetString());
+        Assert.Equal("Show the persisted stream output", events[0].GetProperty("taskPrompt").GetString());
         Assert.Equal("agent-delta", events[1].GetProperty("kind").GetString());
         Assert.Equal("architecture", events[1].GetProperty("agentId").GetString());
         Assert.Equal("Rendered output", events[1].GetProperty("message").GetString());

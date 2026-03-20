@@ -358,13 +358,19 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             return null;
         }
 
+        bool isRequest = string.Equals(source, "request", StringComparison.OrdinalIgnoreCase);
         DateTimeOffset? timestampUtc = ReadTimestamp(root);
+        if (timestampUtc is null && isRequest)
+        {
+            timestampUtc = ReadTimestampFromRunId(root);
+        }
+
         if (timestampUtc is null)
         {
             return null;
         }
 
-        if (string.Equals(source, "request", StringComparison.OrdinalIgnoreCase))
+        if (isRequest)
         {
             string? taskPrompt = ReadString(root, "taskPrompt");
             if (string.IsNullOrWhiteSpace(taskPrompt))
@@ -425,6 +431,28 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     {
         string? rawTimestamp = ReadString(root, "timestampUtc") ?? ReadString(root, "timestamp");
         if (DateTimeOffset.TryParse(rawTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestampUtc))
+        {
+            return timestampUtc;
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? ReadTimestampFromRunId(JsonElement root)
+    {
+        string? runId = ReadString(root, "runId");
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return null;
+        }
+
+        string[] formats = ["yyyyMMdd'T'HHmmssfff", "yyyyMMdd'T'HHmmss"];
+        if (DateTimeOffset.TryParseExact(
+            runId,
+            formats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out DateTimeOffset timestampUtc))
         {
             return timestampUtc;
         }

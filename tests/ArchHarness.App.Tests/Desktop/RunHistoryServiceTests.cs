@@ -248,6 +248,38 @@ public sealed class RunHistoryServiceTests : IDisposable
             });
     }
 
+    /// <summary>
+    /// Verifies that request events without an explicit timestamp can still replay using the run identifier timestamp.
+    /// </summary>
+    [Fact]
+    public void GetEvents_ReplaysRequestEventUsingRunIdTimestampWhenTimestampMissing()
+    {
+        string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260320T142540661");
+        Directory.CreateDirectory(runDirectory);
+        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), """
+            {"runId":"20260320T142540661","source":"request","message":"Run request received","taskPrompt":"Investigate the replay issue"}
+            {"runId":"20260320T142540661","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Rendered output","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-20T14:25:41Z"}
+            """);
+
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
+
+        IReadOnlyList<PersistedRunEvent> events = service.GetEvents(runDirectory);
+
+        Assert.Collection(
+            events,
+            evt =>
+            {
+                Assert.Equal("request", evt.Kind);
+                Assert.Equal("Investigate the replay issue", evt.TaskPrompt);
+                Assert.Equal(DateTimeOffset.Parse("2026-03-20T14:25:40.661Z", CultureInfo.InvariantCulture), evt.TimestampUtc);
+            },
+            evt =>
+            {
+                Assert.Equal("agent-delta", evt.Kind);
+                Assert.Equal("Rendered output", evt.Message);
+            });
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(this._workspaceRoot))

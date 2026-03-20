@@ -923,7 +923,8 @@ internal static class ProgramHandlers
             evt.Details,
             evt.ContentFormat,
             evt.StreamKind,
-            evt.Title)));
+            evt.Title,
+            evt.TaskPrompt)));
     }
 
     public static IResult GetRunState(string runId, string workspacePath, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog)
