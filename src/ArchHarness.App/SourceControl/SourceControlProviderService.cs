@@ -26,7 +26,7 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
     /// <inheritdoc />
     public Task<ConnectionTestResult> TestConnectionAsync(ProviderConnectionSettings settings)
     {
-        ProviderConnectionSettings normalized = Normalize(settings);
+        ProviderConnectionSettings normalized = HydrateTestCredential(Normalize(settings), FindExistingProvider(settings.DisplayName));
         Validate(normalized, requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(normalized.Provider));
 
         ISourceControlReviewProviderService service = this._providerFactory.GetProvider(normalized.Provider);
@@ -48,38 +48,15 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
     /// <inheritdoc />
     public Task SaveProviderAsync(ProviderConnectionSettings settings)
     {
-        ProviderConnectionSettings normalized = Normalize(settings);
+        ProviderConnectionSettings normalized = HydrateSavedCredential(Normalize(settings), FindExistingProvider(settings.DisplayName));
         Validate(normalized, requirePersonalAccessToken: false);
 
-        ProviderConnectionSettings? existing = this._providerConnectionCatalog
-            .GetProviders()
-            .FirstOrDefault(provider => string.Equals(provider.DisplayName, normalized.DisplayName, StringComparison.OrdinalIgnoreCase));
-
-        string? personalAccessToken = normalized.PersonalAccessToken;
-        PersonalAccessTokenStorageMode storageMode = normalized.PersonalAccessTokenStorageMode;
-        if (string.IsNullOrWhiteSpace(personalAccessToken))
-        {
-            if (normalized.Provider == SourceControlProvider.GitHub)
-            {
-                personalAccessToken = null;
-            }
-            else
-            {
-                personalAccessToken = existing?.PersonalAccessToken;
-                storageMode = existing?.PersonalAccessTokenStorageMode ?? storageMode;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(personalAccessToken) && RequiresPersonalAccessTokenForSave(normalized.Provider))
+        if (string.IsNullOrWhiteSpace(normalized.PersonalAccessToken) && RequiresPersonalAccessTokenForSave(normalized.Provider))
         {
             throw new InvalidOperationException("PersonalAccessToken is required when creating a provider connection.");
         }
 
-        this._providerConnectionCatalog.SaveProvider(normalized with
-        {
-            PersonalAccessToken = personalAccessToken,
-            PersonalAccessTokenStorageMode = storageMode
-        });
+        this._providerConnectionCatalog.SaveProvider(normalized);
 
         return Task.CompletedTask;
     }
@@ -107,8 +84,104 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
             DisplayName = NormalizeText(settings.DisplayName),
             ServerUrl = settings.Provider == SourceControlProvider.AzureDevOpsServer ? NormalizeText(settings.ServerUrl) : null,
             Organization = NormalizeText(settings.Organization),
-            PersonalAccessToken = NormalizeText(settings.PersonalAccessToken)
+            GitHubAuthenticatedUser = settings.Provider == SourceControlProvider.GitHub ? NormalizeText(settings.GitHubAuthenticatedUser) : null,
+            PersonalAccessToken = NormalizeText(settings.PersonalAccessToken),
+            GitHubAuthenticationMode = settings.Provider == SourceControlProvider.GitHub && Enum.IsDefined(settings.GitHubAuthenticationMode)
+                ? settings.GitHubAuthenticationMode
+                : GitHubAuthenticationMode.None,
+            RetainPersonalAccessToken = settings.Provider == SourceControlProvider.GitHub && settings.RetainPersonalAccessToken
         };
+
+    private ProviderConnectionSettings? FindExistingProvider(string? displayName)
+    {
+        string? normalizedDisplayName = NormalizeText(displayName);
+        return string.IsNullOrWhiteSpace(normalizedDisplayName)
+            ? null
+            : this._providerConnectionCatalog
+                .GetProviders()
+                .FirstOrDefault(provider => string.Equals(provider.DisplayName, normalizedDisplayName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static ProviderConnectionSettings HydrateTestCredential(ProviderConnectionSettings settings, ProviderConnectionSettings? existing)
+    {
+        if (!string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
+        {
+            return FinalizeGitHubCredentialMetadata(settings);
+        }
+
+        if (settings.Provider == SourceControlProvider.GitHub && settings.RetainPersonalAccessToken && existing is not null)
+        {
+            return settings with
+            {
+                PersonalAccessToken = existing.PersonalAccessToken,
+                PersonalAccessTokenStorageMode = existing.PersonalAccessTokenStorageMode,
+                GitHubAuthenticationMode = existing.GitHubAuthenticationMode,
+                GitHubAuthenticatedUser = existing.GitHubAuthenticatedUser
+            };
+        }
+
+        return FinalizeGitHubCredentialMetadata(settings);
+    }
+
+    private static ProviderConnectionSettings HydrateSavedCredential(ProviderConnectionSettings settings, ProviderConnectionSettings? existing)
+    {
+        if (string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
+        {
+            if (settings.Provider == SourceControlProvider.GitHub)
+            {
+                if (settings.RetainPersonalAccessToken && existing is not null)
+                {
+                    return settings with
+                    {
+                        PersonalAccessToken = existing.PersonalAccessToken,
+                        PersonalAccessTokenStorageMode = existing.PersonalAccessTokenStorageMode,
+                        GitHubAuthenticationMode = existing.GitHubAuthenticationMode,
+                        GitHubAuthenticatedUser = existing.GitHubAuthenticatedUser
+                    };
+                }
+
+                return settings with
+                {
+                    PersonalAccessToken = null,
+                    GitHubAuthenticationMode = GitHubAuthenticationMode.None,
+                    GitHubAuthenticatedUser = null
+                };
+            }
+
+            return settings with
+            {
+                PersonalAccessToken = existing?.PersonalAccessToken,
+                PersonalAccessTokenStorageMode = existing?.PersonalAccessTokenStorageMode ?? settings.PersonalAccessTokenStorageMode
+            };
+        }
+
+        return FinalizeGitHubCredentialMetadata(settings);
+    }
+
+    private static ProviderConnectionSettings FinalizeGitHubCredentialMetadata(ProviderConnectionSettings settings)
+    {
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            return settings with
+            {
+                GitHubAuthenticationMode = GitHubAuthenticationMode.None,
+                GitHubAuthenticatedUser = null,
+                RetainPersonalAccessToken = false
+            };
+        }
+
+        GitHubAuthenticationMode mode = settings.GitHubAuthenticationMode;
+        if (!string.IsNullOrWhiteSpace(settings.PersonalAccessToken) && mode == GitHubAuthenticationMode.None)
+        {
+            mode = GitHubAuthenticationMode.PersonalAccessToken;
+        }
+
+        return settings with
+        {
+            GitHubAuthenticationMode = mode,
+            GitHubAuthenticatedUser = mode == GitHubAuthenticationMode.OAuthDeviceFlow ? settings.GitHubAuthenticatedUser : null
+        };
+    }
 
     private static void Validate(ProviderConnectionSettings settings, bool requirePersonalAccessToken)
     {
@@ -135,6 +208,11 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
         if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubOwnerType))
         {
             throw new InvalidOperationException("GitHubOwnerType is required for GitHub providers.");
+        }
+
+        if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubAuthenticationMode))
+        {
+            throw new InvalidOperationException("GitHubAuthenticationMode is invalid for GitHub providers.");
         }
 
         if (settings.Provider == SourceControlProvider.AzureDevOpsServer)

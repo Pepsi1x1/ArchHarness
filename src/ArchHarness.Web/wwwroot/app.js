@@ -42,7 +42,12 @@ const state = {
   branchSwitchProjectId: null,
   providerConnectionTested: false,
   editingProviderName: null,
-  editingProviderStorageMode: 0
+  editingProviderStorageMode: 0,
+  editingProviderGitHubAuthenticationMode: 0,
+  editingProviderGitHubAuthenticatedUser: null,
+  providerGitHubOAuthFlow: null,
+  providerGitHubOAuthToken: null,
+  providerGitHubOAuthPollHandle: null
 };
 
 let reviewPrState = {
@@ -125,6 +130,9 @@ const REVIEW_FILTER_MAX_LENGTH = 200;
 const REVIEW_PULL_REQUEST_ID_MAX_LENGTH = 20;
 const PAT_STORAGE_MODE_PROTECTED = 0;
 const PAT_STORAGE_MODE_PLAINTEXT = 1;
+const GITHUB_AUTH_MODE_NONE = 0;
+const GITHUB_AUTH_MODE_PAT = 1;
+const GITHUB_AUTH_MODE_OAUTH = 2;
 const LEGACY_AUTOFILL_PROMPTS = new Set([
   "Implement requested change",
   "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation."
@@ -230,7 +238,15 @@ const elements = {
   providerPat: document.getElementById("pf-pat"),
   providerPatHint: document.getElementById("pf-pat-hint"),
   providerPatToggle: document.getElementById("pf-pat-toggle"),
-  providerPatToggleIcon: document.getElementById("pf-pat-toggle-icon")
+  providerPatToggleIcon: document.getElementById("pf-pat-toggle-icon"),
+  providerGitHubOAuthWrap: document.getElementById("pf-github-oauth-wrap"),
+  providerGitHubOAuthStart: document.getElementById("pf-github-oauth-start"),
+  providerGitHubOAuthLink: document.getElementById("pf-github-oauth-link"),
+  providerGitHubOAuthCodeRow: document.getElementById("pf-github-oauth-code-row"),
+  providerGitHubOAuthCode: document.getElementById("pf-github-oauth-code"),
+  providerGitHubOAuthCopy: document.getElementById("pf-github-oauth-copy"),
+  providerGitHubOAuthCopyNote: document.getElementById("pf-github-oauth-copy-note"),
+  providerGitHubOAuthHint: document.getElementById("pf-github-oauth-hint")
 };
 
 async function requestJson(url, options) {
@@ -2674,7 +2690,7 @@ const PROVIDER_META = {
       organization: "organization",
       gitHubOwnerType: "gitHubOwnerType"
     },
-    patHint: "Optional for public repos; required for private repos.",
+    patHint: "OAuth is recommended to avoid GitHub rate limits. A PAT still works when you need manual auth.",
     orgRequiredMessage: "Owner or organization is required for GitHub."
   }
 };
@@ -2758,6 +2774,10 @@ function normalizeProviderSummary(provider) {
     gitHubOwnerType: Number.isInteger(provider.gitHubOwnerType)
       ? Number(provider.gitHubOwnerType)
       : 0,
+    gitHubAuthenticationMode: Number.isInteger(provider.gitHubAuthenticationMode)
+      ? Number(provider.gitHubAuthenticationMode)
+      : GITHUB_AUTH_MODE_NONE,
+    gitHubAuthenticatedUser: normalizeProviderField(provider.gitHubAuthenticatedUser) || null,
     personalAccessToken: null,
     personalAccessTokenStorageMode: Number.isInteger(provider.personalAccessTokenStorageMode)
       ? Number(provider.personalAccessTokenStorageMode)
@@ -2820,11 +2840,88 @@ function buildProviderPatHint(providerMeta) {
     return baseHint;
   }
 
+  if (providerMeta.numericValue === 2 && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+    return `${baseHint} Leave the PAT field blank to keep the stored OAuth token.`;
+  }
+
   if (providerMeta.numericValue === 2) {
     return `${baseHint} Leave blank to save without a token.`;
   }
 
   return `${baseHint} Leave blank to keep the current token.`;
+}
+
+function clearGitHubOAuthState() {
+  if (state.providerGitHubOAuthPollHandle) {
+    globalThis.clearTimeout(state.providerGitHubOAuthPollHandle);
+  }
+
+  state.providerGitHubOAuthFlow = null;
+  state.providerGitHubOAuthToken = null;
+  state.providerGitHubOAuthPollHandle = null;
+  elements.providerGitHubOAuthLink.href = "#";
+  elements.providerGitHubOAuthLink.classList.add("hidden");
+  elements.providerGitHubOAuthCode.textContent = "";
+  elements.providerGitHubOAuthCodeRow.classList.add("hidden");
+  elements.providerGitHubOAuthCopyNote.classList.add("hidden");
+  elements.providerGitHubOAuthCopy.disabled = false;
+  elements.providerGitHubOAuthStart.disabled = false;
+}
+
+async function copyGitHubOAuthCodeToClipboard() {
+  const code = elements.providerGitHubOAuthCode.textContent?.trim() || "";
+  if (!code) {
+    return false;
+  }
+
+  try {
+    await navigator.clipboard.writeText(code);
+    elements.providerGitHubOAuthCopyNote.classList.remove("hidden");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getGitHubAuthModeLabel(provider) {
+  if (provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+    return provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
+      ? "Plain Text OAuth"
+      : "Protected OAuth";
+  }
+
+  if (provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_PAT) {
+    return provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
+      ? "Plain Text PAT"
+      : "Protected PAT";
+  }
+
+  return "Unauthenticated";
+}
+
+function getProviderCredentialBadge(provider) {
+  if (provider.providerType === 2) {
+    let className = "provider-badge-protected";
+    if (provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_NONE) {
+      className = "provider-badge-neutral";
+    } else if (provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT) {
+      className = "provider-badge-plaintext";
+    }
+
+    return {
+      text: getGitHubAuthModeLabel(provider),
+      className
+    };
+  }
+
+  return {
+    text: provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
+      ? "Plain Text PAT"
+      : "Protected PAT",
+    className: provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
+      ? "provider-badge-plaintext"
+      : "provider-badge-protected"
+  };
 }
 
 function validateProviderServerUrl(serverUrl) {
@@ -2884,14 +2981,18 @@ function renderProviderList() {
     badge.textContent = providerMeta?.label || "Unknown";
 
     const storageBadge = document.createElement("span");
-    storageBadge.className = `provider-badge ${provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
-      ? "provider-badge-plaintext"
-      : "provider-badge-protected"}`;
-    storageBadge.textContent = provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
-      ? "Plain Text PAT"
-      : "Protected PAT";
+    const credentialBadge = getProviderCredentialBadge(provider);
+    storageBadge.className = `provider-badge ${credentialBadge.className}`;
+    storageBadge.textContent = credentialBadge.text;
 
     info.append(name, badge, storageBadge);
+
+    if (provider.providerType === 2 && provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH && provider.gitHubAuthenticatedUser) {
+      const userBadge = document.createElement("span");
+      userBadge.className = "provider-badge provider-badge-neutral";
+      userBadge.textContent = `@${provider.gitHubAuthenticatedUser}`;
+      info.append(userBadge);
+    }
 
     const actions = document.createElement("div");
     actions.className = "provider-item-actions";
@@ -2921,10 +3022,13 @@ function openProviderSetup(provider = null) {
   const providerMeta = getProviderMetaByType(normalizedProvider?.providerType ?? null);
   state.editingProviderName = normalizedProvider?.displayName || null;
   state.editingProviderStorageMode = normalizedProvider?.personalAccessTokenStorageMode ?? PAT_STORAGE_MODE_PROTECTED;
+  state.editingProviderGitHubAuthenticationMode = normalizedProvider?.gitHubAuthenticationMode ?? GITHUB_AUTH_MODE_NONE;
+  state.editingProviderGitHubAuthenticatedUser = normalizedProvider?.gitHubAuthenticatedUser || null;
   state.providerConnectionTested = false;
 
   elements.providerTypeRadios.forEach(radio => { radio.checked = false; });
   elements.providerDisplayName.value = "";
+  clearGitHubOAuthState();
   Object.values(PROVIDER_FORM_FIELDS).forEach(field => {
     field.input.value = field.defaultValue || "";
     field.wrapper.classList.add("hidden");
@@ -2963,11 +3067,14 @@ function openProviderSetup(provider = null) {
 }
 
 function closeProviderSetup() {
+  clearGitHubOAuthState();
   elements.providerSetup.classList.add("hidden");
   elements.providerList.classList.remove("hidden");
   elements.btnAddProvider.classList.remove("hidden");
   state.editingProviderName = null;
   state.editingProviderStorageMode = PAT_STORAGE_MODE_PROTECTED;
+  state.editingProviderGitHubAuthenticationMode = GITHUB_AUTH_MODE_NONE;
+  state.editingProviderGitHubAuthenticatedUser = null;
   state.providerConnectionTested = false;
   setProviderPatMasked(true);
   setProviderStatus();
@@ -2984,7 +3091,24 @@ function onProviderSetupTypeChange() {
     }
   });
 
+  const showGitHubOAuth = meta?.numericValue === 2;
+  let gitHubOAuthHint = "";
+  if (showGitHubOAuth) {
+    gitHubOAuthHint = state.bootstrap?.gitHubOAuthEnabled
+      ? "Use OAuth to avoid unauthenticated GitHub rate limits. A PAT still works as a manual fallback."
+      : "GitHub OAuth is not configured for this app yet. Set gitHubOAuth.clientId in appsettings.json to enable browser authorization.";
+  }
+
+  elements.providerGitHubOAuthWrap.classList.toggle("hidden", !showGitHubOAuth);
+  elements.providerGitHubOAuthStart.disabled = !showGitHubOAuth || !state.bootstrap?.gitHubOAuthEnabled;
+  elements.providerGitHubOAuthHint.textContent = gitHubOAuthHint;
+
   elements.providerPatHint.textContent = buildProviderPatHint(meta);
+  if (showGitHubOAuth && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH && state.editingProviderGitHubAuthenticatedUser) {
+    setProviderStatus(`Stored OAuth token for @${state.editingProviderGitHubAuthenticatedUser}.`, "info");
+    return;
+  }
+
   setProviderStatus();
 }
 
@@ -3050,6 +3174,45 @@ function validateProviderPayloadInputs(providerMeta, values) {
   return validateGitHubOwnerType(providerMeta, values.gitHubOwnerType);
 }
 
+function getGitHubAuthenticationMode(providerType, personalAccessToken) {
+  if (providerType !== 2) {
+    return GITHUB_AUTH_MODE_NONE;
+  }
+
+  if (personalAccessToken) {
+    return GITHUB_AUTH_MODE_PAT;
+  }
+
+  if (state.providerGitHubOAuthToken || state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+    return GITHUB_AUTH_MODE_OAUTH;
+  }
+
+  return GITHUB_AUTH_MODE_NONE;
+}
+
+function getGitHubAuthenticatedUser(providerType) {
+  if (providerType !== 2) {
+    return null;
+  }
+
+  if (state.providerGitHubOAuthToken) {
+    return state.providerGitHubOAuthFlow?.authenticatedUser || null;
+  }
+
+  if (state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+    return state.editingProviderGitHubAuthenticatedUser;
+  }
+
+  return null;
+}
+
+function shouldRetainGitHubToken(providerType, personalAccessToken) {
+  return providerType === 2
+    && !personalAccessToken
+    && !state.providerGitHubOAuthToken
+    && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH;
+}
+
 function collectProviderPayload(options = {}) {
   const personalAccessTokenStorageMode = Number.isInteger(options.personalAccessTokenStorageMode)
     ? options.personalAccessTokenStorageMode
@@ -3085,19 +3248,118 @@ function collectProviderPayload(options = {}) {
     return { payload: null, error: validationError };
   }
 
+  const gitHubAuthenticationMode = getGitHubAuthenticationMode(providerMeta.numericValue, personalAccessToken);
+  const gitHubAuthenticatedUser = getGitHubAuthenticatedUser(providerMeta.numericValue);
+  const retainPersonalAccessToken = shouldRetainGitHubToken(providerMeta.numericValue, personalAccessToken);
+
   const payload = {
     provider: providerMeta.numericValue,
     displayName,
-    personalAccessToken: personalAccessToken || null,
+    personalAccessToken: personalAccessToken || state.providerGitHubOAuthToken || null,
     personalAccessTokenStorageMode,
     isEnabled: true,
     serverUrl,
     organizationUrl: null,
     organization,
-    gitHubOwnerType: providerMeta.numericValue === 2 ? gitHubOwnerType : 0
+    gitHubOwnerType: providerMeta.numericValue === 2 ? gitHubOwnerType : 0,
+    gitHubAuthenticationMode,
+    gitHubAuthenticatedUser,
+    retainPersonalAccessToken
   };
 
   return { payload, error: null };
+}
+
+async function pollGitHubOAuthDeviceFlow(flowId, delayMs) {
+  if (!flowId) {
+    return;
+  }
+
+  if (state.providerGitHubOAuthPollHandle) {
+    globalThis.clearTimeout(state.providerGitHubOAuthPollHandle);
+  }
+
+  state.providerGitHubOAuthPollHandle = globalThis.setTimeout(async () => {
+    try {
+      const result = await requestJson(`/api/providers/github/oauth/device-flow/${encodeURIComponent(flowId)}`);
+      const existingFlow = state.providerGitHubOAuthFlow ?? {};
+      state.providerGitHubOAuthFlow = {
+        ...existingFlow,
+        authenticatedUser: result.authenticatedUser || null,
+        intervalSeconds: Number.isFinite(result.intervalSeconds) ? result.intervalSeconds : existingFlow.intervalSeconds || 5,
+        nextPollAtUtc: result.nextPollAtUtc || null
+      };
+
+      if (result.status === "pending") {
+        setProviderStatus(result.message || "Waiting for GitHub authorization to complete.", "info");
+        void pollGitHubOAuthDeviceFlow(flowId, Math.max(1000, (result.intervalSeconds || 5) * 1000));
+        return;
+      }
+
+      if (result.status === "authorized") {
+        state.providerGitHubOAuthToken = result.accessToken || null;
+        state.editingProviderGitHubAuthenticationMode = GITHUB_AUTH_MODE_OAUTH;
+        state.editingProviderGitHubAuthenticatedUser = result.authenticatedUser || null;
+        state.providerConnectionTested = true;
+        elements.providerPat.value = "";
+        elements.providerGitHubOAuthStart.disabled = false;
+        setProviderStatus(result.message || "GitHub OAuth authorized.", "success");
+        return;
+      }
+
+      state.providerGitHubOAuthToken = null;
+      elements.providerGitHubOAuthStart.disabled = false;
+      setProviderStatus(result.message || "GitHub OAuth authorization failed.", result.status === "error" ? "error" : "info");
+    } catch (error) {
+      state.providerGitHubOAuthToken = null;
+      elements.providerGitHubOAuthStart.disabled = false;
+      setProviderStatus(`GitHub OAuth failed: ${error.message}`, "error");
+    }
+  }, Math.max(0, delayMs || 0));
+}
+
+async function startGitHubOAuth() {
+  const providerMeta = getProviderMetaByRadioValue(getSelectedProviderRadioValue());
+  if (providerMeta?.numericValue !== 2) {
+    setProviderStatus("Select GitHub before starting OAuth.", "error");
+    return;
+  }
+
+  if (!state.bootstrap?.gitHubOAuthEnabled) {
+    setProviderStatus("GitHub OAuth is not configured for this app yet.", "error");
+    return;
+  }
+
+  clearGitHubOAuthState();
+  elements.providerGitHubOAuthStart.disabled = true;
+  setProviderStatus("Starting GitHub OAuth device flow...", "info");
+
+  try {
+    const result = await requestJson("/api/providers/github/oauth/device-flow", {
+      method: "POST"
+    });
+
+    state.providerGitHubOAuthFlow = {
+      flowId: result.flowId,
+      authenticatedUser: null,
+      intervalSeconds: Number.isFinite(result.intervalSeconds) ? result.intervalSeconds : 5
+    };
+
+    elements.providerGitHubOAuthLink.href = result.verificationUri;
+    elements.providerGitHubOAuthLink.classList.remove("hidden");
+    elements.providerGitHubOAuthCode.textContent = result.userCode || "";
+    elements.providerGitHubOAuthCodeRow.classList.remove("hidden");
+    elements.providerGitHubOAuthCopyNote.classList.add("hidden");
+    if (await copyGitHubOAuthCodeToClipboard()) {
+      elements.providerGitHubOAuthCopyNote.classList.remove("hidden");
+    }
+    setProviderStatus(`Enter code ${result.userCode} on GitHub to finish authorization.`, "info");
+    globalThis.open(result.verificationUri, "_blank", "noopener");
+    void pollGitHubOAuthDeviceFlow(result.flowId, 0);
+  } catch (error) {
+    elements.providerGitHubOAuthStart.disabled = false;
+    setProviderStatus(`GitHub OAuth failed: ${error.message}`, "error");
+  }
 }
 
 async function testProviderConnection() {
@@ -3184,9 +3446,8 @@ async function saveProvider() {
 
   if (state.editingProviderName
     && state.editingProviderName !== payload.displayName
-    && payload.provider !== 2
     && !payload.personalAccessToken) {
-    setProviderStatus("Enter a personal access token when renaming a provider so the saved credential can be preserved.", "error");
+    setProviderStatus("Enter a token or re-authorize when renaming a provider so the saved credential can be preserved.", "error");
     return;
   }
 
@@ -4235,6 +4496,16 @@ function attachHandlers() {
   elements.btnCancelProvider.addEventListener("click", closeProviderSetup);
   elements.btnTestProvider.addEventListener("click", () => {
     void testProviderConnection().catch(error => console.error("Provider test failed:", error));
+  });
+  elements.providerGitHubOAuthStart.addEventListener("click", () => {
+    void startGitHubOAuth().catch(error => console.error("GitHub OAuth failed:", error));
+  });
+  elements.providerGitHubOAuthCopy.addEventListener("click", () => {
+    void copyGitHubOAuthCodeToClipboard().then(copied => {
+      if (!copied) {
+        setProviderStatus("Unable to copy the GitHub device code to the clipboard. Copy it manually and continue in the browser.", "error");
+      }
+    });
   });
   elements.btnSaveProvider.addEventListener("click", () => {
     void saveProvider().catch(error => console.error("Save provider failed:", error));

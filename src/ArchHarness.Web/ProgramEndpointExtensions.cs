@@ -37,6 +37,8 @@ internal static class ProgramEndpointExtensions
         endpoints.MapPost("/api/providers", ProgramHandlers.SaveProviderAsync);
         endpoints.MapDelete("/api/providers/{displayName}", ProgramHandlers.DeleteProviderAsync);
         endpoints.MapPost("/api/providers/test", ProgramHandlers.TestProviderConnectionAsync);
+        endpoints.MapPost("/api/providers/github/oauth/device-flow", ProgramHandlers.StartGitHubOAuthDeviceFlowAsync);
+        endpoints.MapGet("/api/providers/github/oauth/device-flow/{flowId}", ProgramHandlers.PollGitHubOAuthDeviceFlowAsync);
         endpoints.MapGet("/api/providers/{providerName}/pullrequests", ProgramHandlers.GetProviderPullRequestsAsync);
         endpoints.MapGet(
             "/api/providers/{providerName}/pullrequests/stream",

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 
@@ -10,6 +11,50 @@ namespace ArchHarness.App.Tests.Web;
 
 public sealed class WebApiTests
 {
+
+    [Fact]
+    public async Task BootstrapEndpoint_ReportsWhetherGitHubOAuthIsEnabled()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.ConfigureGitHubOAuth(isEnabled: true);
+        using HttpClient client = factory.CreateClient();
+
+        JsonDocument document = JsonDocument.Parse(await client.GetStringAsync("/api/bootstrap"));
+
+        Assert.True(document.RootElement.GetProperty("gitHubOAuthEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task GitHubOAuthDeviceFlowEndpoints_ReturnConfiguredResults()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        GitHubOAuthDeviceFlowStartResult startResult = new GitHubOAuthDeviceFlowStartResult(
+            "flow-123",
+            "WXYZ-1234",
+            "https://github.com/login/device",
+            DateTimeOffset.Parse("2026-03-20T12:00:00Z", CultureInfo.InvariantCulture),
+            7);
+        factory.ConfigureGitHubOAuthStartResult(startResult);
+        factory.ConfigureGitHubOAuthPollResult(
+            "flow-123",
+            new GitHubOAuthDeviceFlowPollResult(
+                "authorized",
+                "Connected to GitHub as octocat.",
+                "oauth-token",
+                GitHubAuthenticationMode.OAuthDeviceFlow,
+                "octocat",
+                "repo read:org"));
+        using HttpClient client = factory.CreateClient();
+
+        JsonDocument startDocument = JsonDocument.Parse(await (await client.PostAsync("/api/providers/github/oauth/device-flow", null)).Content.ReadAsStringAsync());
+        Assert.Equal("flow-123", startDocument.RootElement.GetProperty("flowId").GetString());
+        Assert.Equal("WXYZ-1234", startDocument.RootElement.GetProperty("userCode").GetString());
+
+        JsonDocument pollDocument = JsonDocument.Parse(await client.GetStringAsync("/api/providers/github/oauth/device-flow/flow-123"));
+        Assert.Equal("authorized", pollDocument.RootElement.GetProperty("status").GetString());
+        Assert.Equal("oauth-token", pollDocument.RootElement.GetProperty("accessToken").GetString());
+        Assert.Equal("octocat", pollDocument.RootElement.GetProperty("authenticatedUser").GetString());
+    }
 
     [Fact]
     public async Task ProjectsEndpoint_CreatesProjectAndReturnsGroupedRuns()

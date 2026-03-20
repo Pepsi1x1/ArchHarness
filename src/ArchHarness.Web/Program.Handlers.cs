@@ -28,7 +28,7 @@ internal static class ProgramHandlers
             status = "ready"
         });
 
-    public static IResult GetBootstrap(IOptions<AgentsOptions> agentsOptions, IGlobalSettingsCatalog settingsCatalog, IWebRunSessionManager sessionManager)
+    public static IResult GetBootstrap(IOptions<AgentsOptions> agentsOptions, IGlobalSettingsCatalog settingsCatalog, IWebRunSessionManager sessionManager, IGitHubOAuthDeviceFlowService gitHubOAuthDeviceFlowService)
     {
         AgentsOptions config = agentsOptions.Value;
         PersistedGlobalSettings settings = settingsCatalog.GetSettings();
@@ -44,6 +44,7 @@ internal static class ProgramHandlers
             architectureLoopPrompt = settings.DefaultArchitectureReviewPrompt,
             defaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,
             reviewLoopAgents = reviewLoopSelection,
+            gitHubOAuthEnabled = gitHubOAuthDeviceFlowService.IsEnabled,
             activeRun = sessionManager.GetSnapshot()
         });
     }
@@ -481,6 +482,60 @@ internal static class ProgramHandlers
 
         ConnectionTestResult result = await providerService.TestConnectionAsync(settings);
         return Results.Ok(result);
+    }
+
+    public static async Task<IResult> StartGitHubOAuthDeviceFlowAsync(IGitHubOAuthDeviceFlowService gitHubOAuthDeviceFlowService, CancellationToken cancellationToken)
+    {
+        if (!gitHubOAuthDeviceFlowService.IsEnabled)
+        {
+            return Results.Json(
+                new { error = "GitHub OAuth is not configured. Set gitHubOAuth.clientId before authorizing with GitHub." },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
+        try
+        {
+            GitHubOAuthDeviceFlowStartResult result = await gitHubOAuthDeviceFlowService.StartAsync(cancellationToken);
+            return Results.Ok(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (HttpRequestException)
+        {
+            return CreateSourceControlTransportErrorResult(SourceControlProvider.GitHub, "OAuth authorization");
+        }
+    }
+
+    public static async Task<IResult> PollGitHubOAuthDeviceFlowAsync(string flowId, IGitHubOAuthDeviceFlowService gitHubOAuthDeviceFlowService, CancellationToken cancellationToken)
+    {
+        string? normalizedFlowId = NormalizeText(flowId);
+        if (string.IsNullOrWhiteSpace(normalizedFlowId))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["flowId"] = new[] { "flowId is required." }
+            });
+        }
+
+        try
+        {
+            GitHubOAuthDeviceFlowPollResult result = await gitHubOAuthDeviceFlowService.PollAsync(normalizedFlowId, cancellationToken);
+            return Results.Ok(result);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return Results.NotFound(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (HttpRequestException)
+        {
+            return CreateSourceControlTransportErrorResult(SourceControlProvider.GitHub, "OAuth authorization");
+        }
     }
 
     public static async Task<IResult> GetProviderPullRequestsAsync(string providerName, string? project, string? repository, string? author, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory, CancellationToken cancellationToken)
@@ -1124,6 +1179,11 @@ internal static class ProgramHandlers
         if (!Enum.IsDefined(settings.GitHubOwnerType))
         {
             AddProviderValidationError(errors, "gitHubOwnerType", "GitHubOwnerType is required for GitHub providers.");
+        }
+
+        if (!Enum.IsDefined(settings.GitHubAuthenticationMode))
+        {
+            AddProviderValidationError(errors, "gitHubAuthenticationMode", "GitHubAuthenticationMode is invalid for GitHub providers.");
         }
     }
 

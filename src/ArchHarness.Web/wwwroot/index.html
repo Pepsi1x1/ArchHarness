@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/styles.css?v=48">
+  <link rel="stylesheet" href="/styles.css?v=49">
 </head>
 <body>
   <div class="page-noise"></div>
@@ -254,6 +254,22 @@
                   </button>
                 </div>
                 <span id="pf-pat-hint" class="field-hint"></span>
+              </div>
+
+              <div id="pf-github-oauth-wrap" class="field hidden">
+                <span>GitHub OAuth</span>
+                <div class="provider-oauth-row">
+                  <button id="pf-github-oauth-start" class="secondary-button small-button" type="button">Authorize with GitHub</button>
+                  <a id="pf-github-oauth-link" class="ghost-link hidden" href="#" target="_blank" rel="noopener noreferrer">Open verification page</a>
+                </div>
+                <div id="pf-github-oauth-code-row" class="provider-oauth-code-row hidden">
+                  <div id="pf-github-oauth-code" class="provider-oauth-code"></div>
+                  <button id="pf-github-oauth-copy" class="icon-button small-button" type="button" aria-label="Copy device code">
+                    <i class="fa-regular fa-copy" aria-hidden="true"></i>
+                  </button>
+                  <span id="pf-github-oauth-copy-note" class="provider-oauth-copy-note hidden" aria-live="polite">Copied to Clipboard</span>
+                </div>
+                <span id="pf-github-oauth-hint" class="field-hint">Use OAuth to avoid unauthenticated GitHub rate limits. A PAT still works as a manual fallback.</span>
               </div>
             </div>
 

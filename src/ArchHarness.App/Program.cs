@@ -20,9 +20,12 @@ public static class ArchHarnessServiceCollectionExtensions
     {
         services.Configure<AgentsOptions>(configuration.GetSection("agents"));
         services.Configure<CopilotOptions>(configuration.GetSection("copilot"));
+        services.Configure<GitHubOAuthOptions>(configuration.GetSection("gitHubOAuth"));
         services.AddHttpClient();
         services.AddHttpClient<AzureDevOpsSourceControlService>();
         services.AddHttpClient<GitHubSourceControlService>();
+        services.AddHttpClient<GitHubOAuthDeviceFlowService>();
+        services.AddSingleton<IGitHubOAuthDeviceFlowService>(sp => sp.GetRequiredService<GitHubOAuthDeviceFlowService>());
         services.AddSingleton<IRuntimePlatform, RuntimePlatform>();
         services.AddSingleton<ILocalCommandRunner, ProcessLocalCommandRunner>();
         services.AddSingleton<IPersonalAccessTokenProtector, PlatformPersonalAccessTokenProtector>();

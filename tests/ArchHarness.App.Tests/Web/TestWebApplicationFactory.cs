@@ -29,6 +29,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     {
         Content = new StringContent("GitHub test response not configured.", Encoding.UTF8, "text/plain")
     };
+    private FakeGitHubOAuthDeviceFlowService _gitHubOAuthDeviceFlowService = new FakeGitHubOAuthDeviceFlowService();
 
     public string CreateWorkspace(string directoryName)
     {
@@ -45,6 +46,21 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     public void ConfigureGitHubResponse(Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> responseFactory)
     {
         this._gitHubResponseFactory = responseFactory;
+    }
+
+    public void ConfigureGitHubOAuth(bool isEnabled)
+    {
+        this._gitHubOAuthDeviceFlowService = new FakeGitHubOAuthDeviceFlowService { IsEnabled = isEnabled };
+    }
+
+    public void ConfigureGitHubOAuthStartResult(GitHubOAuthDeviceFlowStartResult result)
+    {
+        this._gitHubOAuthDeviceFlowService.StartResult = result;
+    }
+
+    public void ConfigureGitHubOAuthPollResult(string flowId, GitHubOAuthDeviceFlowPollResult result)
+    {
+        this._gitHubOAuthDeviceFlowService.PollResults[flowId] = result;
     }
 
     public void SeedGlobalSettings(PersistedGlobalSettings settings)
@@ -83,6 +99,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IWebRunSessionManager>();
             services.RemoveAll<AzureDevOpsSourceControlService>();
             services.RemoveAll<GitHubSourceControlService>();
+            services.RemoveAll<IGitHubOAuthDeviceFlowService>();
             services.RemoveAll<SourceControlProviderFactory>();
 
             AgentsOptions agentsOptions = new AgentsOptions
@@ -127,6 +144,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
                 .ConfigurePrimaryHttpMessageHandler(() => new StubHttpMessageHandler(this._azureDevOpsResponseFactory));
             services.AddHttpClient<GitHubSourceControlService>()
                 .ConfigurePrimaryHttpMessageHandler(() => new StubHttpMessageHandler(this._gitHubResponseFactory));
+            services.AddSingleton<IGitHubOAuthDeviceFlowService>(this._gitHubOAuthDeviceFlowService);
             services.AddSingleton<SourceControlProviderFactory>();
             services.AddSingleton<ISourceControlProviderService, SourceControlProviderService>();
         });
@@ -225,6 +243,37 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             }
 
             return value["protected::".Length..];
+        }
+    }
+
+    private sealed class FakeGitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
+    {
+        public bool IsEnabled { get; set; } = true;
+
+        public GitHubOAuthDeviceFlowStartResult StartResult { get; set; } = new GitHubOAuthDeviceFlowStartResult(
+            "flow-001",
+            "ABCD-EFGH",
+            "https://github.com/login/device",
+            DateTimeOffset.UtcNow.AddMinutes(10),
+            5);
+
+        public Dictionary<string, GitHubOAuthDeviceFlowPollResult> PollResults { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<GitHubOAuthDeviceFlowStartResult> StartAsync(CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            return Task.FromResult(this.StartResult);
+        }
+
+        public Task<GitHubOAuthDeviceFlowPollResult> PollAsync(string flowId, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            if (!this.PollResults.TryGetValue(flowId, out GitHubOAuthDeviceFlowPollResult? result))
+            {
+                throw new KeyNotFoundException($"GitHub OAuth flow '{flowId}' was not found.");
+            }
+
+            return Task.FromResult(result);
         }
     }
 }

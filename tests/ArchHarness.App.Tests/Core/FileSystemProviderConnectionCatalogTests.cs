@@ -74,6 +74,28 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     }
 
     [Fact]
+    public void SaveProvider_PersistsGitHubOAuthMetadata()
+    {
+        FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
+
+        catalog.SaveProvider(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub OAuth",
+            Organization = "octo-org",
+            GitHubAuthenticationMode = GitHubAuthenticationMode.OAuthDeviceFlow,
+            GitHubAuthenticatedUser = "octocat",
+            PersonalAccessToken = "oauth-token",
+            IsEnabled = true
+        });
+
+        ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
+        Assert.Equal(GitHubAuthenticationMode.OAuthDeviceFlow, persisted.GitHubAuthenticationMode);
+        Assert.Equal("octocat", persisted.GitHubAuthenticatedUser);
+        Assert.Equal("oauth-token", persisted.PersonalAccessToken);
+    }
+
+    [Fact]
     public void SaveProvider_ThrowsWhenProtectedStorageIsUnavailable()
     {
         FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
