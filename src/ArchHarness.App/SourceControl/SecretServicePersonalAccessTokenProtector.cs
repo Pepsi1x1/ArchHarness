@@ -1,9 +1,11 @@
+using ArchHarness.App.Core;
+
 namespace ArchHarness.App.SourceControl;
 
 /// <summary>
 /// Stores personal access tokens in the Linux Secret Service keyring via libsecret.
 /// </summary>
-public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessTokenProtector
+public sealed class SecretServicePersonalAccessTokenProtector : SecureStorePersonalAccessTokenProtectorBase
 {
     private const string COMMAND_NAME = "secret-tool";
     private const string STORE_KIND = "secret-service";
@@ -19,27 +21,22 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
     /// Initializes a new instance of the <see cref="SecretServicePersonalAccessTokenProtector"/> class.
     /// </summary>
     public SecretServicePersonalAccessTokenProtector(ILocalCommandRunner commandRunner, IRuntimePlatform runtimePlatform)
+        : base(STORE_KIND, "Linux Secret Service storage requires the 'secret-tool' command and a Secret Service-compatible keyring.")
     {
         this._commandRunner = commandRunner;
         this._runtimePlatform = runtimePlatform;
     }
 
     /// <inheritdoc />
-    public bool CanProtect => this._runtimePlatform.IsLinux && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
+    public override bool CanProtect => this._runtimePlatform.IsLinux && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
 
     /// <inheritdoc />
-    public string? UnavailableReason => this.CanProtect
-        ? null
-        : "Linux Secret Service storage requires the 'secret-tool' command and a Secret Service-compatible keyring.";
-
-    /// <inheritdoc />
-    public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+    public override string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(personalAccessToken);
+        this.EnsureSupported();
 
-        EnsureSupported(this.CanProtect, this.UnavailableReason);
-
-        string secretId = ResolveSecretId(existingProtectedPersonalAccessToken);
+        string secretId = this.ResolveSecretId(existingProtectedPersonalAccessToken);
         LocalCommandResult result = this._commandRunner.Run(
             COMMAND_NAME,
             new[]
@@ -58,15 +55,15 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
             throw new InvalidOperationException(BuildCommandFailureMessage("Secret Service", result));
         }
 
-        return SecureStoreTokenReference.Create(STORE_KIND, secretId);
+        return this.CreateTokenReference(secretId);
     }
 
     /// <inheritdoc />
-    public string Unprotect(string protectedPersonalAccessToken)
+    public override string Unprotect(string protectedPersonalAccessToken)
     {
-        EnsureSupported(this.CanProtect, this.UnavailableReason);
+        this.EnsureSupported();
 
-        string secretId = ParseSecretId(protectedPersonalAccessToken);
+        string secretId = this.ParseSecretId(protectedPersonalAccessToken, "The stored Secret Service token reference is invalid.");
         LocalCommandResult result = this._commandRunner.Run(
             COMMAND_NAME,
             new[]
@@ -85,55 +82,5 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
 
         return result.StandardOutput.TrimEnd('\r', '\n');
     }
-
-    private static string ResolveSecretId(string? existingProtectedPersonalAccessToken)
-    {
-        if (TryParseSecretId(existingProtectedPersonalAccessToken, out string? secretId))
-        {
-            return secretId!;
-        }
-
-        return Guid.NewGuid().ToString("N");
-    }
-
-    private static string ParseSecretId(string protectedPersonalAccessToken)
-    {
-        if (TryParseSecretId(protectedPersonalAccessToken, out string? secretId))
-        {
-            return secretId!;
-        }
-
-        throw new FormatException("The stored Secret Service token reference is invalid.");
-    }
-
-    private static bool TryParseSecretId(string? protectedPersonalAccessToken, out string? secretId)
-    {
-        secretId = null;
-        if (!SecureStoreTokenReference.TryParse(protectedPersonalAccessToken ?? string.Empty, out string storeKind, out string parsedSecretId)
-            || string.IsNullOrWhiteSpace(parsedSecretId)
-            || !string.Equals(storeKind, STORE_KIND, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        secretId = parsedSecretId;
-        return true;
-    }
-
-    private static void EnsureSupported(bool canProtect, string? unavailableReason)
-    {
-        if (!canProtect)
-        {
-            throw new PlatformNotSupportedException(unavailableReason);
-        }
-    }
-
-    private static string BuildCommandFailureMessage(string storeName, LocalCommandResult result)
-    {
-        string errorText = string.IsNullOrWhiteSpace(result.StandardError)
-            ? result.StandardOutput
-            : result.StandardError;
-        errorText = string.IsNullOrWhiteSpace(errorText) ? $"exit code {result.ExitCode}" : errorText.Trim();
-        return $"{storeName} operation failed: {errorText}";
-    }
 }
+

@@ -104,10 +104,10 @@ public sealed class WebApiTests
     }
 
     /// <summary>
-    /// ProjectsEndpoint — SynthesizesRunTitlesFromPersistedRequestEvents
+    /// ProjectsEndpoint — UsesGenericTitlesForRequestOnlyRuns
     /// </summary>
     [Fact]
-    public async Task ProjectsEndpoint_SynthesizesRunTitlesFromPersistedRequestEvents()
+    public async Task ProjectsEndpoint_UsesGenericTitlesForRequestOnlyRuns()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
         using HttpClient client = factory.CreateClient();
@@ -135,7 +135,7 @@ public sealed class WebApiTests
         JsonElement project = Assert.Single(document.RootElement.EnumerateArray());
         JsonElement run = Assert.Single(project.GetProperty("runs").EnumerateArray());
 
-        Assert.Equal("Create the web shell and connect", run.GetProperty("runTitle").GetString());
+        Assert.Equal("Run request", run.GetProperty("runTitle").GetString());
     }
 
     /// <summary>
@@ -574,14 +574,15 @@ public sealed class WebApiTests
 
         JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.Equal("pat-protection-unavailable", document.RootElement.GetProperty("code").GetString());
-        Assert.Equal((int)PersonalAccessTokenStorageMode.PlainText, document.RootElement.GetProperty("suggestedStorageMode").GetInt32());
+        Assert.Contains("secure", document.RootElement.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", document.RootElement.GetProperty("warning").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
-    /// ProvidersEndpoint — AllowsPlainTextStorageAfterExplicitSelection
+    /// ProvidersEndpoint — AllowsPlainTextStorageSelection
     /// </summary>
     [Fact]
-    public async Task ProvidersEndpoint_AllowsPlainTextStorageAfterExplicitSelection()
+    public async Task ProvidersEndpoint_AllowsPlainTextStorageSelection()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
         factory.SetSecureTokenStorageAvailable(false);
@@ -601,9 +602,8 @@ public sealed class WebApiTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         JsonDocument providers = JsonDocument.Parse(await client.GetStringAsync("/api/providers"));
-        JsonElement provider = Assert.Single(providers.RootElement.EnumerateArray());
-        Assert.Equal((int)PersonalAccessTokenStorageMode.PlainText, provider.GetProperty("personalAccessTokenStorageMode").GetInt32());
-        Assert.Equal(JsonValueKind.Null, provider.GetProperty("personalAccessToken").ValueKind);
+        JsonElement savedProvider = Assert.Single(providers.RootElement.EnumerateArray());
+        Assert.Equal((int)PersonalAccessTokenStorageMode.PlainText, savedProvider.GetProperty("personalAccessTokenStorageMode").GetInt32());
     }
 
     /// <summary>

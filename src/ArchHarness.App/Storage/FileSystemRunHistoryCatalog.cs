@@ -11,17 +11,19 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 {
+    private const string FALLBACK_TITLE = "Run request";
+
     /// <inheritdoc />
     public IReadOnlyList<PersistedRunSummary> GetRecentRuns(string workspacePath, int maxCount = 20)
     {
-        string root = Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs");
+        string root = FileSystemStorageHelper.GetRunsRootPath(workspacePath);
         return this.GetRecentRunsFromRoot(root, maxCount);
     }
 
     /// <inheritdoc />
     public IReadOnlyList<PersistedRunSummary> GetRecentRunsFromRoot(string runsRootDirectory, int maxCount = 20)
     {
-        string root = Path.GetFullPath(runsRootDirectory);
+        string root = FileSystemStorageHelper.NormalizePath(runsRootDirectory);
         if (!Directory.Exists(root))
         {
             return Array.Empty<PersistedRunSummary>();
@@ -46,12 +48,13 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     /// <inheritdoc />
     public IReadOnlyList<RunArtifactPreview> GetArtifacts(string runDirectory, int previewLength = 2400)
     {
-        if (!Directory.Exists(runDirectory))
+        string normalizedRunDirectory = FileSystemStorageHelper.NormalizePath(runDirectory);
+        if (!Directory.Exists(normalizedRunDirectory))
         {
             return Array.Empty<RunArtifactPreview>();
         }
 
-        return Directory.GetFiles(runDirectory)
+        return Directory.GetFiles(normalizedRunDirectory)
             .OrderBy(file => file)
             .Select(file => BuildArtifact(file, previewLength))
             .ToList();
@@ -60,12 +63,13 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     /// <inheritdoc />
     public IReadOnlyList<PersistedRunEvent> GetEvents(string runDirectory)
     {
-        if (!Directory.Exists(runDirectory))
+        string normalizedRunDirectory = FileSystemStorageHelper.NormalizePath(runDirectory);
+        if (!Directory.Exists(normalizedRunDirectory))
         {
             return Array.Empty<PersistedRunEvent>();
         }
 
-        string eventsPath = Path.Combine(runDirectory, "events.jsonl");
+        string eventsPath = Path.Combine(normalizedRunDirectory, "events.jsonl");
         if (!File.Exists(eventsPath))
         {
             return Array.Empty<PersistedRunEvent>();
@@ -119,7 +123,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     {
         string name = Path.GetFileName(filePath);
         string extension = Path.GetExtension(filePath).ToLowerInvariant();
-        string rawText = TryReadText(filePath);
+        string rawText = Redaction.RedactSecrets(TryReadText(filePath));
         string kind = Classify(extension);
         string preview = FormatPreview(rawText, extension, previewLength);
         long fileSizeBytes = new FileInfo(filePath).Length;
@@ -243,7 +247,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         string? runTitle = FirstNonEmpty(runLogMetadata.RunTitle, requestMetadata.RunTitle);
         if (string.IsNullOrWhiteSpace(runTitle))
         {
-            runTitle = BuildFallbackTitle(requestMetadata.TaskPrompt);
+            runTitle = FALLBACK_TITLE;
         }
 
         return new PersistedRunSummaryMetadata(
@@ -319,7 +323,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
                         ReadString(root, "runTitle"),
                         ReadString(root, "projectId"),
                         ReadString(root, "projectName"),
-                        ReadString(root, "taskPrompt"));
+                        null);
                 }
                 catch (JsonException)
                 {
@@ -345,22 +349,6 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 
     private static string? FirstNonEmpty(string? primary, string? fallback)
         => string.IsNullOrWhiteSpace(primary) ? fallback : primary;
-
-    private static string? BuildFallbackTitle(string? taskPrompt)
-    {
-        if (string.IsNullOrWhiteSpace(taskPrompt))
-        {
-            return null;
-        }
-
-        string[] words = taskPrompt
-            .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)
-            .Take(6)
-            .ToArray();
-
-        string candidate = string.Join(" ", words).Trim();
-        return string.IsNullOrWhiteSpace(candidate) ? null : candidate;
-    }
 
     private static PersistedRunEvent? TryBuildRunEvent(JsonElement root)
     {

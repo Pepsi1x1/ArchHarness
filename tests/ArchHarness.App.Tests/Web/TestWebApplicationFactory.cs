@@ -222,7 +222,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
         public string? UnavailableReason => this.CanProtectTokens
             ? null
-            : "Secure token storage is not available in this test instance. Storing the token will write it to disk in plain text.";
+            : "Secure token storage is not available in this test instance. Saving a personal access token requires a supported secure store.";
 
         public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
         {

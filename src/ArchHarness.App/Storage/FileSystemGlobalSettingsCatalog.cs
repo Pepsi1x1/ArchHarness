@@ -28,7 +28,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     /// </summary>
     public FileSystemGlobalSettingsCatalog(string storageFilePath, AgentsOptions agentsOptions, CopilotOptions copilotOptions, IPersonalAccessTokenProtector? _ = null)
     {
-        this._storageFilePath = storageFilePath;
+        this._storageFilePath = FileSystemStorageHelper.NormalizePath(storageFilePath);
         this._agentsOptions = agentsOptions;
         this._copilotOptions = copilotOptions;
     }
@@ -108,15 +108,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 
     private void SaveSettings(PersistedGlobalSettings settings)
     {
-        string? directory = Path.GetDirectoryName(this._storageFilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
         PersistedGlobalSettingsDocument persisted = MapToPersisted(settings);
-        string json = JsonSerializer.Serialize(persisted, JsonDefaults.WEB_INDENTED);
-        File.WriteAllText(this._storageFilePath, json);
+        FileSystemStorageHelper.WriteJsonFile(this._storageFilePath, persisted, JsonDefaults.WEB_INDENTED);
     }
 
     private PersistedGlobalSettings MapFromPersisted(PersistedGlobalSettingsDocument persisted)
@@ -152,10 +145,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         };
 
     private static string GetDefaultStorageFilePath()
-    {
-        string appDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appDataRoot, "ArchHarness", "settings.json");
-    }
+        => FileSystemStorageHelper.GetAppDataFilePath("settings.json");
 
     private static string NormalizeModel(string? model, string fallback)
         => string.IsNullOrWhiteSpace(model) ? fallback : model.Trim();

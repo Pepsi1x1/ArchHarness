@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security;
 using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
@@ -29,15 +30,14 @@ public sealed class RunStateStore : IRunStateStore
     /// <inheritdoc />
     public Task WriteStateAsync(string runDirectory, PersistedRunState state, CancellationToken cancellationToken)
     {
-        string payload = JsonSerializer.Serialize(state, JsonDefaults.WEB_INDENTED);
-        string filePath = Path.Combine(runDirectory, RUN_STATE_FILE_NAME);
-        return File.WriteAllTextAsync(filePath, payload, cancellationToken);
+        string filePath = FileSystemStorageHelper.GetRunFilePath(runDirectory, RUN_STATE_FILE_NAME);
+        return FileSystemStorageHelper.WriteJsonFileAsync(filePath, state, JsonDefaults.WEB_INDENTED, cancellationToken);
     }
 
     /// <inheritdoc />
     public PersistedRunState? GetState(string runDirectory)
     {
-        string filePath = Path.Combine(runDirectory, RUN_STATE_FILE_NAME);
+        string filePath = FileSystemStorageHelper.GetRunFilePath(runDirectory, RUN_STATE_FILE_NAME);
         if (!File.Exists(filePath))
         {
             return null;
@@ -48,7 +48,19 @@ public sealed class RunStateStore : IRunStateStore
             string json = File.ReadAllText(filePath);
             return JsonSerializer.Deserialize<PersistedRunState>(json, JsonDefaults.WEB_INDENTED);
         }
-        catch
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (SecurityException)
+        {
+            return null;
+        }
+        catch (JsonException)
         {
             return null;
         }

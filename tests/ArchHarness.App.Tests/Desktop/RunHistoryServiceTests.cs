@@ -127,10 +127,10 @@ public sealed class RunHistoryServiceTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies that a run title and project metadata are synthesized from the request event when no run-log is present.
+    /// Verifies that request-only runs use a generic title instead of exposing prompt content.
     /// </summary>
     [Fact]
-    public void GetRecentRuns_SynthesizesTitleAndProjectMetadataFromRequestEvent()
+    public void GetRecentRuns_UsesGenericTitleWhenOnlyRequestEventIsPresent()
     {
         string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121800000");
         Directory.CreateDirectory(runDirectory);
@@ -142,9 +142,31 @@ public sealed class RunHistoryServiceTests : IDisposable
 
         PersistedRunSummary run = Assert.Single(service.GetRecentRuns(this._workspaceRoot));
 
-        Assert.Equal("Scaffold the project shell and wire", run.RunTitle);
+        Assert.Equal("Run request", run.RunTitle);
         Assert.Equal("project-beta", run.ProjectId);
         Assert.Equal("Beta Workspace", run.ProjectName);
+    }
+
+    /// <summary>
+    /// Verifies that artifact previews redact persisted prompt content before returning history.
+    /// </summary>
+    [Fact]
+    public void GetArtifacts_RedactsPromptContentFromJsonPreviews()
+    {
+        string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T122000000");
+        Directory.CreateDirectory(runDirectory);
+        File.WriteAllText(Path.Combine(runDirectory, "run-state.json"), """
+            {
+              "taskPrompt": "Use github_pat_abcdefghijklmnopqrstuvwxyz123456 to clone the repo"
+            }
+            """);
+
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
+
+        RunArtifactPreview artifact = Assert.Single(service.GetArtifacts(runDirectory, previewLength: 512));
+
+        Assert.DoesNotContain("github_pat_", artifact.Preview, StringComparison.Ordinal);
+        Assert.Contains("***REDACTED***", artifact.Preview, StringComparison.Ordinal);
     }
 
     /// <summary>

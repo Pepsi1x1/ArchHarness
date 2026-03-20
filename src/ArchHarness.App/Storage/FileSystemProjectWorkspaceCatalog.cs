@@ -24,7 +24,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
     /// </summary>
     public FileSystemProjectWorkspaceCatalog(string storageFilePath)
     {
-        this._storageFilePath = storageFilePath;
+        this._storageFilePath = FileSystemStorageHelper.NormalizePath(storageFilePath);
     }
 
     /// <inheritdoc />
@@ -199,24 +199,17 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
 
     private void SaveProjects(List<PersistedProjectWorkspace> projects)
     {
-        string? directory = Path.GetDirectoryName(this._storageFilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        string json = JsonSerializer.Serialize(projects.OrderByDescending(project => project.UpdatedAtUtc), JsonDefaults.WEB_INDENTED);
-        File.WriteAllText(this._storageFilePath, json);
+        FileSystemStorageHelper.WriteJsonFile(
+            this._storageFilePath,
+            projects.OrderByDescending(project => project.UpdatedAtUtc),
+            JsonDefaults.WEB_INDENTED);
     }
 
     private static string GetDefaultStorageFilePath()
-    {
-        string appDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appDataRoot, "ArchHarness", "projects.json");
-    }
+        => FileSystemStorageHelper.GetAppDataFilePath("projects.json");
 
     private static string NormalizeWorkspacePath(string workspacePath)
-        => Path.GetFullPath(Environment.ExpandEnvironmentVariables(workspacePath)).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        => FileSystemStorageHelper.NormalizePath(workspacePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
     private static string ResolveDisplayName(string? displayName, string workspacePath)
     {

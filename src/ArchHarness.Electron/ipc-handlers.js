@@ -1,5 +1,19 @@
 const { dialog, ipcMain } = require("electron");
 
+const MAX_DIALOG_TITLE_LENGTH = 120;
+
+function sanitizePickFolderOptions(options) {
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    return { title: "Select Project Folder" };
+  }
+
+  const title = typeof options.title === "string" && options.title.trim()
+    ? options.title.trim().slice(0, MAX_DIALOG_TITLE_LENGTH)
+    : "Select Project Folder";
+
+  return { title };
+}
+
 /**
  * IPC handler registry.
  * Open/Closed Principle: new handlers are added via the registry
@@ -11,9 +25,7 @@ const handlers = [
     handler: (windowProvider) => async (_, options) => {
       const window = windowProvider();
       const owner = window && !window.isDestroyed() ? window : null;
-      const title = typeof options?.title === "string" && options.title.trim()
-        ? options.title.trim()
-        : "Select Project Folder";
+      const { title } = sanitizePickFolderOptions(options);
       const result = await dialog.showOpenDialog(owner, {
         properties: ["openDirectory", "createDirectory"],
         title

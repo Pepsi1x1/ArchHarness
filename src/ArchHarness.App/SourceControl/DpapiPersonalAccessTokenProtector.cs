@@ -8,20 +8,20 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class DpapiPersonalAccessTokenProtector : IPersonalAccessTokenProtector
 {
+    private const string UNAVAILABLE_REASON = "DPAPI token protection is only available on Windows.";
+
     /// <inheritdoc />
     public bool CanProtect => OperatingSystem.IsWindows();
 
     /// <inheritdoc />
-    public string? UnavailableReason => this.CanProtect
-        ? null
-        : "DPAPI token protection is only available on Windows.";
+    public string? UnavailableReason => this.CanProtect ? null : UNAVAILABLE_REASON;
 
     /// <inheritdoc />
     public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("DPAPI token protection is only available on Windows.");
+            throw new PlatformNotSupportedException(UNAVAILABLE_REASON);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(personalAccessToken);
@@ -36,7 +36,7 @@ public sealed class DpapiPersonalAccessTokenProtector : IPersonalAccessTokenProt
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("DPAPI token protection is only available on Windows.");
+            throw new PlatformNotSupportedException(UNAVAILABLE_REASON);
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(protectedPersonalAccessToken);

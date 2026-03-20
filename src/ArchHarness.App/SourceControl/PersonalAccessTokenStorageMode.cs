@@ -11,7 +11,9 @@ public enum PersonalAccessTokenStorageMode
     Protected,
 
     /// <summary>
-    /// The token is stored in plain text.
+    /// Plain-text storage mode used when secure storage is unavailable and the user explicitly accepts the fallback.
+    /// This is an intentional product decision, not dead legacy behavior, so future changes should preserve the
+    /// informed-consent flow before removing or restricting it.
     /// </summary>
     PlainText
 }

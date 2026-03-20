@@ -19,6 +19,7 @@ builder.Services.AddArchHarnessWebServices(builder.Configuration);
 
 WebApplication app = builder.Build();
 app.UseArchHarnessExceptionHandling()
+    .UseArchHarnessLocalOnlyAccessControl()
     .UseArchHarnessSecurityHeaders()
     .UseDefaultFiles()
     .UseStaticFiles();

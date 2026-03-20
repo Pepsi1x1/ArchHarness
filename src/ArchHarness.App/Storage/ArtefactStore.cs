@@ -65,42 +65,30 @@ public sealed class ArtefactStore : IArtefactStore
     /// <inheritdoc />
     public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
     {
-        string filePath = Path.Combine(runDirectory, "ExecutionPlan.json");
-        string content = JsonSerializer.Serialize(plan, JsonDefaults.INDENTED);
-        return File.WriteAllTextAsync(filePath, content, cancellationToken);
+        return WriteRedactedJsonAsync(runDirectory, "ExecutionPlan.json", plan, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task WriteArchitectureReviewAsync(string runDirectory, ArchitectureReview review, CancellationToken cancellationToken)
     {
-        string filePath = Path.Combine(runDirectory, "ArchitectureReview.json");
-        string content = JsonSerializer.Serialize(review, JsonDefaults.INDENTED);
-        return File.WriteAllTextAsync(filePath, content, cancellationToken);
+        return WriteRedactedJsonAsync(runDirectory, "ArchitectureReview.json", review, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task WriteSecurityReviewAsync(string runDirectory, SecurityReview review, CancellationToken cancellationToken)
     {
-        string filePath = Path.Combine(runDirectory, "SecurityReview.json");
-        string content = JsonSerializer.Serialize(review, JsonDefaults.INDENTED);
-        return File.WriteAllTextAsync(filePath, content, cancellationToken);
+        return WriteRedactedJsonAsync(runDirectory, "SecurityReview.json", review, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken)
     {
-        string filePath = Path.Combine(runDirectory, "FinalSummary.md");
-        return File.WriteAllTextAsync(filePath, summary, cancellationToken);
+        return WriteRedactedTextAsync(runDirectory, "FinalSummary.md", summary, cancellationToken);
     }
 
     /// <inheritdoc />
     public Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken)
-    {
-        string filePath = Path.Combine(runDirectory, "BuildResult.json");
-        string serialized = JsonSerializer.Serialize(payload, JsonDefaults.INDENTED);
-        string content = Redaction.RedactSecrets(serialized);
-        return File.WriteAllTextAsync(filePath, content, cancellationToken);
-    }
+        => WriteRedactedJsonAsync(runDirectory, "BuildResult.json", payload, cancellationToken);
 
     /// <inheritdoc />
     public async Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
@@ -117,5 +105,18 @@ public sealed class ArtefactStore : IArtefactStore
         await using StreamWriter writer = new StreamWriter(stream);
         await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
         await writer.FlushAsync(cancellationToken);
+    }
+
+    private static Task WriteRedactedJsonAsync(string runDirectory, string fileName, object payload, CancellationToken cancellationToken)
+    {
+        string serialized = JsonSerializer.Serialize(payload, JsonDefaults.INDENTED);
+        return WriteRedactedTextAsync(runDirectory, fileName, serialized, cancellationToken);
+    }
+
+    private static Task WriteRedactedTextAsync(string runDirectory, string fileName, string content, CancellationToken cancellationToken)
+    {
+        string filePath = Path.Combine(Path.GetFullPath(runDirectory), fileName);
+        string redacted = Redaction.RedactSecrets(content);
+        return File.WriteAllTextAsync(filePath, redacted, cancellationToken);
     }
 }

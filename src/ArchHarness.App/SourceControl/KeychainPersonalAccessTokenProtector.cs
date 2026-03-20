@@ -1,9 +1,11 @@
+using ArchHarness.App.Core;
+
 namespace ArchHarness.App.SourceControl;
 
 /// <summary>
 /// Stores personal access tokens in the macOS login keychain.
 /// </summary>
-public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenProtector
+public sealed class KeychainPersonalAccessTokenProtector : SecureStorePersonalAccessTokenProtectorBase
 {
     private const string COMMAND_NAME = "security";
     private const string STORE_KIND = "keychain";
@@ -16,27 +18,22 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
     /// Initializes a new instance of the <see cref="KeychainPersonalAccessTokenProtector"/> class.
     /// </summary>
     public KeychainPersonalAccessTokenProtector(ILocalCommandRunner commandRunner, IRuntimePlatform runtimePlatform)
+        : base(STORE_KIND, "macOS Keychain storage requires the 'security' command and a macOS runtime.")
     {
         this._commandRunner = commandRunner;
         this._runtimePlatform = runtimePlatform;
     }
 
     /// <inheritdoc />
-    public bool CanProtect => this._runtimePlatform.IsMacOS && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
+    public override bool CanProtect => this._runtimePlatform.IsMacOS && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
 
     /// <inheritdoc />
-    public string? UnavailableReason => this.CanProtect
-        ? null
-        : "macOS Keychain storage requires the 'security' command and a macOS runtime.";
-
-    /// <inheritdoc />
-    public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+    public override string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(personalAccessToken);
+        this.EnsureSupported();
 
-        EnsureSupported(this.CanProtect, this.UnavailableReason);
-
-        string secretId = ResolveSecretId(existingProtectedPersonalAccessToken);
+        string secretId = this.ResolveSecretId(existingProtectedPersonalAccessToken);
         LocalCommandResult result = this._commandRunner.Run(
             COMMAND_NAME,
             new[]
@@ -56,15 +53,15 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
             throw new InvalidOperationException(BuildCommandFailureMessage("macOS Keychain", result));
         }
 
-        return SecureStoreTokenReference.Create(STORE_KIND, secretId);
+        return this.CreateTokenReference(secretId);
     }
 
     /// <inheritdoc />
-    public string Unprotect(string protectedPersonalAccessToken)
+    public override string Unprotect(string protectedPersonalAccessToken)
     {
-        EnsureSupported(this.CanProtect, this.UnavailableReason);
+        this.EnsureSupported();
 
-        string secretId = ParseSecretId(protectedPersonalAccessToken);
+        string secretId = this.ParseSecretId(protectedPersonalAccessToken, "The stored macOS Keychain token reference is invalid.");
         LocalCommandResult result = this._commandRunner.Run(
             COMMAND_NAME,
             new[]
@@ -84,55 +81,5 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
 
         return result.StandardOutput.TrimEnd('\r', '\n');
     }
-
-    private static string ResolveSecretId(string? existingProtectedPersonalAccessToken)
-    {
-        if (TryParseSecretId(existingProtectedPersonalAccessToken, out string? secretId))
-        {
-            return secretId!;
-        }
-
-        return Guid.NewGuid().ToString("N");
-    }
-
-    private static string ParseSecretId(string protectedPersonalAccessToken)
-    {
-        if (TryParseSecretId(protectedPersonalAccessToken, out string? secretId))
-        {
-            return secretId!;
-        }
-
-        throw new FormatException("The stored macOS Keychain token reference is invalid.");
-    }
-
-    private static bool TryParseSecretId(string? protectedPersonalAccessToken, out string? secretId)
-    {
-        secretId = null;
-        if (!SecureStoreTokenReference.TryParse(protectedPersonalAccessToken ?? string.Empty, out string storeKind, out string parsedSecretId)
-            || string.IsNullOrWhiteSpace(parsedSecretId)
-            || !string.Equals(storeKind, STORE_KIND, StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        secretId = parsedSecretId;
-        return true;
-    }
-
-    private static void EnsureSupported(bool canProtect, string? unavailableReason)
-    {
-        if (!canProtect)
-        {
-            throw new PlatformNotSupportedException(unavailableReason);
-        }
-    }
-
-    private static string BuildCommandFailureMessage(string storeName, LocalCommandResult result)
-    {
-        string errorText = string.IsNullOrWhiteSpace(result.StandardError)
-            ? result.StandardOutput
-            : result.StandardError;
-        errorText = string.IsNullOrWhiteSpace(errorText) ? $"exit code {result.ExitCode}" : errorText.Trim();
-        return $"{storeName} operation failed: {errorText}";
-    }
 }
+

@@ -420,9 +420,11 @@ internal static class ProgramHandlers
         return Results.Ok(providers);
     }
 
-    public static async Task<IResult> SaveProviderAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService)
+    public static async Task<IResult> SaveProviderAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService, IProviderConnectionSettingsCoordinator settingsCoordinator)
     {
-        Dictionary<string, string[]> validationErrors = ValidateProviderConnectionSettings(settings, requirePersonalAccessToken: false);
+        Dictionary<string, string[]> validationErrors = settingsCoordinator.GetValidationErrors(
+            settingsCoordinator.PrepareForSave(settings),
+            requirePersonalAccessToken: false);
         if (validationErrors.Count > 0)
         {
             return Results.ValidationProblem(validationErrors);
@@ -435,15 +437,29 @@ internal static class ProgramHandlers
                 .FirstOrDefault(provider => string.Equals(provider.DisplayName, NormalizeText(settings.DisplayName), StringComparison.OrdinalIgnoreCase));
             return Results.Ok(savedProvider);
         }
-        catch (PlainTextPersonalAccessTokenConfirmationRequiredException ex)
-        {
-            return Results.Conflict(CreatePersonalAccessTokenStorageConflict(ex.WarningMessage));
-        }
         catch (InvalidOperationException ex)
         {
+            if (ShouldOfferPlainTextPersonalAccessTokenFallback(settings, ex))
+            {
+                // The frontend uses this conflict response to warn the user before allowing plain-text fallback.
+                return Results.Conflict(new
+                {
+                    code = "pat-protection-unavailable",
+                    error = ex.Message,
+                    warning = ex.Message
+                });
+            }
+
             return Results.BadRequest(new { error = ex.Message });
         }
     }
+
+    private static bool ShouldOfferPlainTextPersonalAccessTokenFallback(ProviderConnectionSettings settings, InvalidOperationException exception)
+        // This predicate protects the intentional plain-text fallback path. Keep it aligned with the UI confirmation flow
+        // so plain-text storage only happens after the user is warned and opts in.
+        => settings.PersonalAccessTokenStorageMode == PersonalAccessTokenStorageMode.Protected
+            && !string.IsNullOrWhiteSpace(settings.PersonalAccessToken)
+            && exception.Message.Contains("secure", StringComparison.OrdinalIgnoreCase);
 
     public static async Task<IResult> DeleteProviderAsync(string displayName, ISourceControlProviderService providerService)
     {
@@ -470,11 +486,12 @@ internal static class ProgramHandlers
         }
     }
 
-    public static async Task<IResult> TestProviderConnectionAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService)
+    public static async Task<IResult> TestProviderConnectionAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService, IProviderConnectionSettingsCoordinator settingsCoordinator)
     {
-        Dictionary<string, string[]> validationErrors = ValidateProviderConnectionSettings(
-            settings,
-            requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(settings.Provider));
+        ProviderConnectionSettings preparedSettings = settingsCoordinator.PrepareForConnectionTest(settings);
+        Dictionary<string, string[]> validationErrors = settingsCoordinator.GetValidationErrors(
+            preparedSettings,
+            requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(preparedSettings.Provider));
         if (validationErrors.Count > 0)
         {
             return Results.ValidationProblem(validationErrors);
@@ -1123,138 +1140,8 @@ internal static class ProgramHandlers
             .Any(p => string.Equals(p.WorkspacePath, normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static Dictionary<string, string[]> ValidateProviderConnectionSettings(ProviderConnectionSettings settings, bool requirePersonalAccessToken)
-    {
-        const string serverUrlKey = "serverUrl";
-        Dictionary<string, List<string>> errors = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-
-        ValidateProviderType(settings, errors);
-        ValidateDisplayName(settings, errors);
-        ValidateOrganization(settings, errors);
-        ValidateGitHubOwnerType(settings, errors);
-        ValidateServerUrl(settings, errors, serverUrlKey);
-        ValidatePersonalAccessToken(settings, requirePersonalAccessToken, errors);
-
-        return errors.ToDictionary(entry => entry.Key, entry => entry.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static void ValidateProviderType(ProviderConnectionSettings settings, IDictionary<string, List<string>> errors)
-    {
-        if (!Enum.IsDefined(settings.Provider))
-        {
-            AddProviderValidationError(errors, "provider", "Provider is required.");
-        }
-    }
-
-    private static void ValidateDisplayName(ProviderConnectionSettings settings, IDictionary<string, List<string>> errors)
-    {
-        string? displayName = NormalizeText(settings.DisplayName);
-        if (string.IsNullOrWhiteSpace(displayName))
-        {
-            AddProviderValidationError(errors, "displayName", "DisplayName is required.");
-            return;
-        }
-
-        if (displayName.IndexOfAny(new[] { '/', '\\' }) >= 0)
-        {
-            AddProviderValidationError(errors, "displayName", "DisplayName cannot contain path separator characters.");
-        }
-    }
-
-    private static void ValidateOrganization(ProviderConnectionSettings settings, IDictionary<string, List<string>> errors)
-    {
-        if (string.IsNullOrWhiteSpace(NormalizeText(settings.Organization)))
-        {
-            AddProviderValidationError(errors, "organization", "Organization is required.");
-        }
-    }
-
-    private static void ValidateGitHubOwnerType(ProviderConnectionSettings settings, IDictionary<string, List<string>> errors)
-    {
-        if (settings.Provider != SourceControlProvider.GitHub)
-        {
-            return;
-        }
-
-        if (!Enum.IsDefined(settings.GitHubOwnerType))
-        {
-            AddProviderValidationError(errors, "gitHubOwnerType", "GitHubOwnerType is required for GitHub providers.");
-        }
-
-        if (!Enum.IsDefined(settings.GitHubAuthenticationMode))
-        {
-            AddProviderValidationError(errors, "gitHubAuthenticationMode", "GitHubAuthenticationMode is invalid for GitHub providers.");
-        }
-    }
-
-    private static void ValidateServerUrl(ProviderConnectionSettings settings, IDictionary<string, List<string>> errors, string serverUrlKey)
-    {
-        if (settings.Provider != SourceControlProvider.AzureDevOpsServer)
-        {
-            return;
-        }
-
-        string? serverUrl = NormalizeText(settings.ServerUrl);
-        if (string.IsNullOrWhiteSpace(serverUrl))
-        {
-            AddProviderValidationError(errors, serverUrlKey, "ServerUrl is required for Azure DevOps Server.");
-            return;
-        }
-
-        if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out Uri? parsedServerUrl))
-        {
-            AddProviderValidationError(errors, serverUrlKey, "ServerUrl must be an absolute URL.");
-            return;
-        }
-
-        if (!string.Equals(parsedServerUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            AddProviderValidationError(errors, serverUrlKey, "ServerUrl must use HTTPS.");
-            return;
-        }
-
-        if (!string.IsNullOrEmpty(parsedServerUrl.UserInfo))
-        {
-            AddProviderValidationError(errors, serverUrlKey, "ServerUrl cannot include embedded credentials.");
-        }
-    }
-
-    private static void ValidatePersonalAccessToken(ProviderConnectionSettings settings, bool requirePersonalAccessToken, IDictionary<string, List<string>> errors)
-    {
-        string? personalAccessToken = NormalizeText(settings.PersonalAccessToken);
-        if (requirePersonalAccessToken && string.IsNullOrWhiteSpace(personalAccessToken))
-        {
-            AddProviderValidationError(errors, "personalAccessToken", "PersonalAccessToken is required.");
-            return;
-        }
-
-        if (!LooksLikeAbsoluteHttpUrl(personalAccessToken))
-        {
-            return;
-        }
-
-        AddProviderValidationError(errors, "personalAccessToken", "PersonalAccessToken looks like a URL. Check browser autofill and re-enter the token.");
-    }
-
     private static bool RequiresPersonalAccessTokenForConnectionTest(SourceControlProvider provider)
         => provider is not SourceControlProvider.GitHub;
-
-    private static bool LooksLikeAbsoluteHttpUrl(string? value)
-        => !string.IsNullOrWhiteSpace(value)
-            && Uri.TryCreate(value, UriKind.Absolute, out Uri? parsedUri)
-            && (string.Equals(parsedUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(parsedUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
-
-    private static void AddProviderValidationError(IDictionary<string, List<string>> target, string key, string message)
-    {
-        if (!target.TryGetValue(key, out List<string>? messages))
-        {
-            messages = new List<string>();
-            target[key] = messages;
-        }
-
-        messages.Add(message);
-    }
 
     private static string? NormalizeText(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -1392,15 +1279,6 @@ internal static class ProgramHandlers
             : "pat";
         return new GitAuthenticationOptions(username, providerSettings.PersonalAccessToken.Trim());
     }
-
-    private static object CreatePersonalAccessTokenStorageConflict(string warningMessage)
-        => new
-        {
-            code = "pat-protection-unavailable",
-            error = warningMessage,
-            warning = warningMessage,
-            suggestedStorageMode = PersonalAccessTokenStorageMode.PlainText
-        };
 }
 
 internal sealed record PullRequestLookupContext(string ProviderName, string? Project, string? Repository, string? Author);

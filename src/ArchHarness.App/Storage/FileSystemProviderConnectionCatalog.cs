@@ -27,7 +27,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
     /// </summary>
     public FileSystemProviderConnectionCatalog(string storageFilePath, IPersonalAccessTokenProtector personalAccessTokenProtector)
     {
-        this._storageFilePath = storageFilePath;
+        this._storageFilePath = FileSystemStorageHelper.NormalizePath(storageFilePath);
         this._personalAccessTokenProtector = personalAccessTokenProtector;
     }
 
@@ -84,7 +84,11 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
     }
 
     private IReadOnlyList<ProviderConnectionSettings> LoadProviders()
-        => this.LoadPersistedProviders().Select(this.MapFromPersisted).ToArray();
+    {
+        List<PersistedProviderConnection> persistedProviders = this.LoadPersistedProviders().ToList();
+        this.MigrateLegacyPlainTextTokens(persistedProviders);
+        return persistedProviders.Select(this.MapFromPersisted).ToArray();
+    }
 
     private IReadOnlyList<PersistedProviderConnection> LoadPersistedProviders()
     {
@@ -123,18 +127,11 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
 
     private void SavePersistedProviders(IReadOnlyList<PersistedProviderConnection> providers)
     {
-        string? directory = Path.GetDirectoryName(this._storageFilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
         PersistedProviderConnection[] persistedProviders = providers
             .OrderBy(provider => provider.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        string json = JsonSerializer.Serialize(persistedProviders, JsonDefaults.WEB_INDENTED);
-        File.WriteAllText(this._storageFilePath, json);
+        FileSystemStorageHelper.WriteJsonFile(this._storageFilePath, persistedProviders, JsonDefaults.WEB_INDENTED);
     }
 
     private ProviderConnectionSettings MapFromPersisted(PersistedProviderConnection persisted)
@@ -157,6 +154,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
         }
         else if (!string.IsNullOrWhiteSpace(persisted.PlainTextPersonalAccessToken))
         {
+            // Plain-text tokens remain loadable because users can explicitly choose this fallback after a warning.
             personalAccessToken = persisted.PlainTextPersonalAccessToken;
             storageMode = PersonalAccessTokenStorageMode.PlainText;
         }
@@ -179,25 +177,34 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
     private PersistedProviderConnection MapToPersisted(ProviderConnectionSettings settings, string? existingProtectedPersonalAccessToken)
     {
         string? encryptedPersonalAccessToken = null;
-        string? plainTextPersonalAccessToken = null;
 
         if (!string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
         {
             if (settings.PersonalAccessTokenStorageMode == PersonalAccessTokenStorageMode.PlainText)
             {
-                plainTextPersonalAccessToken = settings.PersonalAccessToken;
+                // This fallback is intentional: the user has already been warned and chose plain-text storage.
+                return new PersistedProviderConnection(
+                    settings.Provider,
+                    settings.DisplayName,
+                    settings.ServerUrl,
+                    settings.Organization,
+                    settings.GitHubOwnerType,
+                    settings.GitHubAuthenticationMode,
+                    settings.GitHubAuthenticatedUser,
+                    null,
+                    settings.PersonalAccessToken,
+                    PersonalAccessTokenStorageMode.PlainText,
+                    settings.IsEnabled);
             }
-            else
-            {
-                if (!this._personalAccessTokenProtector.CanProtect)
-                {
-                    throw new PlainTextPersonalAccessTokenConfirmationRequiredException(
-                        this._personalAccessTokenProtector.UnavailableReason
-                            ?? "Secure personal access token storage is unavailable on this platform.");
-                }
 
-                encryptedPersonalAccessToken = this._personalAccessTokenProtector.Protect(settings.PersonalAccessToken, existingProtectedPersonalAccessToken);
+            if (!this._personalAccessTokenProtector.CanProtect)
+            {
+                throw new InvalidOperationException(
+                    this._personalAccessTokenProtector.UnavailableReason
+                        ?? "Secure personal access token storage is required on this platform.");
             }
+
+            encryptedPersonalAccessToken = this._personalAccessTokenProtector.Protect(settings.PersonalAccessToken, existingProtectedPersonalAccessToken);
         }
 
         return new PersistedProviderConnection(
@@ -209,17 +216,52 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             settings.GitHubAuthenticationMode,
             settings.GitHubAuthenticatedUser,
             encryptedPersonalAccessToken,
-            plainTextPersonalAccessToken,
-            settings.PersonalAccessTokenStorageMode,
+            null,
+            PersonalAccessTokenStorageMode.Protected,
             settings.IsEnabled);
     }
 
-    private static string GetDefaultStorageFilePath()
+    private void MigrateLegacyPlainTextTokens(List<PersistedProviderConnection> persistedProviders)
     {
-        string appDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appDataRoot, "ArchHarness", "providers.json");
+        bool updated = false;
+
+        for (int index = 0; index < persistedProviders.Count; index++)
+        {
+            PersistedProviderConnection persisted = persistedProviders[index];
+            if (string.IsNullOrWhiteSpace(persisted.PlainTextPersonalAccessToken))
+            {
+                continue;
+            }
+
+            if (!this._personalAccessTokenProtector.CanProtect)
+            {
+                // Plain-text storage is still a supported fallback, so lack of secure storage must not block loading it.
+                continue;
+            }
+
+            // When secure storage becomes available later, opportunistically upgrade the token without changing behavior.
+            persistedProviders[index] = persisted with
+            {
+                EncryptedPersonalAccessToken = this._personalAccessTokenProtector.Protect(
+                    persisted.PlainTextPersonalAccessToken,
+                    persisted.EncryptedPersonalAccessToken),
+                PlainTextPersonalAccessToken = null,
+                PersonalAccessTokenStorageMode = PersonalAccessTokenStorageMode.Protected
+            };
+            updated = true;
+        }
+
+        if (updated)
+        {
+            this.SavePersistedProviders(persistedProviders);
+        }
     }
 
+    private static string GetDefaultStorageFilePath()
+        => FileSystemStorageHelper.GetAppDataFilePath("providers.json");
+
+    // This persisted shape intentionally keeps a plain-text field because the product supports an explicit
+    // user-approved fallback when no secure store is available. Do not remove it unless the fallback itself changes.
     private sealed record PersistedProviderConnection(
         SourceControlProvider Provider,
         string? DisplayName,

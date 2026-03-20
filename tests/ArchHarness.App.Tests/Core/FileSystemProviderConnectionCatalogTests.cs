@@ -36,28 +36,39 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies that a provider saved with plain-text storage mode retains the token as plain text.
+    /// Verifies that legacy plain-text tokens are migrated to protected storage when a secure store is available.
     /// </summary>
     [Fact]
-    public void SaveProvider_PersistsPlainTextPersonalAccessTokenWhenRequested()
+    public void GetProviders_MigratesLegacyPlainTextPersonalAccessTokens()
     {
-        FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
-
-        catalog.SaveProvider(new ProviderConnectionSettings
-        {
-            Provider = SourceControlProvider.GitHub,
-            DisplayName = "GitHub",
-            Organization = "octo-org",
-            PersonalAccessToken = "github-pat",
-            PersonalAccessTokenStorageMode = PersonalAccessTokenStorageMode.PlainText,
-            IsEnabled = true
-        });
-
-        string json = File.ReadAllText(Path.Combine(this._root, "providers.json"));
-        Assert.Contains("github-pat", json);
+        string storagePath = Path.Combine(this._root, "providers.json");
+        Directory.CreateDirectory(this._root);
+        File.WriteAllText(storagePath, """
+            [
+              {
+                "provider": 2,
+                "displayName": "GitHub",
+                "serverUrl": null,
+                "organization": "octo-org",
+                "gitHubOwnerType": 0,
+                "gitHubAuthenticationMode": 0,
+                "gitHubAuthenticatedUser": null,
+                "encryptedPersonalAccessToken": null,
+                "plainTextPersonalAccessToken": "github-pat",
+                "personalAccessTokenStorageMode": 1,
+                "isEnabled": true
+              }
+            ]
+            """);
 
         ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
-        Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
+
+        Assert.Equal("github-pat", persisted.PersonalAccessToken);
+        Assert.Equal(PersonalAccessTokenStorageMode.Protected, persisted.PersonalAccessTokenStorageMode);
+
+        string migratedJson = File.ReadAllText(storagePath);
+        Assert.DoesNotContain("github-pat", migratedJson);
+        Assert.Contains("encryptedPersonalAccessToken", migratedJson);
     }
 
     /// <summary>
@@ -108,7 +119,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     }
 
     /// <summary>
-    /// Verifies that saving when protected storage is unavailable throws and requires plain-text confirmation.
+    /// Verifies that saving with protected storage still fails when secure storage is unavailable.
     /// </summary>
     [Fact]
     public void SaveProvider_ThrowsWhenProtectedStorageIsUnavailable()
@@ -117,7 +128,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             Path.Combine(this._root, "providers.json"),
             new TestPersonalAccessTokenProtector(canProtect: false));
 
-        PlainTextPersonalAccessTokenConfirmationRequiredException ex = Assert.Throws<PlainTextPersonalAccessTokenConfirmationRequiredException>(() =>
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
             catalog.SaveProvider(new ProviderConnectionSettings
             {
                 Provider = SourceControlProvider.GitHub,
@@ -127,7 +138,72 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
                 IsEnabled = true
             }));
 
-        Assert.Contains("plain text", ex.WarningMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secure", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Verifies that explicit plain-text storage persists when secure storage is unavailable.
+    /// </summary>
+    [Fact]
+    public void SaveProvider_PersistsPlainTextPersonalAccessTokenWhenRequested()
+    {
+        FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
+            Path.Combine(this._root, "providers.json"),
+            new TestPersonalAccessTokenProtector(canProtect: false));
+
+        catalog.SaveProvider(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            PersonalAccessTokenStorageMode = PersonalAccessTokenStorageMode.PlainText,
+            IsEnabled = true
+        });
+
+        string json = File.ReadAllText(Path.Combine(this._root, "providers.json"));
+        Assert.Contains("plainTextPersonalAccessToken", json);
+        Assert.Contains("github-pat", json);
+
+        ProviderConnectionSettings persisted = Assert.Single(catalog.GetProviders());
+        Assert.Equal("github-pat", persisted.PersonalAccessToken);
+        Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
+    }
+
+    /// <summary>
+    /// Verifies that plain-text tokens remain readable when secure storage is unavailable.
+    /// </summary>
+    [Fact]
+    public void GetProviders_LoadsPlainTextPersonalAccessTokensWhenProtectionIsUnavailable()
+    {
+        string storagePath = Path.Combine(this._root, "providers.json");
+        Directory.CreateDirectory(this._root);
+        File.WriteAllText(storagePath, """
+            [
+              {
+                "provider": 2,
+                "displayName": "GitHub",
+                "serverUrl": null,
+                "organization": "octo-org",
+                "gitHubOwnerType": 0,
+                "gitHubAuthenticationMode": 0,
+                "gitHubAuthenticatedUser": null,
+                "encryptedPersonalAccessToken": null,
+                "plainTextPersonalAccessToken": "github-pat",
+                "personalAccessTokenStorageMode": 1,
+                "isEnabled": true
+              }
+            ]
+            """);
+
+        FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
+            storagePath,
+            new TestPersonalAccessTokenProtector(canProtect: false));
+
+        ProviderConnectionSettings persisted = Assert.Single(catalog.GetProviders());
+
+        Assert.Equal("github-pat", persisted.PersonalAccessToken);
+        Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
     }
 
     /// <summary>
@@ -176,7 +252,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
 
         public string? UnavailableReason => this._canProtect
             ? null
-            : "Secure token storage is not available in this test instance. Storing the token will write it to disk in plain text.";
+            : "Secure token storage is not available in this test instance. Saving a personal access token requires a supported secure store.";
 
         public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
         {

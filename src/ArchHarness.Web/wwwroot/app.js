@@ -130,7 +130,6 @@ const REVIEW_PROVIDER_NAME_MAX_LENGTH = 128;
 const REVIEW_FILTER_MAX_LENGTH = 200;
 const REVIEW_PULL_REQUEST_ID_MAX_LENGTH = 20;
 const PAT_STORAGE_MODE_PROTECTED = 0;
-const PAT_STORAGE_MODE_PLAINTEXT = 1;
 const GITHUB_AUTH_MODE_NONE = 0;
 const GITHUB_AUTH_MODE_PAT = 1;
 const GITHUB_AUTH_MODE_OAUTH = 2;
@@ -1177,10 +1176,10 @@ function escapeHtml(text) {
     .replaceAll("'", "&#39;");
 }
 
-// Security boundary: sanitizeHtml is the only approved path for injecting rendered HTML into the DOM.
-// Every innerHTML or outerHTML write must go through sanitizeHtml or setSanitizedHtml so sink review stays centralized.
+// Security boundary: sanitizeHtmlFragment is the only approved path for injecting rendered HTML into the DOM.
+// Every rich-content write must go through sanitizeHtmlFragment or setSanitizedHtml so sink review stays centralized.
 // Strips hostile tags and URI schemes to guard against XSS from locally-rendered server content.
-function sanitizeHtml(html) {
+function sanitizeHtmlFragment(html) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html || "", "text/html");
   doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,use,link[rel=import]").forEach(el => el.remove());
@@ -1204,11 +1203,15 @@ function sanitizeHtml(html) {
       }
     }
   });
-  return doc.body.innerHTML;
+  const fragment = document.createDocumentFragment();
+  while (doc.body.firstChild) {
+    fragment.append(doc.body.firstChild);
+  }
+  return fragment;
 }
 
 function setSanitizedHtml(element, html) {
-  element.innerHTML = sanitizeHtml(html);
+  element.replaceChildren(sanitizeHtmlFragment(html));
 }
 
 function closeEventStream(status = "idle") {
@@ -2886,15 +2889,11 @@ async function copyGitHubOAuthCodeToClipboard() {
 
 function getGitHubAuthModeLabel(provider) {
   if (provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
-    return provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
-      ? "Plain Text OAuth"
-      : "Protected OAuth";
+    return "Protected OAuth";
   }
 
   if (provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_PAT) {
-    return provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
-      ? "Plain Text PAT"
-      : "Protected PAT";
+    return "Protected PAT";
   }
 
   return "Unauthenticated";
@@ -2905,8 +2904,6 @@ function getProviderCredentialBadge(provider) {
     let className = "provider-badge-protected";
     if (provider.gitHubAuthenticationMode === GITHUB_AUTH_MODE_NONE) {
       className = "provider-badge-neutral";
-    } else if (provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT) {
-      className = "provider-badge-plaintext";
     }
 
     return {
@@ -2916,12 +2913,8 @@ function getProviderCredentialBadge(provider) {
   }
 
   return {
-    text: provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
-      ? "Plain Text PAT"
-      : "Protected PAT",
-    className: provider.personalAccessTokenStorageMode === PAT_STORAGE_MODE_PLAINTEXT
-      ? "provider-badge-plaintext"
-      : "provider-badge-protected"
+    text: "Protected PAT",
+    className: "provider-badge-protected"
   };
 }
 
@@ -3395,13 +3388,24 @@ async function testProviderConnection() {
   }
 }
 
+async function persistProvider(payload) {
+  await requestJson("/api/providers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  return payload;
+}
+
 function shouldOfferPlainTextProviderFallback(error, payload) {
+  // Keep the fallback behind an explicit server signal so we only offer it for the intentional informed-consent path.
   return error?.status === 409
     && error?.data?.code === "pat-protection-unavailable"
     && payload.personalAccessTokenStorageMode !== PAT_STORAGE_MODE_PLAINTEXT;
 }
 
 function confirmPlainTextProviderFallback(warning) {
+  // Plain-text storage is only used after we warn the user and they explicitly opt in.
   return globalThis.confirm(`${warning}\n\nSelect OK to store the token in plain text for this provider, or Cancel to keep editing.`);
 }
 
@@ -3428,6 +3432,8 @@ async function persistProviderWithFallback(payload) {
         return null;
       }
 
+      // Preserve the user's informed choice so the follow-up save uses the requested fallback mode.
+      // Future changes should not silently downgrade to plain text without this explicit confirmation step.
       savePayload = {
         ...savePayload,
         personalAccessTokenStorageMode: PAT_STORAGE_MODE_PLAINTEXT

@@ -33,7 +33,7 @@ public sealed class PlatformPersonalAccessTokenProtector : IPersonalAccessTokenP
     public string? UnavailableReason => this.CanProtect
         ? null
         : this._activeProtector?.UnavailableReason
-            ?? "Secure personal access token storage is not available on this platform. Storing the token will write it to disk in plain text.";
+            ?? "Secure personal access token storage is not available on this platform. Saving a personal access token requires a supported secure store.";
 
     /// <inheritdoc />
     public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)

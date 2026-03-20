@@ -3,6 +3,7 @@ using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
+using ArchHarness.App.Tui;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -32,6 +33,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IGitRepositoryInfoService, LibGit2SharpRepositoryInfoService>();
         services.AddSingleton<IGlobalSettingsCatalog, FileSystemGlobalSettingsCatalog>();
         services.AddSingleton<IProviderConnectionCatalog, FileSystemProviderConnectionCatalog>();
+        services.AddSingleton<IProviderConnectionSettingsCoordinator, ProviderConnectionSettingsCoordinator>();
         services.AddSingleton<SourceControlProviderFactory>();
         services.AddSingleton<ISourceControlProviderService, SourceControlProviderService>();
         services.AddSingleton<IProjectWorkspaceCatalog, FileSystemProjectWorkspaceCatalog>();
@@ -67,12 +69,18 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IRunStore, RunStore>();
         services.AddSingleton<IRunStateStore, RunStateStore>();
         services.AddSingleton<IArtefactStore, ArtefactStore>();
-        services.AddSingleton<OrchestratorRuntime.OrchestratorAgentDependencies>();
+        services.AddSingleton<RunSessionContext>();
         services.AddSingleton<OrchestratorRuntime.RunPhaseDependencies>();
-        services.AddSingleton<AgentStepExecutor.StepAgentDependencies>();
+        services.AddSingleton<IRunCompletionValidator, RunCompletionValidator>();
+        services.AddSingleton<IRunAgentModelUsageBuilder, RunAgentModelUsageBuilder>();
+        services.AddSingleton<OrchestratorRunServices>();
+        services.AddSingleton<IOrchestratedRunProcessor, OrchestratedRunProcessor>();
         services.AddSingleton<ArchitectureReviewLoop.LoopAgentDependencies>();
         services.AddSingleton<ArchitectureReviewLoop>();
         services.AddSingleton<IArchitectureReviewLoop>(sp => sp.GetRequiredService<ArchitectureReviewLoop>());
+        services.AddSingleton<AgentStepReviewDispatcher>();
+        services.AddSingleton<IAgentStepDispatcher, AgentStepDispatcher>();
+        services.AddSingleton<IStepExecutionStateStore, StepExecutionStateStore>();
         services.AddSingleton<AgentStepExecutor>();
         services.AddSingleton<IAgentStepExecutor>(sp => sp.GetRequiredService<AgentStepExecutor>());
         services.AddSingleton<ExecutionPlanParser>();
@@ -87,6 +95,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<SetupSummaryGenerator>();
         services.AddSingleton<RunInfrastructure>();
         services.AddSingleton<OrchestratorRuntime>();
+        services.AddSingleton<IOrchestratorRuntime>(sp => sp.GetRequiredService<OrchestratorRuntime>());
         return services;
     }
 
@@ -97,7 +106,11 @@ public static class ArchHarnessServiceCollectionExtensions
     {
         services.AddSingleton<ISetupStatusSink, NullSetupStatusSink>();
         services.AddSingleton<IUserInputState, UserInputState>();
+        services.AddSingleton<IConsoleInputReader, ConsoleInputReader>();
+        services.AddSingleton<IChatTerminalRunController, ChatTerminalRunController>();
+        services.AddSingleton<IChatTerminalScreenNavigator, ChatTerminalScreenNavigator>();
         services.AddSingleton<ConversationController>();
         return services;
     }
 }
+

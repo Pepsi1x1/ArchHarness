@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics;
+using System.Net;
 
 namespace ArchHarness.Web;
 
@@ -49,5 +50,36 @@ internal static class ProgramApplicationExtensions
         });
 
         return app;
+    }
+
+    public static WebApplication UseArchHarnessLocalOnlyAccessControl(this WebApplication app)
+    {
+        app.Use(async (context, next) =>
+        {
+            IPAddress? remoteAddress = context.Connection.RemoteIpAddress;
+            if (remoteAddress is not null && !IsLoopback(remoteAddress))
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await Results.Problem(
+                    title: "Access denied.",
+                    detail: "ArchHarness.Web only accepts loopback requests.",
+                    statusCode: StatusCodes.Status403Forbidden).ExecuteAsync(context);
+                return;
+            }
+
+            await next();
+        });
+
+        return app;
+    }
+
+    private static bool IsLoopback(IPAddress address)
+    {
+        if (IPAddress.IsLoopback(address))
+        {
+            return true;
+        }
+
+        return address.IsIPv4MappedToIPv6 && IPAddress.IsLoopback(address.MapToIPv4());
     }
 }
