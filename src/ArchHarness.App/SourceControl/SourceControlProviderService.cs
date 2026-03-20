@@ -7,7 +7,7 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class SourceControlProviderService : ISourceControlProviderService
 {
-    private static readonly char[] InvalidDisplayNameCharacters = new[] { '/', '\\' };
+    private static readonly char[] _invalidDisplayNameCharacters = new[] { '/', '\\' };
 
     private readonly IProviderConnectionCatalog _providerConnectionCatalog;
     private readonly SourceControlProviderFactory _providerFactory;
@@ -122,7 +122,7 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
             throw new InvalidOperationException("DisplayName is required.");
         }
 
-        if (settings.DisplayName.IndexOfAny(InvalidDisplayNameCharacters) >= 0)
+        if (settings.DisplayName.IndexOfAny(_invalidDisplayNameCharacters) >= 0)
         {
             throw new InvalidOperationException("DisplayName cannot contain path separator characters.");
         }

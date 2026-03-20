@@ -74,12 +74,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         CancellationToken cancellationToken)
         => new Dictionary<string, Func<ExecutionPlanStep, Task>>
         {
-            ["FrontendDeveloper"] = step => this.ExecuteFrontendDeveloperStepAsync(step, adapter, request, state, cancellationToken),
-            ["BackendDeveloper"] = step => this.ExecuteBackendDeveloperStepAsync(step, adapter, request, state, cancellationToken),
-            ["Build"] = step => this.ExecuteBuildStepAsync(step, adapter, request, cancellationToken),
-            ["CodingStyle"] = step => this.ExecuteCodingStyleStepAsync(step, adapter, request, state, cancellationToken),
-            ["Security"] = step => this.ExecuteSecurityStepAsync(step, adapter, request, state, cancellationToken),
-            ["Architecture"] = step => this.ExecuteArchitectureStepAsync(step, adapter, request, state, cancellationToken)
+            [AgentNames.FRONTEND_DEVELOPER] = step => this.ExecuteFrontendDeveloperStepAsync(step, adapter, request, state, cancellationToken),
+            [AgentNames.BACKEND_DEVELOPER] = step => this.ExecuteBackendDeveloperStepAsync(step, adapter, request, state, cancellationToken),
+            [AgentNames.BUILD] = step => this.ExecuteBuildStepAsync(step, adapter, request, cancellationToken),
+            [AgentNames.CODING_STYLE] = step => this.ExecuteCodingStyleStepAsync(step, adapter, request, state, cancellationToken),
+            [AgentNames.SECURITY] = step => this.ExecuteSecurityStepAsync(step, adapter, request, state, cancellationToken),
+            [AgentNames.ARCHITECTURE] = step => this.ExecuteArchitectureStepAsync(step, adapter, request, state, cancellationToken)
         };
 
     private async Task<ExecutionPlanStep> ResolveNextStepAsync(
@@ -299,12 +299,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     private AgentExecutionContext ResolveAgentExecutionContext(string stepAgent)
         => stepAgent switch
         {
-            "FrontendDeveloper" => new AgentExecutionContext(this._agents.FrontendDeveloper.Id, this._agents.FrontendDeveloper.Role),
-            "BackendDeveloper" => new AgentExecutionContext(this._agents.BackendDeveloper.Id, this._agents.BackendDeveloper.Role),
-            "Build" => new AgentExecutionContext(this._agents.Build.Id, this._agents.Build.Role),
-            "CodingStyle" => new AgentExecutionContext(this._agents.CodingStyle.Id, this._agents.CodingStyle.Role),
-            "Security" => new AgentExecutionContext(this._agents.Security.Id, this._agents.Security.Role),
-            "Architecture" => new AgentExecutionContext(this._agents.Architecture.Id, this._agents.Architecture.Role),
+            AgentNames.FRONTEND_DEVELOPER => new AgentExecutionContext(this._agents.FrontendDeveloper.Id, this._agents.FrontendDeveloper.Role),
+            AgentNames.BACKEND_DEVELOPER => new AgentExecutionContext(this._agents.BackendDeveloper.Id, this._agents.BackendDeveloper.Role),
+            AgentNames.BUILD => new AgentExecutionContext(this._agents.Build.Id, this._agents.Build.Role),
+            AgentNames.CODING_STYLE => new AgentExecutionContext(this._agents.CodingStyle.Id, this._agents.CodingStyle.Role),
+            AgentNames.SECURITY => new AgentExecutionContext(this._agents.Security.Id, this._agents.Security.Role),
+            AgentNames.ARCHITECTURE => new AgentExecutionContext(this._agents.Architecture.Id, this._agents.Architecture.Role),
             _ => new AgentExecutionContext(stepAgent, stepAgent)
         };
 

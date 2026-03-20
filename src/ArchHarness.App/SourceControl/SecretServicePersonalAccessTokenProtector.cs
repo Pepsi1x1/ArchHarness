@@ -5,12 +5,12 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessTokenProtector
 {
-    private const string CommandName = "secret-tool";
-    private const string StoreKind = "secret-service";
-    private const string ServiceAttributeName = "service";
-    private const string ServiceAttributeValue = "ArchHarness";
-    private const string AccountAttributeName = "account";
-    private const string SecretLabel = "ArchHarness Personal Access Token";
+    private const string COMMAND_NAME = "secret-tool";
+    private const string STORE_KIND = "secret-service";
+    private const string SERVICE_ATTRIBUTE_NAME = "service";
+    private const string SERVICE_ATTRIBUTE_VALUE = "ArchHarness";
+    private const string ACCOUNT_ATTRIBUTE_NAME = "account";
+    private const string SECRET_LABEL = "ArchHarness Personal Access Token";
 
     private readonly ILocalCommandRunner _commandRunner;
     private readonly IRuntimePlatform _runtimePlatform;
@@ -25,7 +25,7 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
     }
 
     /// <inheritdoc />
-    public bool CanProtect => this._runtimePlatform.IsLinux && this._commandRunner.IsCommandAvailable(CommandName);
+    public bool CanProtect => this._runtimePlatform.IsLinux && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
 
     /// <inheritdoc />
     public string? UnavailableReason => this.CanProtect
@@ -41,14 +41,14 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
 
         string secretId = ResolveSecretId(existingProtectedPersonalAccessToken);
         LocalCommandResult result = this._commandRunner.Run(
-            CommandName,
+            COMMAND_NAME,
             new[]
             {
                 "store",
-                $"--label={SecretLabel}",
-                ServiceAttributeName,
-                ServiceAttributeValue,
-                AccountAttributeName,
+                $"--label={SECRET_LABEL}",
+                SERVICE_ATTRIBUTE_NAME,
+                SERVICE_ATTRIBUTE_VALUE,
+                ACCOUNT_ATTRIBUTE_NAME,
                 secretId
             },
             personalAccessToken);
@@ -58,7 +58,7 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
             throw new InvalidOperationException(BuildCommandFailureMessage("Secret Service", result));
         }
 
-        return SecureStoreTokenReference.Create(StoreKind, secretId);
+        return SecureStoreTokenReference.Create(STORE_KIND, secretId);
     }
 
     /// <inheritdoc />
@@ -68,13 +68,13 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
 
         string secretId = ParseSecretId(protectedPersonalAccessToken);
         LocalCommandResult result = this._commandRunner.Run(
-            CommandName,
+            COMMAND_NAME,
             new[]
             {
                 "lookup",
-                ServiceAttributeName,
-                ServiceAttributeValue,
-                AccountAttributeName,
+                SERVICE_ATTRIBUTE_NAME,
+                SERVICE_ATTRIBUTE_VALUE,
+                ACCOUNT_ATTRIBUTE_NAME,
                 secretId
             });
 
@@ -111,7 +111,7 @@ public sealed class SecretServicePersonalAccessTokenProtector : IPersonalAccessT
         secretId = null;
         if (!SecureStoreTokenReference.TryParse(protectedPersonalAccessToken ?? string.Empty, out string storeKind, out string parsedSecretId)
             || string.IsNullOrWhiteSpace(parsedSecretId)
-            || !string.Equals(storeKind, StoreKind, StringComparison.Ordinal))
+            || !string.Equals(storeKind, STORE_KIND, StringComparison.Ordinal))
         {
             return false;
         }

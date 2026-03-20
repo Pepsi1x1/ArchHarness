@@ -10,12 +10,12 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProviderService
 {
-    private const char UrlPathSeparator = '/';
-    private const string ValuePropertyName = "value";
-    private static readonly Regex SensitiveHeaderPattern = new Regex(
+    private const char URL_PATH_SEPARATOR = '/';
+    private const string VALUE_PROPERTY_NAME = "value";
+    private static readonly Regex _sensitiveHeaderPattern = new Regex(
         "(?i)\\b(authorization|token|pat)\\b\\s*[:=]\\s*[^,;\\s]+",
         RegexOptions.Compiled);
-    private static readonly Regex SensitiveSchemePattern = new Regex(
+    private static readonly Regex _sensitiveSchemePattern = new Regex(
         "(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_=\\-.]+",
         RegexOptions.Compiled);
     private readonly HttpClient _httpClient;
@@ -335,13 +335,13 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         if (segments.Count == 0)
         {
-            return UrlPathSeparator.ToString();
+            return URL_PATH_SEPARATOR.ToString();
         }
 
         StringBuilder builder = new StringBuilder();
         foreach (string segment in segments)
         {
-            builder.Append(UrlPathSeparator);
+            builder.Append(URL_PATH_SEPARATOR);
             builder.Append(Uri.EscapeDataString(RequireValue(segment, "segment")));
         }
 
@@ -375,7 +375,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
             return changes;
         }
 
-        return GetArrayProperty(parent, ValuePropertyName, "pull request file changes");
+        return GetArrayProperty(parent, VALUE_PROPERTY_NAME, "pull request file changes");
     }
 
     private static string GetStringValue(JsonElement element, string propertyName)
@@ -715,7 +715,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-        JsonElement pullRequests = GetArrayProperty(document.RootElement, ValuePropertyName, "pull requests");
+        JsonElement pullRequests = GetArrayProperty(document.RootElement, VALUE_PROPERTY_NAME, "pull requests");
 
         List<PullRequestSummary> batch = new List<PullRequestSummary>();
 
@@ -790,7 +790,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-        JsonElement projects = GetArrayProperty(document.RootElement, ValuePropertyName, "projects");
+        JsonElement projects = GetArrayProperty(document.RootElement, VALUE_PROPERTY_NAME, "projects");
 
         List<string> projectNames = new List<string>();
         foreach (JsonElement project in projects.EnumerateArray())
@@ -818,7 +818,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-        JsonElement repositories = GetArrayProperty(document.RootElement, ValuePropertyName, "repositories");
+        JsonElement repositories = GetArrayProperty(document.RootElement, VALUE_PROPERTY_NAME, "repositories");
 
         List<string> repositoryNames = new List<string>();
         foreach (JsonElement repository in repositories.EnumerateArray())
@@ -862,7 +862,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-        JsonElement iterations = GetArrayProperty(document.RootElement, ValuePropertyName, "pull request iterations");
+        JsonElement iterations = GetArrayProperty(document.RootElement, VALUE_PROPERTY_NAME, "pull request iterations");
 
         int? latestIterationId = null;
         foreach (JsonElement iteration in iterations.EnumerateArray())
@@ -950,8 +950,8 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
             .Replace('\r', ' ')
             .Replace('\n', ' ')
             .Trim();
-        sanitized = SensitiveSchemePattern.Replace(sanitized, "$1 [REDACTED]");
-        sanitized = SensitiveHeaderPattern.Replace(sanitized, "$1=[REDACTED]");
+        sanitized = _sensitiveSchemePattern.Replace(sanitized, "$1 [REDACTED]");
+        sanitized = _sensitiveHeaderPattern.Replace(sanitized, "$1=[REDACTED]");
         return sanitized.Length <= 240 ? sanitized : sanitized[..240];
     }
 }

@@ -5,10 +5,10 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 internal static class SecureStoreTokenReference
 {
-    private const string Prefix = "secure-store:";
+    private const string PREFIX = "secure-store:";
 
     public static string Create(string storeKind, string secretId)
-        => $"{Prefix}{storeKind}:{secretId}";
+        => $"{PREFIX}{storeKind}:{secretId}";
 
     public static bool TryParse(string protectedPersonalAccessToken, out string storeKind, out string secretId)
     {
@@ -16,12 +16,12 @@ internal static class SecureStoreTokenReference
         secretId = string.Empty;
 
         if (string.IsNullOrWhiteSpace(protectedPersonalAccessToken)
-            || !protectedPersonalAccessToken.StartsWith(Prefix, StringComparison.Ordinal))
+            || !protectedPersonalAccessToken.StartsWith(PREFIX, StringComparison.Ordinal))
         {
             return false;
         }
 
-        string remainder = protectedPersonalAccessToken[Prefix.Length..];
+        string remainder = protectedPersonalAccessToken[PREFIX.Length..];
         int separatorIndex = remainder.IndexOf(':');
         if (separatorIndex <= 0 || separatorIndex == remainder.Length - 1)
         {

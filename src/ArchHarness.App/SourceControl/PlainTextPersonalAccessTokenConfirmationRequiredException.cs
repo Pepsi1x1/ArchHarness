@@ -15,6 +15,15 @@ public sealed class PlainTextPersonalAccessTokenConfirmationRequiredException : 
     }
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="PlainTextPersonalAccessTokenConfirmationRequiredException"/> class with an inner exception.
+    /// </summary>
+    public PlainTextPersonalAccessTokenConfirmationRequiredException(string warningMessage, Exception innerException)
+        : base(warningMessage, innerException)
+    {
+        this.WarningMessage = warningMessage;
+    }
+
+    /// <summary>
     /// Gets the warning message that should be shown before allowing plain-text storage.
     /// </summary>
     public string WarningMessage { get; }

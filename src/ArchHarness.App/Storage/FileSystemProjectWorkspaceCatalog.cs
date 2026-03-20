@@ -8,7 +8,6 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
 {
-
     private readonly object _sync = new object();
     private readonly string _storageFilePath;
 

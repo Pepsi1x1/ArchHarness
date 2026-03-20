@@ -5,9 +5,9 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenProtector
 {
-    private const string CommandName = "security";
-    private const string StoreKind = "keychain";
-    private const string ServiceName = "ArchHarness.PersonalAccessToken";
+    private const string COMMAND_NAME = "security";
+    private const string STORE_KIND = "keychain";
+    private const string SERVICE_NAME = "ArchHarness.PersonalAccessToken";
 
     private readonly ILocalCommandRunner _commandRunner;
     private readonly IRuntimePlatform _runtimePlatform;
@@ -22,7 +22,7 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
     }
 
     /// <inheritdoc />
-    public bool CanProtect => this._runtimePlatform.IsMacOS && this._commandRunner.IsCommandAvailable(CommandName);
+    public bool CanProtect => this._runtimePlatform.IsMacOS && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
 
     /// <inheritdoc />
     public string? UnavailableReason => this.CanProtect
@@ -38,7 +38,7 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
 
         string secretId = ResolveSecretId(existingProtectedPersonalAccessToken);
         LocalCommandResult result = this._commandRunner.Run(
-            CommandName,
+            COMMAND_NAME,
             new[]
             {
                 "add-generic-password",
@@ -46,7 +46,7 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
                 "-a",
                 secretId,
                 "-s",
-                ServiceName,
+                SERVICE_NAME,
                 "-w",
                 personalAccessToken
             });
@@ -56,7 +56,7 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
             throw new InvalidOperationException(BuildCommandFailureMessage("macOS Keychain", result));
         }
 
-        return SecureStoreTokenReference.Create(StoreKind, secretId);
+        return SecureStoreTokenReference.Create(STORE_KIND, secretId);
     }
 
     /// <inheritdoc />
@@ -66,14 +66,14 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
 
         string secretId = ParseSecretId(protectedPersonalAccessToken);
         LocalCommandResult result = this._commandRunner.Run(
-            CommandName,
+            COMMAND_NAME,
             new[]
             {
                 "find-generic-password",
                 "-a",
                 secretId,
                 "-s",
-                ServiceName,
+                SERVICE_NAME,
                 "-w"
             });
 
@@ -110,7 +110,7 @@ public sealed class KeychainPersonalAccessTokenProtector : IPersonalAccessTokenP
         secretId = null;
         if (!SecureStoreTokenReference.TryParse(protectedPersonalAccessToken ?? string.Empty, out string storeKind, out string parsedSecretId)
             || string.IsNullOrWhiteSpace(parsedSecretId)
-            || !string.Equals(storeKind, StoreKind, StringComparison.Ordinal))
+            || !string.Equals(storeKind, STORE_KIND, StringComparison.Ordinal))
         {
             return false;
         }

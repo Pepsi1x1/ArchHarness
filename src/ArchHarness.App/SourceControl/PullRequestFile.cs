@@ -1,5 +1,10 @@
 namespace ArchHarness.App.SourceControl;
 
+/// <summary>
+/// Represents a file changed as part of a pull request.
+/// </summary>
+/// <param name="Path">Repository-relative file path.</param>
+/// <param name="ChangeType">Normalized change type for the file.</param>
 public record PullRequestFile(string Path, string ChangeType);
 
 internal static class PullRequestFileChangeTypes

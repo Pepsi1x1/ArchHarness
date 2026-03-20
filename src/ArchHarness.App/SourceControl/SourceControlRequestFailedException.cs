@@ -17,6 +17,15 @@ public sealed class SourceControlRequestFailedException : InvalidOperationExcept
     }
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="SourceControlRequestFailedException"/> class with an inner exception.
+    /// </summary>
+    public SourceControlRequestFailedException(string message, HttpStatusCode statusCode, Exception innerException)
+        : base(message, innerException)
+    {
+        this.StatusCode = statusCode;
+    }
+
+    /// <summary>
     /// Gets the upstream HTTP status code returned by the source-control provider.
     /// </summary>
     public HttpStatusCode StatusCode { get; }

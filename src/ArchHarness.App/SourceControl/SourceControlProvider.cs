@@ -5,7 +5,18 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public enum SourceControlProvider
 {
+    /// <summary>
+    /// Azure DevOps Server (on-premises).
+    /// </summary>
     AzureDevOpsServer,
+
+    /// <summary>
+    /// Azure DevOps Services (cloud-hosted).
+    /// </summary>
     AzureDevOpsServices,
+
+    /// <summary>
+    /// GitHub (cloud-hosted).
+    /// </summary>
     GitHub
 }

@@ -11,13 +11,13 @@ namespace ArchHarness.Web.Services;
 public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposable
 {
     private const int MAX_BUFFERED_EVENTS = 256;
-    private const string RunStateEventKind = "run-state";
-    private const string RuntimeProgressEventKind = "runtime-progress";
-    private const string AgentDeltaEventKind = "agent-delta";
-    private const string CopilotSessionEventKind = "copilot-session";
-    private const string WebHostEventSource = "web-host";
-    private const string OrchestratorEventSource = "orchestrator";
-    private const string CopilotEventSource = "copilot";
+    private const string RUN_STATE_EVENT_KIND = "run-state";
+    private const string RUNTIME_PROGRESS_EVENT_KIND = "runtime-progress";
+    private const string AGENT_DELTA_EVENT_KIND = "agent-delta";
+    private const string COPILOT_SESSION_EVENT_KIND = "copilot-session";
+    private const string WEB_HOST_EVENT_SOURCE = "web-host";
+    private const string ORCHESTRATOR_EVENT_SOURCE = "orchestrator";
+    private const string COPILOT_EVENT_SOURCE = "copilot";
 
     private readonly OrchestratorRuntime _runtime;
     private readonly IAgentStreamEventStream _agentStreamEventStream;
@@ -76,7 +76,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                     null);
             }
 
-            this.Publish(new WebRunEvent(startedAt, RunStateEventKind, WebHostEventSource, "Run accepted by local web host."));
+            this.Publish(new WebRunEvent(startedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run accepted by local web host."));
             _ = Task.Run(() => this.ExecuteRunAsync(request, runCts), CancellationToken.None);
             return this.GetSnapshot();
         }
@@ -114,7 +114,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
             };
         }
 
-        this.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RunStateEventKind, WebHostEventSource, "Cancellation requested by browser client."));
+        this.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Cancellation requested by browser client."));
         await runCts.CancelAsync().ConfigureAwait(false);
         return this.GetSnapshot();
     }
@@ -189,7 +189,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
     {
         Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
         {
-            this.Publish(new WebRunEvent(evt.TimestampUtc, RuntimeProgressEventKind, evt.Source, evt.Message, Details: evt.Prompt));
+            this.Publish(new WebRunEvent(evt.TimestampUtc, RUNTIME_PROGRESS_EVENT_KIND, evt.Source, evt.Message, Details: evt.Prompt));
             this.UpdateStatus("running", null, null);
         });
 
@@ -210,7 +210,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 };
             }
 
-            this.Publish(new WebRunEvent(completedAt, RunStateEventKind, OrchestratorEventSource, $"Run {artefacts.RunId} completed.", Details: artefacts.RunDirectory));
+            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {artefacts.RunId} completed.", Details: artefacts.RunDirectory));
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !this._disposeCts.IsCancellationRequested)
         {
@@ -226,7 +226,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 };
             }
 
-            this.Publish(new WebRunEvent(completedAt, RunStateEventKind, WebHostEventSource, "Run canceled by browser client."));
+            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run canceled by browser client."));
         }
         catch (OperationCanceledException) when (this._disposeCts.IsCancellationRequested)
         {
@@ -242,7 +242,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 };
             }
 
-            this.Publish(new WebRunEvent(completedAt, RunStateEventKind, WebHostEventSource, "Run stopped because the local web host is shutting down."));
+            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run stopped because the local web host is shutting down."));
         }
         catch (Exception ex)
         {
@@ -259,7 +259,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 };
             }
 
-            this.Publish(new WebRunEvent(completedAt, RunStateEventKind, OrchestratorEventSource, "Run failed."));
+            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
         }
         finally
         {
@@ -293,7 +293,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         {
             this.Publish(new WebRunEvent(
                 evt.TimestampUtc,
-                AgentDeltaEventKind,
+                AGENT_DELTA_EVENT_KIND,
                 evt.AgentRole,
                 evt.DeltaContent,
                 evt.AgentId,
@@ -311,7 +311,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
             string message = string.IsNullOrWhiteSpace(evt.Details)
                 ? evt.EventType
                 : $"{evt.EventType}: {evt.Details}";
-            this.Publish(new WebRunEvent(evt.TimestampUtc, CopilotSessionEventKind, CopilotEventSource, message, SessionId: evt.SessionId, Model: evt.Model, Details: evt.EventType));
+            this.Publish(new WebRunEvent(evt.TimestampUtc, COPILOT_SESSION_EVENT_KIND, COPILOT_EVENT_SOURCE, message, SessionId: evt.SessionId, Model: evt.Model, Details: evt.EventType));
         }
     }
 
@@ -351,7 +351,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
             };
         }
 
-        this.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RunStateEventKind, OrchestratorEventSource, $"Run {runId} started.", Details: runDirectory));
+        this.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {runId} started.", Details: runDirectory));
     }
 
     private void UpdateStatus(string status, DateTimeOffset? completedAtUtc, string? failureMessage)
