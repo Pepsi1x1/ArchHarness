@@ -1189,6 +1189,11 @@ html[data-desktop-platform="win32"] .field select option:hover {
   display: grid;
   place-items: center;
   z-index: 21;
+  -webkit-app-region: no-drag;
+}
+
+:root[data-titlebar-overlay="true"] .modal {
+  inset: calc(20px + var(--desktop-titlebar-height)) 20px 20px;
 }
 
 .modal-card {
@@ -1196,6 +1201,13 @@ html[data-desktop-platform="win32"] .field select option:hover {
   max-height: calc(100vh - 40px);
   overflow: auto;
   background: var(--panel-elevated);
+  position: relative;
+  z-index: 1;
+  -webkit-app-region: no-drag;
+}
+
+:root[data-titlebar-overlay="true"] .modal-card {
+  max-height: calc(100vh - 40px - var(--desktop-titlebar-height));
 }
 
 .large-modal {
@@ -1204,6 +1216,19 @@ html[data-desktop-platform="win32"] .field select option:hover {
 
 .modal-header {
   margin-bottom: 8px;
+  position: relative;
+  z-index: 2;
+  -webkit-app-region: no-drag;
+}
+
+.modal-header .icon-button,
+.modal-card .icon-button,
+.modal-card button,
+.modal-card input,
+.modal-card select,
+.modal-card textarea,
+.modal-card a {
+  -webkit-app-region: no-drag;
 }
 
 .modal-grid,
