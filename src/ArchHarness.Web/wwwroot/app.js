@@ -2642,9 +2642,52 @@ function switchSettingsTab(tabName) {
     const isActive = btn.dataset.tab === tabName;
     btn.classList.toggle("active", isActive);
     btn.setAttribute("aria-selected", isActive ? "true" : "false");
+    btn.setAttribute("tabindex", isActive ? "0" : "-1");
   });
-  document.getElementById("settings-tab-agent").classList.toggle("hidden", tabName !== "agent-settings");
-  document.getElementById("settings-tab-providers").classList.toggle("hidden", tabName !== "source-control-providers");
+
+  const agentPanel = document.getElementById("settings-tab-agent");
+  const providersPanel = document.getElementById("settings-tab-providers");
+  const showAgentPanel = tabName === "agent-settings";
+  const showProvidersPanel = tabName === "source-control-providers";
+
+  agentPanel.classList.toggle("hidden", !showAgentPanel);
+  agentPanel.hidden = !showAgentPanel;
+  providersPanel.classList.toggle("hidden", !showProvidersPanel);
+  providersPanel.hidden = !showProvidersPanel;
+}
+
+function handleSettingsTabKeydown(event) {
+  const tabs = Array.from(document.querySelectorAll(".settings-tab"));
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0) {
+    return;
+  }
+
+  const nextIndex = (() => {
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        return (currentIndex + 1) % tabs.length;
+      case "ArrowLeft":
+      case "ArrowUp":
+        return (currentIndex - 1 + tabs.length) % tabs.length;
+      case "Home":
+        return 0;
+      case "End":
+        return tabs.length - 1;
+      default:
+        return null;
+    }
+  })();
+
+  if (nextIndex === null) {
+    return;
+  }
+
+  event.preventDefault();
+  const nextTab = tabs[nextIndex];
+  switchSettingsTab(nextTab.dataset.tab);
+  nextTab.focus();
 }
 
 // =================== Multi-Provider Setup ===================
@@ -4512,6 +4555,7 @@ function attachHandlers() {
   elements.modalBackdrop.addEventListener("click", closeModal);
   document.querySelectorAll(".settings-tab").forEach(btn => {
     btn.addEventListener("click", () => switchSettingsTab(btn.dataset.tab));
+    btn.addEventListener("keydown", handleSettingsTabKeydown);
   });
   elements.btnAddProvider.addEventListener("click", () => openProviderSetup());
   elements.btnCancelProvider.addEventListener("click", closeProviderSetup);

@@ -162,13 +162,13 @@
         <button data-close-modal="settings-modal" class="icon-button" type="button" aria-label="Close settings">✕</button>
       </div>
 
-      <div class="settings-tabs" role="tablist">
-        <button class="settings-tab active" data-tab="agent-settings" type="button" role="tab" aria-selected="true">Agent Settings</button>
-        <button class="settings-tab" data-tab="source-control-providers" type="button" role="tab" aria-selected="false">Source Control Providers</button>
+      <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+        <button id="settings-tab-button-agent" class="settings-tab active" data-tab="agent-settings" type="button" role="tab" aria-selected="true" aria-controls="settings-tab-agent" tabindex="0">Agent Settings</button>
+        <button id="settings-tab-button-providers" class="settings-tab" data-tab="source-control-providers" type="button" role="tab" aria-selected="false" aria-controls="settings-tab-providers" tabindex="-1">Source Control Providers</button>
       </div>
 
       <form id="settings-form" class="modal-form">
-        <div id="settings-tab-agent" class="settings-tab-panel">
+        <div id="settings-tab-agent" class="settings-tab-panel" role="tabpanel" aria-labelledby="settings-tab-button-agent">
           <div id="settings-grid" class="settings-grid"></div>
 
           <div class="modal-grid">
@@ -189,7 +189,7 @@
           </label>
         </div>
 
-        <div id="settings-tab-providers" class="settings-tab-panel hidden">
+        <div id="settings-tab-providers" class="settings-tab-panel hidden" role="tabpanel" aria-labelledby="settings-tab-button-providers" hidden>
           <div class="settings-section-header">
             <h3 class="settings-section-heading">Source Control Providers</h3>
             <button id="btn-add-provider" class="ghost-button small-button" type="button">Add Provider</button>
