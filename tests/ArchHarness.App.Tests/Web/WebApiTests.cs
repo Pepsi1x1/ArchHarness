@@ -83,6 +83,114 @@ public sealed class WebApiTests
     }
 
     [Fact]
+    public async Task RunEventsEndpoint_ReturnsPersistedReplayEvents()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("project-api-run-events-workspace");
+
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Replay Workspace",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", "20260315T121500000");
+        Directory.CreateDirectory(runDirectory);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "events.jsonl"), """
+            {"runId":"20260315T121500000","source":"request","message":"Run request received","taskPrompt":"Show the persisted stream output","timestampUtc":"2026-03-15T12:15:00Z"}
+            {"runId":"20260315T121500000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Rendered output","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-15T12:15:01Z"}
+            """);
+
+        JsonDocument document = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/20260315T121500000/events?workspacePath={Uri.EscapeDataString(workspacePath)}"));
+        JsonElement[] events = document.RootElement.EnumerateArray().ToArray();
+
+        Assert.Equal(2, events.Length);
+        Assert.Equal("request", events[0].GetProperty("kind").GetString());
+        Assert.Equal("agent-delta", events[1].GetProperty("kind").GetString());
+        Assert.Equal("architecture", events[1].GetProperty("agentId").GetString());
+        Assert.Equal("Rendered output", events[1].GetProperty("message").GetString());
+    }
+
+        [Fact]
+        public async Task RunStateAndResumeEndpoints_ExposeResumableRuns()
+        {
+                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+                using HttpClient client = factory.CreateClient();
+                string workspacePath = factory.CreateWorkspace("project-api-run-state-workspace");
+
+                HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+                {
+                        displayName = "Resume Workspace",
+                        workspacePath,
+                        workspaceMode = "existing-folder",
+                        permissionHandlerMode = "approve-all",
+                        architectureReviewMode = false,
+                        architectureReviewPrompt = (string?)null
+                });
+
+                Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+                string runId = "20260315T121700000";
+                string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", runId);
+                Directory.CreateDirectory(runDirectory);
+                await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-state.json"), $$"""
+                        {
+                            "runId": "{{runId}}",
+                            "runDirectory": "{{runDirectory.Replace("\\", "\\\\")}}",
+                            "workspaceRoot": "{{workspacePath.Replace("\\", "\\\\")}}",
+                            "status": "running",
+                            "phase": "executing-plan",
+                            "startedAtUtc": "2026-03-15T12:17:00Z",
+                            "updatedAtUtc": "2026-03-15T12:18:00Z",
+                            "request": {
+                                "taskPrompt": "Resume the interrupted run",
+                                "workspacePath": "{{workspacePath.Replace("\\", "\\\\")}}",
+                                "workspaceMode": "existing-folder",
+                                "workflow": "auto",
+                                "projectName": "Resume Workspace",
+                                "projectId": "resume-project",
+                                "modelOverrides": null,
+                                "buildCommand": null,
+                                "permissionHandlerMode": "approve-all",
+                                "reviewLoopAgents": {
+                                    "codingStyleEnabled": true,
+                                    "securityEnabled": true,
+                                    "architectureEnabled": true
+                                },
+                                "architectureLoopMode": false,
+                                "architectureLoopPrompt": null,
+                                "runTitle": "Resume interrupted run"
+                            },
+                            "completedStepIds": [1, 2],
+                            "reviewIteration": 1,
+                            "frontendPlan": "Continue work",
+                            "filesTouched": ["src/Program.cs"],
+                            "review": { "findings": [], "requiredActions": [] },
+                            "securityReview": { "findings": [], "requiredActions": [] },
+                            "failureMessage": null
+                        }
+                        """);
+
+                JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
+                Assert.True(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
+                Assert.Equal("executing-plan", stateDocument.RootElement.GetProperty("phase").GetString());
+
+                HttpResponseMessage resumeResponse = await client.PostAsync($"/api/runs/{runId}/resume?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
+                Assert.Equal(HttpStatusCode.Accepted, resumeResponse.StatusCode);
+
+                JsonDocument resumeDocument = JsonDocument.Parse(await resumeResponse.Content.ReadAsStringAsync());
+                Assert.Equal("resuming", resumeDocument.RootElement.GetProperty("status").GetString());
+                Assert.Equal(runId, resumeDocument.RootElement.GetProperty("runId").GetString());
+        }
+
+    [Fact]
     public async Task RunEndpoint_TransitionsNewProjectModeAfterFirstAcceptedRun()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();

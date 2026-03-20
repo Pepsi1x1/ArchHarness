@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Security;
+using System.Globalization;
 using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
@@ -53,6 +54,64 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         return Directory.GetFiles(runDirectory)
             .OrderBy(file => file)
             .Select(file => BuildArtifact(file, previewLength))
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PersistedRunEvent> GetEvents(string runDirectory)
+    {
+        if (!Directory.Exists(runDirectory))
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+
+        string eventsPath = Path.Combine(runDirectory, "events.jsonl");
+        if (!File.Exists(eventsPath))
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+
+        List<PersistedRunEvent> events = new List<PersistedRunEvent>();
+
+        try
+        {
+            foreach (string line in File.ReadLines(eventsPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(line);
+                    PersistedRunEvent? evt = TryBuildRunEvent(document.RootElement);
+                    if (evt is not null)
+                    {
+                        events.Add(evt);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Ignore malformed lines and continue scanning.
+                }
+            }
+        }
+        catch (IOException)
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+        catch (SecurityException)
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+
+        return events
+            .OrderBy(evt => evt.TimestampUtc)
             .ToList();
     }
 
@@ -301,6 +360,84 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 
         string candidate = string.Join(" ", words).Trim();
         return string.IsNullOrWhiteSpace(candidate) ? null : candidate;
+    }
+
+    private static PersistedRunEvent? TryBuildRunEvent(JsonElement root)
+    {
+        string? source = ReadString(root, "source");
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return null;
+        }
+
+        DateTimeOffset timestampUtc = ReadTimestamp(root);
+
+        if (string.Equals(source, "request", StringComparison.OrdinalIgnoreCase))
+        {
+            string? taskPrompt = ReadString(root, "taskPrompt");
+            if (string.IsNullOrWhiteSpace(taskPrompt))
+            {
+                return null;
+            }
+
+            return new PersistedRunEvent(
+                timestampUtc,
+                "request",
+                source,
+                ReadString(root, "message") ?? "Run request received",
+                TaskPrompt: taskPrompt);
+        }
+
+        string? kind = ReadString(root, "kind");
+        if (string.Equals(kind, "agent-delta", StringComparison.OrdinalIgnoreCase))
+        {
+            string? message = ReadString(root, "message");
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return null;
+            }
+
+            return new PersistedRunEvent(
+                timestampUtc,
+                "agent-delta",
+                source,
+                message,
+                AgentId: ReadString(root, "agentId"),
+                AgentRole: ReadString(root, "agentRole"),
+                ContentFormat: ReadString(root, "contentFormat"),
+                StreamKind: ReadString(root, "streamKind"),
+                Title: ReadString(root, "title"));
+        }
+
+        if (string.Equals(source, "copilot.session", StringComparison.OrdinalIgnoreCase))
+        {
+            string eventType = ReadString(root, "eventType") ?? "copilot.session";
+            string? details = ReadString(root, "details");
+            string message = string.IsNullOrWhiteSpace(details)
+                ? eventType
+                : $"{eventType}: {details}";
+            return new PersistedRunEvent(
+                timestampUtc,
+                "copilot-session",
+                source,
+                message,
+                SessionId: ReadString(root, "sessionId"),
+                Model: ReadString(root, "model"),
+                Details: eventType);
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset ReadTimestamp(JsonElement root)
+    {
+        string? rawTimestamp = ReadString(root, "timestampUtc") ?? ReadString(root, "timestamp");
+        if (DateTimeOffset.TryParse(rawTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestampUtc))
+        {
+            return timestampUtc;
+        }
+
+        return DateTimeOffset.MinValue;
     }
 
     private static string? ReadString(JsonElement root, string propertyName)

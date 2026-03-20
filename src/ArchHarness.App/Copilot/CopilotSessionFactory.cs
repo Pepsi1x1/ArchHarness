@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using ArchHarness.App.Core;
 using GitHub.Copilot.SDK;
 using Microsoft.Extensions.Logging;
@@ -35,6 +37,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     private readonly ICopilotClientProvider _clientProvider;
     private readonly SessionHooksDependencies _hooks;
     private readonly CopilotSessionContext _sessionContext;
+    private readonly IRunContextAccessor _runContextAccessor;
     private readonly RuntimeStateAccessors _stateAccessors;
     private readonly ILogger<CopilotSessionFactory> _logger;
     private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>>();
@@ -55,6 +58,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         ICopilotClientProvider clientProvider,
         SessionHooksDependencies hooks,
         CopilotSessionContext sessionContext,
+        IRunContextAccessor runContextAccessor,
         RuntimeStateAccessors stateAccessors,
         ILogger<CopilotSessionFactory> logger)
     {
@@ -62,6 +66,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         this._clientProvider = clientProvider;
         this._hooks = hooks;
         this._sessionContext = sessionContext;
+        this._runContextAccessor = runContextAccessor;
         this._stateAccessors = stateAccessors;
         this._logger = logger;
         this._sessionInactivityTimeoutSeconds = Math.Max(0, options.Value.SessionResponseTimeoutSeconds);
@@ -135,10 +140,11 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     {
         string workspaceRoot = ResolveWorkspaceRoot(this._stateAccessors.WorkspaceRoot.Current);
         string permissionHandlerMode = PermissionHandlerModes.Normalize(this._stateAccessors.PermissionHandlerMode.Current);
-        SessionCacheKey key = BuildSessionCacheKey(model, options, workspaceRoot, permissionHandlerMode);
+        string? runId = this._runContextAccessor.Current?.RunId;
+        SessionCacheKey key = BuildSessionCacheKey(model, options, workspaceRoot, permissionHandlerMode, runId);
         Lazy<Task<SessionHandle>> lazy = this._sessionHandles.GetOrAdd(
             key,
-            cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options, permissionHandlerMode), LazyThreadSafetyMode.ExecutionAndPublication));
+            cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options, permissionHandlerMode, cacheKey), LazyThreadSafetyMode.ExecutionAndPublication));
         return this.AwaitSessionHandleAsync(key, lazy);
     }
 
@@ -155,50 +161,15 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         }
     }
 
-    private async Task<SessionHandle> CreateSessionHandleAsync(string model, CopilotCompletionOptions? requestOptions, string permissionHandlerMode)
+    private async Task<SessionHandle> CreateSessionHandleAsync(string model, CopilotCompletionOptions? requestOptions, string permissionHandlerMode, SessionCacheKey cacheKey)
     {
         try
         {
             GitHub.Copilot.SDK.CopilotClient client = await this._clientProvider.GetClientAsync().ConfigureAwait(false);
-            SessionConfig config = new SessionConfig
-            {
-                Model = model,
-                Streaming = this._options.StreamingResponses,
-                OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
-                OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
-                Hooks = new SessionHooks
-                {
-                    OnPreToolUse = async (input, _) => await this._hooks.Governance.OnPreToolUseAsync(input).ConfigureAwait(false),
-                    OnPostToolUse = async (input, _) => await this._hooks.Governance.OnPostToolUseAsync(input).ConfigureAwait(false)
-                }
-            };
+            SessionConfig config = this.CreateSessionConfig(model, requestOptions, permissionHandlerMode, cacheKey);
+            string? stableSessionId = BuildStableSessionId(cacheKey);
+            CopilotSession session = await this.CreateOrResumeSessionAsync(client, config, stableSessionId, model, permissionHandlerMode, cacheKey).ConfigureAwait(false);
 
-            if (!string.IsNullOrWhiteSpace(requestOptions?.SystemMessage))
-            {
-                config.SystemMessage = new SystemMessageConfig
-                {
-                    Mode = requestOptions.SystemMessageMode == CopilotSystemMessageMode.Replace
-                        ? SystemMessageMode.Replace
-                        : SystemMessageMode.Append,
-                    Content = requestOptions.SystemMessage
-                };
-            }
-
-            IReadOnlyList<string>? availableTools = requestOptions?.AvailableTools is { Count: > 0 }
-                ? requestOptions.AvailableTools
-                : this._options.AvailableTools;
-            if (availableTools.Count > 0)
-            {
-                config.AvailableTools = availableTools.ToList();
-            }
-
-            string[] excludedTools = MergeExcludedTools(this._options.ExcludedTools, requestOptions?.ExcludedTools);
-            if (excludedTools.Length > 0)
-            {
-                config.ExcludedTools = excludedTools.ToList();
-            }
-
-            CopilotSession session = await client.CreateSessionAsync(config).ConfigureAwait(false);
             return new SessionHandle(session, new SemaphoreSlim(1, 1));
         }
         catch (Exception ex)
@@ -225,18 +196,112 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         }
     }
 
+    private SessionConfig CreateSessionConfig(string model, CopilotCompletionOptions? requestOptions, string permissionHandlerMode, SessionCacheKey cacheKey)
+    {
+        SessionConfig config = new SessionConfig
+        {
+            Model = model,
+            Streaming = this._options.StreamingResponses,
+            OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
+            OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
+            Hooks = this.CreateSessionHooks()
+        };
+
+        string? stableSessionId = BuildStableSessionId(cacheKey);
+        if (!string.IsNullOrWhiteSpace(stableSessionId))
+        {
+            config.SessionId = stableSessionId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(requestOptions?.SystemMessage))
+        {
+            config.SystemMessage = new SystemMessageConfig
+            {
+                Mode = requestOptions.SystemMessageMode == CopilotSystemMessageMode.Replace
+                    ? SystemMessageMode.Replace
+                    : SystemMessageMode.Append,
+                Content = requestOptions.SystemMessage
+            };
+        }
+
+        IReadOnlyList<string>? availableTools = requestOptions?.AvailableTools is { Count: > 0 }
+            ? requestOptions.AvailableTools
+            : this._options.AvailableTools;
+        if (availableTools.Count > 0)
+        {
+            config.AvailableTools = availableTools.ToList();
+        }
+
+        string[] excludedTools = MergeExcludedTools(this._options.ExcludedTools, requestOptions?.ExcludedTools);
+        if (excludedTools.Length > 0)
+        {
+            config.ExcludedTools = excludedTools.ToList();
+        }
+
+        return config;
+    }
+
+    private async Task<CopilotSession> CreateOrResumeSessionAsync(GitHub.Copilot.SDK.CopilotClient client, SessionConfig config, string? stableSessionId, string model, string permissionHandlerMode, SessionCacheKey cacheKey)
+    {
+        if (string.IsNullOrWhiteSpace(stableSessionId))
+        {
+            return await client.CreateSessionAsync(config).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await client.ResumeSessionAsync(stableSessionId, new ResumeSessionConfig
+            {
+                OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
+                OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
+                Hooks = this.CreateSessionHooks(),
+                Model = model,
+                Streaming = this._options.StreamingResponses,
+                SystemMessage = config.SystemMessage,
+                AvailableTools = config.AvailableTools,
+                ExcludedTools = config.ExcludedTools,
+                WorkingDirectory = cacheKey.WorkspaceRoot
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            this._logger.LogDebug(ex, "Falling back to new Copilot session '{SessionId}' for run-scoped cache key.", stableSessionId);
+            return await client.CreateSessionAsync(config).ConfigureAwait(false);
+        }
+    }
+
+    private SessionHooks CreateSessionHooks()
+        => new SessionHooks
+        {
+            OnPreToolUse = async (input, _) => await this._hooks.Governance.OnPreToolUseAsync(input).ConfigureAwait(false),
+            OnPostToolUse = async (input, _) => await this._hooks.Governance.OnPostToolUseAsync(input).ConfigureAwait(false)
+        };
+
     private PermissionRequestHandler ResolvePermissionHandler(string permissionHandlerMode)
         => string.Equals(permissionHandlerMode, PermissionHandlerModes.PROMPT, StringComparison.OrdinalIgnoreCase)
             ? this._hooks.PermissionPromptHandler.HandleAsync
             : PermissionHandler.ApproveAll;
 
-    private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options, string workspaceRoot, string permissionHandlerMode)
+    private static SessionCacheKey BuildSessionCacheKey(string model, CopilotCompletionOptions? options, string workspaceRoot, string permissionHandlerMode, string? runId)
     {
         string systemMessage = options?.SystemMessage ?? string.Empty;
         CopilotSystemMessageMode mode = options?.SystemMessageMode ?? CopilotSystemMessageMode.Append;
         string available = NormalizeToolList(options?.AvailableTools);
         string excluded = NormalizeToolList(options?.ExcludedTools);
-        return new SessionCacheKey(model, systemMessage, mode, available, excluded, workspaceRoot, permissionHandlerMode);
+        return new SessionCacheKey(model, systemMessage, mode, available, excluded, workspaceRoot, permissionHandlerMode, runId ?? string.Empty);
+    }
+
+    private static string? BuildStableSessionId(SessionCacheKey key)
+    {
+        if (string.IsNullOrWhiteSpace(key.RunId))
+        {
+            return null;
+        }
+
+        string rawKey = string.Join("|", key.Model, key.SystemMessageMode, key.SystemMessage, key.AvailableTools, key.ExcludedTools, key.PermissionHandlerMode, key.WorkspaceRoot);
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawKey));
+        string suffix = Convert.ToHexString(hash[..8]).ToLowerInvariant();
+        return $"archharness-{key.RunId}-{suffix}";
     }
 
     private static string ResolveWorkspaceRoot(string? workspaceRoot)
@@ -277,7 +342,8 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         string AvailableTools,
         string ExcludedTools,
         string WorkspaceRoot,
-        string PermissionHandlerMode);
+        string PermissionHandlerMode,
+        string RunId);
 
     internal sealed record SessionHandle(CopilotSession Session, SemaphoreSlim Gate);
 

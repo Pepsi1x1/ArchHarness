@@ -129,6 +129,48 @@ public sealed class RunHistoryServiceTests : IDisposable
         Assert.Equal("Beta Workspace", run.ProjectName);
     }
 
+    [Fact]
+    public void GetEvents_ReturnsReplayableRunEventsInChronologicalOrder()
+    {
+        string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121900000");
+        Directory.CreateDirectory(runDirectory);
+        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), """
+            {"runId":"20260314T121900000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Second chunk","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-14T12:19:02Z"}
+            {"runId":"20260314T121900000","source":"request","message":"Run request received","taskPrompt":"Review the architecture boundary changes","timestampUtc":"2026-03-14T12:19:00Z"}
+            {"runId":"20260314T121900000","source":"copilot.session","eventType":"session.resume","sessionId":"session-123","model":"gpt-5.4","details":"resumed","timestampUtc":"2026-03-14T12:19:03Z"}
+            {"runId":"20260314T121900000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"First chunk","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-14T12:19:01Z"}
+            """);
+
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
+
+        IReadOnlyList<PersistedRunEvent> events = service.GetEvents(runDirectory);
+
+        Assert.Collection(
+            events,
+            evt =>
+            {
+                Assert.Equal("request", evt.Kind);
+                Assert.Equal("Review the architecture boundary changes", evt.TaskPrompt);
+            },
+            evt =>
+            {
+                Assert.Equal("agent-delta", evt.Kind);
+                Assert.Equal("First chunk", evt.Message);
+                Assert.Equal("architecture", evt.AgentId);
+            },
+            evt =>
+            {
+                Assert.Equal("agent-delta", evt.Kind);
+                Assert.Equal("Second chunk", evt.Message);
+            },
+            evt =>
+            {
+                Assert.Equal("copilot-session", evt.Kind);
+                Assert.Equal("session-123", evt.SessionId);
+                Assert.Equal("session.resume: resumed", evt.Message);
+            });
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(this._workspaceRoot))

@@ -1,6 +1,9 @@
+using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
 namespace ArchHarness.App.Core;
+
+public sealed record StepExecutionContext(string RunId, string RunDirectory, PersistedRunState? ResumeState);
 
 /// <summary>
 /// Executes plan steps in dependency order, dispatching each step to the appropriate agent.
@@ -15,8 +18,7 @@ public interface IAgentStepExecutor
         ExecutionPlan plan,
         IWorkspaceAdapter adapter,
         RunRequest request,
-        string runId,
-        string runDirectory,
+        StepExecutionContext context,
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken);
 }

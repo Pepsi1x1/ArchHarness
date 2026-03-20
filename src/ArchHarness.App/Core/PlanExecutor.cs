@@ -1,5 +1,6 @@
 using ArchHarness.App.Agents;
 using ArchHarness.App.Constants;
+using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
 namespace ArchHarness.App.Core;
@@ -74,8 +75,29 @@ public sealed class PlanExecutor : IPlanExecutor
             plan,
             adapter,
             request,
-            runId,
-            runDirectory,
+            new StepExecutionContext(runId, runDirectory, null),
+            progress,
+            cancellationToken);
+
+        return new PlanExecutionResult(plan, stepResult);
+    }
+
+    /// <summary>
+    /// Executes an existing persisted execution plan using checkpointed run state.
+    /// </summary>
+    public async Task<PlanExecutionResult> ExecuteExistingPlanAsync(
+        ExecutionPlan plan,
+        RunRequest request,
+        IWorkspaceAdapter adapter,
+        PlanResumeContext context,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        AgentStepExecutor.StepExecutionResult stepResult = await this._agentStepExecutor.ExecuteAsync(
+            plan,
+            adapter,
+            request,
+            new StepExecutionContext(context.RunId, context.RunDirectory, context.ResumeState),
             progress,
             cancellationToken);
 

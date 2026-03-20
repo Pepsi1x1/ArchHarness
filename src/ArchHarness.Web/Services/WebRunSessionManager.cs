@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Storage;
 
 namespace ArchHarness.Web.Services;
 
@@ -11,9 +12,12 @@ namespace ArchHarness.Web.Services;
 public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposable
 {
     private const int MAX_BUFFERED_EVENTS = 256;
+    private const string InternalErrorMessage = "The run failed due to an internal error.";
     private const string RUN_STATE_EVENT_KIND = "run-state";
     private const string RUNTIME_PROGRESS_EVENT_KIND = "runtime-progress";
     private const string AGENT_DELTA_EVENT_KIND = "agent-delta";
+    private const string RunCanceledMessage = "Run canceled by browser client.";
+    private const string RunStoppedMessage = "Run stopped because the local web host is shutting down.";
     private const string COPILOT_SESSION_EVENT_KIND = "copilot-session";
     private const string WEB_HOST_EVENT_SOURCE = "web-host";
     private const string ORCHESTRATOR_EVENT_SOURCE = "orchestrator";
@@ -51,33 +55,42 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            if (this._snapshot.IsRunning)
-            {
-                throw new InvalidOperationException("A run is already active in the local web host.");
-            }
-
             DateTimeOffset startedAt = DateTimeOffset.UtcNow;
-            CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(this._disposeCts.Token);
-            this.ResetBuffer();
-
-            lock (this._sync)
-            {
-                this._activeRunCts = runCts;
-                this._snapshot = new WebRunSnapshot(
-                    true,
-                    "starting",
-                    startedAt,
-                    null,
-                    null,
-                    null,
-                    ResolveSnapshotPrompt(request),
-                    request.WorkspacePath,
-                    null);
-            }
-
+            CancellationTokenSource runCts = this.BeginRunSession(
+                "starting",
+                startedAt,
+                null,
+                null,
+                ResolveSnapshotPrompt(request),
+                request.WorkspacePath,
+                null);
             this.Publish(new WebRunEvent(startedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run accepted by local web host."));
             _ = Task.Run(() => this.ExecuteRunAsync(request, runCts), CancellationToken.None);
+            return this.GetSnapshot();
+        }
+        finally
+        {
+            this._runGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<WebRunSnapshot> ResumeRunAsync(PersistedRunState runState, CancellationToken cancellationToken)
+    {
+        await this._runGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CancellationTokenSource runCts = this.BeginRunSession(
+                "resuming",
+                runState.StartedAtUtc,
+                runState.RunId,
+                runState.RunDirectory,
+                ResolveSnapshotPrompt(runState.Request),
+                runState.WorkspaceRoot,
+                null);
+            this.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, $"Run {runState.RunId} resume accepted by local web host."));
+            _ = Task.Run(() => this.ExecuteResumeAsync(runState, runCts), CancellationToken.None);
             return this.GetSnapshot();
         }
         finally
@@ -196,82 +209,56 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         try
         {
             RunArtefacts artefacts = await this._runtime.RunAsync(request, progress, this.OnRunContextEstablished, runCts.Token).ConfigureAwait(false);
-            DateTimeOffset completedAt = DateTimeOffset.UtcNow;
-            lock (this._sync)
-            {
-                this._snapshot = this._snapshot with
-                {
-                    IsRunning = false,
-                    Status = "completed",
-                    CompletedAtUtc = completedAt,
-                    RunId = artefacts.RunId,
-                    RunDirectory = artefacts.RunDirectory,
-                    FailureMessage = null
-                };
-            }
-
-            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {artefacts.RunId} completed.", Details: artefacts.RunDirectory));
+            this.CompleteRun("completed", artefacts, null, $"Run {artefacts.RunId} completed.");
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !this._disposeCts.IsCancellationRequested)
         {
-            DateTimeOffset completedAt = DateTimeOffset.UtcNow;
-            lock (this._sync)
-            {
-                this._snapshot = this._snapshot with
-                {
-                    IsRunning = false,
-                    Status = "canceled",
-                    CompletedAtUtc = completedAt,
-                    FailureMessage = "Run canceled by browser client."
-                };
-            }
-
-            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run canceled by browser client."));
+            this.FailRun("canceled", RunCanceledMessage, WEB_HOST_EVENT_SOURCE, RunCanceledMessage);
         }
         catch (OperationCanceledException) when (this._disposeCts.IsCancellationRequested)
         {
-            DateTimeOffset completedAt = DateTimeOffset.UtcNow;
-            lock (this._sync)
-            {
-                this._snapshot = this._snapshot with
-                {
-                    IsRunning = false,
-                    Status = "stopped",
-                    CompletedAtUtc = completedAt,
-                    FailureMessage = "Web host is shutting down."
-                };
-            }
-
-            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run stopped because the local web host is shutting down."));
+            this.FailRun("stopped", "Web host is shutting down.", WEB_HOST_EVENT_SOURCE, RunStoppedMessage);
         }
         catch (Exception ex)
         {
-            DateTimeOffset completedAt = DateTimeOffset.UtcNow;
             await Console.Error.WriteLineAsync($"[WebRunSessionManager] Run failed: {ex}");
-            lock (this._sync)
-            {
-                this._snapshot = this._snapshot with
-                {
-                    IsRunning = false,
-                    Status = "failed",
-                    CompletedAtUtc = completedAt,
-                    FailureMessage = "The run failed due to an internal error."
-                };
-            }
-
-            this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
+            this.FailRun("failed", InternalErrorMessage, ORCHESTRATOR_EVENT_SOURCE, "Run failed.");
         }
         finally
         {
-            lock (this._sync)
-            {
-                if (ReferenceEquals(this._activeRunCts, runCts))
-                {
-                    this._activeRunCts = null;
-                }
-            }
+            this.ReleaseRun(runCts);
+        }
+    }
 
-            runCts.Dispose();
+    private async Task ExecuteResumeAsync(PersistedRunState runState, CancellationTokenSource runCts)
+    {
+        Progress<RuntimeProgressEvent> progress = new Progress<RuntimeProgressEvent>(evt =>
+        {
+            this.Publish(new WebRunEvent(evt.TimestampUtc, RUNTIME_PROGRESS_EVENT_KIND, evt.Source, evt.Message, Details: evt.Prompt));
+            this.UpdateStatus("running", null, null);
+        });
+
+        try
+        {
+            RunArtefacts artefacts = await this._runtime.ResumeAsync(runState, progress, this.OnRunContextEstablished, runCts.Token).ConfigureAwait(false);
+            this.CompleteRun("completed", artefacts, null, $"Run {artefacts.RunId} completed.");
+        }
+        catch (OperationCanceledException) when (runCts.IsCancellationRequested && !this._disposeCts.IsCancellationRequested)
+        {
+            this.FailRun("canceled", RunCanceledMessage, WEB_HOST_EVENT_SOURCE, RunCanceledMessage);
+        }
+        catch (OperationCanceledException) when (this._disposeCts.IsCancellationRequested)
+        {
+            this.FailRun("stopped", "Web host is shutting down.", WEB_HOST_EVENT_SOURCE, RunStoppedMessage);
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"[WebRunSessionManager] Resume failed: {ex}");
+            this.FailRun("failed", InternalErrorMessage, ORCHESTRATOR_EVENT_SOURCE, "Run failed.");
+        }
+        finally
+        {
+            this.ReleaseRun(runCts);
         }
     }
 
@@ -285,6 +272,90 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         return string.IsNullOrWhiteSpace(request.ArchitectureLoopPrompt)
             ? null
             : request.ArchitectureLoopPrompt;
+    }
+
+    private CancellationTokenSource BeginRunSession(
+        string status,
+        DateTimeOffset startedAt,
+        string? runId,
+        string? runDirectory,
+        string? taskPrompt,
+        string? workspacePath,
+        string? failureMessage)
+    {
+        if (this._snapshot.IsRunning)
+        {
+            throw new InvalidOperationException("A run is already active in the local web host.");
+        }
+
+        CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(this._disposeCts.Token);
+        this.ResetBuffer();
+
+        lock (this._sync)
+        {
+            this._activeRunCts = runCts;
+            this._snapshot = new WebRunSnapshot(
+                true,
+                status,
+                startedAt,
+                null,
+                runId,
+                runDirectory,
+                taskPrompt,
+                workspacePath,
+                failureMessage);
+        }
+
+        return runCts;
+    }
+
+    private void CompleteRun(string status, RunArtefacts artefacts, string? failureMessage, string message)
+    {
+        DateTimeOffset completedAt = DateTimeOffset.UtcNow;
+        lock (this._sync)
+        {
+            this._snapshot = this._snapshot with
+            {
+                IsRunning = false,
+                Status = status,
+                CompletedAtUtc = completedAt,
+                RunId = artefacts.RunId,
+                RunDirectory = artefacts.RunDirectory,
+                FailureMessage = failureMessage
+            };
+        }
+
+        this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, message, Details: artefacts.RunDirectory));
+    }
+
+    private void FailRun(string status, string failureMessage, string source, string message)
+    {
+        DateTimeOffset completedAt = DateTimeOffset.UtcNow;
+        lock (this._sync)
+        {
+            this._snapshot = this._snapshot with
+            {
+                IsRunning = false,
+                Status = status,
+                CompletedAtUtc = completedAt,
+                FailureMessage = failureMessage
+            };
+        }
+
+        this.Publish(new WebRunEvent(completedAt, RUN_STATE_EVENT_KIND, source, message));
+    }
+
+    private void ReleaseRun(CancellationTokenSource runCts)
+    {
+        lock (this._sync)
+        {
+            if (ReferenceEquals(this._activeRunCts, runCts))
+            {
+                this._activeRunCts = null;
+            }
+        }
+
+        runCts.Dispose();
     }
 
     private async Task PumpAgentEventsAsync(CancellationToken cancellationToken)

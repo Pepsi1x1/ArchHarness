@@ -28,4 +28,11 @@ public interface IRunHistoryCatalog
     /// <param name="previewLength">The maximum character length for artifact text previews.</param>
     /// <returns>An ordered list of artifact previews.</returns>
     IReadOnlyList<RunArtifactPreview> GetArtifacts(string runDirectory, int previewLength = 2400);
+
+    /// <summary>
+    /// Returns replayable events from the specified run directory, ordered chronologically.
+    /// </summary>
+    /// <param name="runDirectory">The full path to the run directory.</param>
+    /// <returns>An ordered list of persisted run events.</returns>
+    IReadOnlyList<PersistedRunEvent> GetEvents(string runDirectory);
 }

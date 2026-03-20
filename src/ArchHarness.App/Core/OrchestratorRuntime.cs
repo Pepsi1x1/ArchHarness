@@ -1,7 +1,9 @@
 using ArchHarness.App.Agents;
 using ArchHarness.App.Constants;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
+using System.Text.Json;
 
 namespace ArchHarness.App.Core;
 
@@ -11,11 +13,16 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class OrchestratorRuntime
 {
+    private const string RunCompletedMessage = "Run completed";
+    private const string RunStartedMessage = "Run started";
+    private const string RunResumedMessage = "Run resumed";
+
     private readonly AgentsOptions _agentsOptions;
     private readonly OrchestratorAgentDependencies _agentDependencies;
     private readonly ICopilotClient _copilotClient;
     private readonly RunInfrastructure _runInfrastructure;
     private readonly RunPhaseDependencies _runPhases;
+    private readonly IRunStateStore _runStateStore;
     private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
@@ -27,6 +34,7 @@ public sealed class OrchestratorRuntime
         Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions,
         RunInfrastructure runInfrastructure,
         RunPhaseDependencies runPhases,
+        IRunStateStore runStateStore,
         RuntimeStateAccessors stateAccessors)
     {
         this._agentsOptions = agentsOptions.Value;
@@ -34,6 +42,7 @@ public sealed class OrchestratorRuntime
         this._copilotClient = copilotClient;
         this._runInfrastructure = runInfrastructure;
         this._runPhases = runPhases;
+        this._runStateStore = runStateStore;
         this._stateAccessors = stateAccessors;
     }
 
@@ -71,11 +80,13 @@ public sealed class OrchestratorRuntime
         this._stateAccessors.WorkspaceRoot.SetCurrent(adapter.RootPath);
         this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
         using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using CancellationTokenSource agentEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Task sessionEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
+        Task agentEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpAgentEventsAsync(runDirectory, runId, agentEventCts.Token), CancellationToken.None);
 
         try
         {
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Run started" }, cancellationToken);
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunStartedMessage }, cancellationToken);
             await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
             {
                 runId,
@@ -102,7 +113,20 @@ public sealed class OrchestratorRuntime
                 inferred = initialBuildSelection.Inferred,
                 reason = initialBuildSelection.Reason
             }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Run started"));
+            RunStateCheckpoint checkpoint = CreateCheckpoint(runId, runDirectory, adapter.RootPath, request);
+            await this.WriteRunStateAsync(
+                checkpoint,
+                new RunProgressSnapshot(
+                    Array.Empty<int>(),
+                    0,
+                    string.Empty,
+                    Array.Empty<string>(),
+                    new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                    new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())),
+                RunPhases.PLANNING,
+                null,
+                cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunStartedMessage));
 
             PlanExecutionResult planResult;
             try
@@ -145,7 +169,8 @@ public sealed class OrchestratorRuntime
                     FilesTouched: filesTouched,
                     ArchitectureLanguages: architectureLanguages,
                     SecurityLanguages: securityLanguages,
-                    RunRequest: request),
+                    RunRequest: request,
+                    StartingIteration: 0),
                 adapter,
                 progress,
                 cancellationToken);
@@ -164,6 +189,18 @@ public sealed class OrchestratorRuntime
 
             await this._runInfrastructure.ArtifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
             await this._runInfrastructure.ArtifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
+            await this.WriteRunStateAsync(
+                checkpoint,
+                new RunProgressSnapshot(
+                    plan.Steps.Select(step => step.Id).ToArray(),
+                    0,
+                    frontendPlan,
+                    filesTouched,
+                    review,
+                    securityReview),
+                RunPhases.FINALIZING,
+                null,
+                cancellationToken);
 
             bool completed = await this._agentDependencies.OrchestrationAgent.ValidateCompletionAsync(
                 new CompletionValidationRequest(
@@ -206,21 +243,339 @@ public sealed class OrchestratorRuntime
                 copilotUsage = usage
             }, cancellationToken);
 
-            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Run completed" }, cancellationToken);
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Run completed"));
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunCompletedMessage }, cancellationToken);
+            await this.WriteRunStateAsync(
+                checkpoint,
+                new RunProgressSnapshot(
+                    plan.Steps.Select(step => step.Id).ToArray(),
+                    0,
+                    frontendPlan,
+                    filesTouched,
+                    review,
+                    securityReview),
+                RunPhases.COMPLETED,
+                null,
+                cancellationToken,
+                RunPhases.COMPLETED);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunCompletedMessage));
 
             await sessionEventCts.CancelAsync();
+            await agentEventCts.CancelAsync();
             await sessionEventPump;
+            await agentEventPump;
             return new RunArtefacts(runId, runDirectory);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            PersistedRunState? existingState = this._runStateStore.GetState(runDirectory);
+            if (existingState is not null)
+            {
+                await this._runStateStore.WriteStateAsync(
+                    runDirectory,
+                    existingState with
+                    {
+                        Status = RunPhases.CANCELED,
+                        Phase = RunPhases.CANCELED,
+                        UpdatedAtUtc = DateTimeOffset.UtcNow,
+                        FailureMessage = "Run canceled before completion."
+                    },
+                    CancellationToken.None);
+            }
+
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PersistedRunState? existingState = this._runStateStore.GetState(runDirectory);
+            if (existingState is not null)
+            {
+                await this._runStateStore.WriteStateAsync(
+                    runDirectory,
+                    existingState with
+                    {
+                        Status = RunPhases.FAILED,
+                        Phase = RunPhases.FAILED,
+                        UpdatedAtUtc = DateTimeOffset.UtcNow,
+                        FailureMessage = ex.Message
+                    },
+                    CancellationToken.None);
+            }
+
+            throw;
         }
         finally
         {
+            await sessionEventCts.CancelAsync();
+            await agentEventCts.CancelAsync();
+            try
+            {
+                await sessionEventPump;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected if the run is shutting down before the pump drains.
+            }
+
+            try
+            {
+                await agentEventPump;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected if the run is shutting down before the pump drains.
+            }
+
             this._stateAccessors.PermissionHandlerMode.SetCurrent(null);
             this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(null);
             this._runInfrastructure.RunContextAccessor.SetCurrent(null);
             this._stateAccessors.WorkspaceRoot.SetCurrent(null);
         }
     }
+
+    /// <summary>
+    /// Resumes an interrupted run from its persisted checkpoint.
+    /// </summary>
+    public async Task<RunArtefacts> ResumeAsync(
+        PersistedRunState runState,
+        IProgress<RuntimeProgressEvent>? progress = null,
+        Action<string, string>? onRunContextEstablished = null,
+        CancellationToken cancellationToken = default)
+    {
+        string resumeWorkspaceMode = Directory.Exists(Path.Combine(runState.WorkspaceRoot, ".git"))
+            ? "existing-git"
+            : "existing-folder";
+        IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create(resumeWorkspaceMode, runState.WorkspaceRoot);
+        await adapter.InitializeAsync(null, resumeWorkspaceMode == "existing-git", cancellationToken);
+
+        string runId = runState.RunId;
+        string runDirectory = runState.RunDirectory;
+        RunRequest request = runState.Request;
+        RunStateCheckpoint checkpoint = CreateCheckpoint(runId, runDirectory, adapter.RootPath, request);
+        onRunContextEstablished?.Invoke(runId, runDirectory);
+        string normalizedPermissionMode = PermissionHandlerModes.Normalize(request.PermissionHandlerMode);
+        this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedPermissionMode);
+        ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents ?? this._agentsOptions.GetReviewLoopAgentSelection();
+        this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(reviewLoopAgents);
+        this._stateAccessors.WorkspaceRoot.SetCurrent(adapter.RootPath);
+        this._runInfrastructure.RunContextAccessor.SetCurrent(new RunContext(runId, runDirectory));
+        using CancellationTokenSource sessionEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using CancellationTokenSource agentEventCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task sessionEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpSessionEventsAsync(runDirectory, runId, sessionEventCts.Token), CancellationToken.None);
+        Task agentEventPump = Task.Run(async () => await this._runInfrastructure.EventLogger.PumpAgentEventsAsync(runDirectory, runId, agentEventCts.Token), CancellationToken.None);
+
+        try
+        {
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunResumedMessage }, cancellationToken);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunResumedMessage));
+
+            PlanExecutionResult planResult;
+            ExecutionPlan plan;
+            string executionPlanPath = Path.Combine(runDirectory, "ExecutionPlan.json");
+            if (!File.Exists(executionPlanPath))
+            {
+                planResult = await this._runPhases.PlanExecutor.BuildAndExecuteAsync(
+                    request,
+                    adapter,
+                    runId,
+                    runDirectory,
+                    progress,
+                    cancellationToken);
+                plan = planResult.Plan;
+            }
+            else
+            {
+                plan = JsonSerializer.Deserialize<ExecutionPlan>(await File.ReadAllTextAsync(executionPlanPath, cancellationToken), JsonDefaults.INDENTED)
+                    ?? throw new InvalidOperationException($"Unable to deserialize persisted execution plan for run '{runId}'.");
+                planResult = await this._runPhases.PlanExecutor.ExecuteExistingPlanAsync(
+                    plan,
+                    request,
+                    adapter,
+                    new PlanResumeContext(runId, runDirectory, runState),
+                    progress,
+                    cancellationToken);
+            }
+
+            string frontendPlan = planResult.StepResult.FrontendPlan;
+            IReadOnlyList<string> filesTouched = planResult.StepResult.FilesTouched;
+            ArchitectureReview review = planResult.StepResult.Review;
+            SecurityReview securityReview = planResult.StepResult.SecurityReview;
+
+            IReadOnlyList<string>? architectureLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Architecture")?.Languages;
+            IReadOnlyList<string>? securityLanguages = plan.Steps.LastOrDefault(s => s.Agent == "Security")?.Languages;
+            (review, securityReview, filesTouched) = await this._runPhases.ArchitectureReviewLoop.RunAsync(
+                new ArchitectureLoopRequest(
+                    IterationStrategy: plan.IterationStrategy,
+                    InitialReview: review,
+                    InitialSecurityReview: securityReview,
+                    FilesTouched: filesTouched,
+                    ArchitectureLanguages: architectureLanguages,
+                    SecurityLanguages: securityLanguages,
+                    RunRequest: request,
+                    StartingIteration: runState.ReviewIteration),
+                adapter,
+                progress,
+                cancellationToken);
+
+            if (review.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase)
+                || securityReview.RequiredActions.Contains(ArchitectureReviewLoop.NO_PROGRESS_BLOCKED_STATUS, StringComparer.OrdinalIgnoreCase))
+            {
+                await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
+                {
+                    runId,
+                    source = "architecture-loop",
+                    status = "blocked",
+                    message = "Architecture review iterations produced identical findings; loop stopped early."
+                }, cancellationToken);
+            }
+
+            await this._runInfrastructure.ArtifactWriter.WriteArchitectureReviewAsync(runDirectory, review, cancellationToken);
+            await this._runInfrastructure.ArtifactWriter.WriteSecurityReviewAsync(runDirectory, securityReview, cancellationToken);
+            await this.WriteRunStateAsync(
+                checkpoint,
+                new RunProgressSnapshot(
+                    plan.Steps.Select(step => step.Id).ToArray(),
+                    runState.ReviewIteration,
+                    frontendPlan,
+                    filesTouched,
+                    review,
+                    securityReview),
+                RunPhases.FINALIZING,
+                null,
+                cancellationToken);
+
+            bool completed = await this._agentDependencies.OrchestrationAgent.ValidateCompletionAsync(
+                new CompletionValidationRequest(
+                    Plan: plan,
+                    Review: review,
+                    SecurityReview: securityReview,
+                    ModelOverrides: request.ModelOverrides),
+                this._agentDependencies.OrchestrationAgent.Id,
+                this._agentDependencies.OrchestrationAgent.Role,
+                cancellationToken);
+
+            int securityHighCount = securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            int architectureHighCount = review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            string filesTouchedList = string.Join(", ", filesTouched);
+            string summary = $"""
+                # Final Summary
+                - Completed: {completed}
+                - FrontendPlan: {frontendPlan}
+                - FilesTouched: {filesTouchedList}
+                - SecurityHighFindings: {securityHighCount}
+                - ArchitectureHighFindings: {architectureHighCount}
+                """;
+            await this._runInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(runDirectory, summary, cancellationToken);
+
+            string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
+            IReadOnlyList<CopilotModelUsage> usage = this._copilotClient.GetUsageSnapshot();
+            object[] agentModelUsage = BuildAgentModelUsage(this._agentDependencies, request.ModelOverrides);
+            await this._runInfrastructure.ArtifactWriter.WriteRunLogAsync(runDirectory, new
+            {
+                status = completed ? "completed" : "incomplete",
+                projectId = request.ProjectId,
+                projectName = request.ProjectName,
+                runTitle = request.RunTitle,
+                request.WorkspaceMode,
+                request.Workflow,
+                request.PermissionHandlerMode,
+                modelOverrides,
+                agents = agentModelUsage,
+                copilotUsage = usage
+            }, cancellationToken);
+
+            await this._runInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RunCompletedMessage }, cancellationToken);
+            await this.WriteRunStateAsync(
+                checkpoint,
+                new RunProgressSnapshot(
+                    plan.Steps.Select(step => step.Id).ToArray(),
+                    runState.ReviewIteration,
+                    frontendPlan,
+                    filesTouched,
+                    review,
+                    securityReview),
+                RunPhases.COMPLETED,
+                null,
+                cancellationToken,
+                RunPhases.COMPLETED);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RunCompletedMessage));
+
+            await sessionEventCts.CancelAsync();
+            await agentEventCts.CancelAsync();
+            await sessionEventPump;
+            await agentEventPump;
+            return new RunArtefacts(runId, runDirectory);
+        }
+        finally
+        {
+            await sessionEventCts.CancelAsync();
+            await agentEventCts.CancelAsync();
+            try
+            {
+                await sessionEventPump;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected if the run is shutting down before the pump drains.
+            }
+
+            try
+            {
+                await agentEventPump;
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected if the run is shutting down before the pump drains.
+            }
+
+            this._stateAccessors.PermissionHandlerMode.SetCurrent(null);
+            this._stateAccessors.ReviewLoopAgentSelection.SetCurrent(null);
+            this._runInfrastructure.RunContextAccessor.SetCurrent(null);
+            this._stateAccessors.WorkspaceRoot.SetCurrent(null);
+        }
+    }
+
+    private Task WriteRunStateAsync(
+        RunStateCheckpoint checkpoint,
+        RunProgressSnapshot progress,
+        string phase,
+        string? failureMessage,
+        CancellationToken cancellationToken,
+        string status = "running")
+    {
+        PersistedRunState? existingState = this._runStateStore.GetState(checkpoint.RunDirectory);
+        return this._runStateStore.WriteStateAsync(
+            checkpoint.RunDirectory,
+            new PersistedRunState(
+                checkpoint.RunId,
+                checkpoint.RunDirectory,
+                checkpoint.WorkspaceRoot,
+                status,
+                phase,
+                existingState?.StartedAtUtc ?? DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                checkpoint.Request,
+                progress.CompletedStepIds,
+                progress.ReviewIteration,
+                progress.FrontendPlan,
+                progress.FilesTouched.ToArray(),
+                progress.Review,
+                progress.SecurityReview,
+                failureMessage),
+            cancellationToken);
+    }
+
+    private static RunStateCheckpoint CreateCheckpoint(string runId, string runDirectory, string workspaceRoot, RunRequest request)
+        => new RunStateCheckpoint(runId, runDirectory, workspaceRoot, request);
+
+    private sealed record RunStateCheckpoint(string RunId, string RunDirectory, string WorkspaceRoot, RunRequest Request);
+
+    private sealed record RunProgressSnapshot(
+        int[] CompletedStepIds,
+        int ReviewIteration,
+        string FrontendPlan,
+        IReadOnlyList<string> FilesTouched,
+        ArchitectureReview Review,
+        SecurityReview SecurityReview);
 
     private static object[] BuildAgentModelUsage(OrchestratorAgentDependencies agents, IDictionary<string, string>? overrides)
         => new object[]

@@ -15,6 +15,11 @@ namespace ArchHarness.Web;
 
 internal static class ProgramHandlers
 {
+    private const string AgentHarnessDirectoryName = ".agent-harness";
+    private const string InvalidRunIdMessage = "runId must be a single directory name.";
+    private const string UnknownWorkspaceMessage = "workspacePath does not match a registered project.";
+    private const string WorkspacePathRequiredMessage = "workspacePath is required.";
+
     public static IResult GetApiRoot()
         => Results.Ok(new
         {
@@ -783,12 +788,12 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = "workspacePath is required." });
+            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = "workspacePath does not match a registered project." });
+            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
         }
 
         return Results.Ok(catalog.GetRecentRuns(workspacePath, Math.Max(1, maxCount ?? 20)));
@@ -798,21 +803,92 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = "workspacePath is required." });
+            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
         }
 
         if (!IsSafeRunId(runId))
         {
-            return Results.BadRequest(new { error = "runId must be a single directory name." });
+            return Results.BadRequest(new { error = InvalidRunIdMessage });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = "workspacePath does not match a registered project." });
+            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
         }
 
-        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs", runId);
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
         return Results.Ok(catalog.GetArtifacts(runDirectory, Math.Max(32, previewLength ?? 2400)));
+    }
+
+    public static IResult GetRunEvents(string runId, string workspacePath, IRunHistoryCatalog catalog, IProjectWorkspaceCatalog projectCatalog)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+        }
+
+        if (!IsSafeRunId(runId))
+        {
+            return Results.BadRequest(new { error = InvalidRunIdMessage });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+        }
+
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        return Results.Ok(catalog.GetEvents(runDirectory).Select(evt => new WebRunEvent(
+            evt.TimestampUtc,
+            evt.Kind,
+            evt.Source,
+            evt.Message,
+            evt.AgentId,
+            evt.AgentRole,
+            evt.SessionId,
+            evt.Model,
+            evt.Details,
+            evt.ContentFormat,
+            evt.StreamKind,
+            evt.Title)));
+    }
+
+    public static IResult GetRunState(string runId, string workspacePath, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+        }
+
+        if (!IsSafeRunId(runId))
+        {
+            return Results.BadRequest(new { error = InvalidRunIdMessage });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+        }
+
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        PersistedRunState? runState = runStateStore.GetState(runDirectory);
+        if (runState is null)
+        {
+            return Results.NotFound(new { error = $"Run '{runId}' does not have persisted resume state." });
+        }
+
+        return Results.Ok(new
+        {
+            runState.RunId,
+            runState.Status,
+            runState.Phase,
+            runState.StartedAtUtc,
+            runState.UpdatedAtUtc,
+            runState.FailureMessage,
+            runState.CanResume,
+            completedStepIds = runState.CompletedStepIds,
+            runState.ReviewIteration
+        });
     }
 
     public static async Task<IResult> StartRunAsync(RunRequest request, IWebRunSessionManager sessionManager, IProjectWorkspaceCatalog projectCatalog, SetupSummaryGenerator summaryGenerator, CancellationToken cancellationToken)
@@ -860,6 +936,39 @@ internal static class ProgramHandlers
                 preparedRequest.ArchitectureLoopPrompt);
         }
 
+        return Results.Accepted("/api/runs/active", snapshot);
+    }
+
+    public static async Task<IResult> ResumeRunAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+        }
+
+        if (!IsSafeRunId(runId))
+        {
+            return Results.BadRequest(new { error = InvalidRunIdMessage });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+        }
+
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        PersistedRunState? runState = runStateStore.GetState(runDirectory);
+        if (runState is null)
+        {
+            return Results.NotFound(new { error = $"Run '{runId}' does not have persisted resume state." });
+        }
+
+        if (!runState.CanResume)
+        {
+            return Results.Conflict(new { error = $"Run '{runId}' is not resumable.", runState.Status, runState.Phase });
+        }
+
+        WebRunSnapshot snapshot = await sessionManager.ResumeRunAsync(runState, cancellationToken);
         return Results.Accepted("/api/runs/active", snapshot);
     }
 

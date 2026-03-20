@@ -7,6 +7,7 @@ const state = {
   activeRunId: null,
   activeRun: null,
   artifacts: [],
+  selectedRunState: null,
   selectedArtifactPath: null,
   streamSections: {},
   streamOrder: [],
@@ -24,6 +25,7 @@ const state = {
   providers: [],
   projectBranchInfoById: {},
   projectBranchRequestsInFlight: new Set(),
+  selectedRunLoadToken: 0,
   branchMenuOpen: false,
   gitChangeReview: {
     projectId: null,
@@ -117,6 +119,7 @@ const STORAGE_KEY = "archharness.web.shell-state";
 const IDLE_INTERACTION_POLL_MS = 5000;
 const ACTIVE_INTERACTION_POLL_MS = 400;
 const STREAM_RENDER_DELAY_MS = 140;
+const DEFAULT_STREAM_EMPTY_MESSAGE = "Start a run from the composer to stream orchestrator, agent, and subagent output here.";
 const REVIEW_PROVIDER_NAME_MAX_LENGTH = 128;
 const REVIEW_FILTER_MAX_LENGTH = 200;
 const REVIEW_PULL_REQUEST_ID_MAX_LENGTH = 20;
@@ -191,6 +194,7 @@ const elements = {
   settingsArchitecturePrompt: document.getElementById("settings-architecture-prompt"),
   runDetailsModal: document.getElementById("run-details-modal"),
   runDetailsTitle: document.getElementById("run-details-title"),
+  resumeRun: document.getElementById("resume-run-button"),
   artifactList: document.getElementById("artifact-list"),
   artifactPreview: document.getElementById("artifact-preview"),
   artifactSummary: document.getElementById("artifact-summary"),
@@ -350,6 +354,7 @@ async function requestEventStream(url, options) {
 function saveShellState() {
   const payload = {
     activeProjectId: state.activeProjectId,
+    activeRunId: state.activeRunId,
     taskPrompt: elements.taskPrompt.value,
     runMode: elements.runMode.value,
     permissionMode: elements.permissionMode.value,
@@ -368,6 +373,7 @@ function restoreShellState() {
   try {
     const saved = JSON.parse(raw);
     state.activeProjectId = saved.activeProjectId || null;
+    state.activeRunId = saved.activeRunId || null;
     state.seenRunIds = new Set(Array.isArray(saved.seenRunIds) ? saved.seenRunIds : []);
     elements.taskPrompt.value = saved.taskPrompt || "";
     setSelectValue(elements.runMode, saved.runMode);
@@ -1198,6 +1204,98 @@ function closeEventStream(status = "idle") {
   }
 }
 
+function getProjectById(projectId) {
+  return state.projects.find(project => project.projectId === projectId) || null;
+}
+
+function getSelectedRun(project = getActiveProject()) {
+  if (!project || !Array.isArray(project.runs)) {
+    return null;
+  }
+
+  return project.runs.find(run => run.runId === state.activeRunId) || null;
+}
+
+function isSelectedRunLive() {
+  return !!state.activeRun?.isRunning && state.activeRun?.runId === state.activeRunId;
+}
+
+function applyPersistedRunEvents(events) {
+  resetStream();
+
+  let submittedPrompt = null;
+  (Array.isArray(events) ? events : []).forEach(entry => {
+    const kind = readEventField(entry, "kind") || "";
+    if (kind === "request") {
+      submittedPrompt = readEventField(entry, "taskPrompt") || submittedPrompt;
+      return;
+    }
+
+    if (kind === "agent-delta") {
+      recordStreamEvent(entry);
+    }
+  });
+
+  if (submittedPrompt) {
+    syncSubmittedPromptSection(submittedPrompt);
+  }
+
+  if (state.streamOrder.length > 0) {
+    showStreamCompleted();
+  } else {
+    elements.streamEmpty.textContent = DEFAULT_STREAM_EMPTY_MESSAGE;
+    renderStream();
+  }
+}
+
+async function loadSelectedRunStream() {
+  const project = getActiveProject();
+  const run = getSelectedRun(project);
+  const token = ++state.selectedRunLoadToken;
+
+  if (!project || !run) {
+    state.selectedRunState = null;
+    renderComposerState();
+    closeEventStream(state.activeRun?.isRunning ? "reconnecting" : "idle");
+    elements.streamEmpty.textContent = DEFAULT_STREAM_EMPTY_MESSAGE;
+    resetStream();
+    return;
+  }
+
+  await loadSelectedRunState(project, run);
+  if (token !== state.selectedRunLoadToken) {
+    return;
+  }
+
+  if (isSelectedRunLive()) {
+    resetStream();
+    syncSubmittedPromptSection(state.activeRun?.taskPrompt);
+    connectEventStream();
+    return;
+  }
+
+  closeEventStream("reconnecting");
+  resetStream();
+  showStreamStarting();
+
+  try {
+    const events = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/events?workspacePath=${encodeURIComponent(project.workspacePath)}`) || [];
+    if (token !== state.selectedRunLoadToken) {
+      return;
+    }
+
+    applyPersistedRunEvents(events);
+  } catch (error) {
+    if (token !== state.selectedRunLoadToken) {
+      return;
+    }
+
+    resetStream();
+    elements.streamEmpty.classList.remove("hidden");
+    elements.streamEmpty.textContent = error?.message || "Failed to load persisted run events.";
+  }
+}
+
 function isArchitectureModeEnabled() {
   return elements.runMode.value === "architecture-review";
 }
@@ -1410,11 +1508,15 @@ function renderActiveRun() {
   }
   elements.cancelRun.disabled = !activeRun.isRunning;
 
-  if (activeRun.isRunning && !state.streamOrder.length) {
+  if (activeRun.runId && !state.activeRunId) {
+    state.activeRunId = activeRun.runId;
+  }
+
+  if (activeRun.isRunning && isSelectedRunLive() && !state.streamOrder.length) {
     syncSubmittedPromptSection(activeRun.taskPrompt);
   }
 
-  if (!activeRun.isRunning && !state.isUnloading) {
+  if (!activeRun.isRunning && isSelectedRunLive() && !state.isUnloading) {
     closeEventStream("idle");
   }
 
@@ -1625,9 +1727,17 @@ async function ensureActiveProjectBranchInfo() {
 function renderComposerState() {
   const activeProject = getActiveProject();
   const architectureMode = isArchitectureModeEnabled();
+  const selectedRun = getSelectedRun(activeProject);
+  const showResumeButton = !!activeProject
+    && !!selectedRun
+    && !state.activeRun?.isRunning
+    && !!state.selectedRunState?.canResume;
   elements.architectureReviewChip.classList.toggle("hidden", !architectureMode);
   elements.taskPrompt.placeholder = getPromptPlaceholder();
   elements.startRun.disabled = !activeProject || !elements.taskPrompt.value.trim();
+  elements.resumeRun.classList.toggle("hidden", !showResumeButton);
+  elements.resumeRun.disabled = !showResumeButton;
+  elements.resumeRun.textContent = "Resume";
   renderComposerDropdowns();
 }
 
@@ -1717,6 +1827,7 @@ function renderProjects() {
           }
           state.activeProjectId = project.projectId;
           state.activeRunId = run.runId;
+          state.selectedRunState = null;
           if (!state.activeRun?.isRunning || state.activeRun?.runId !== run.runId) {
             state.seenRunIds.add(run.runId);
           }
@@ -1724,6 +1835,7 @@ function renderProjects() {
           saveShellState();
           renderProjects();
           renderTopbar();
+          void loadSelectedRunStream();
         });
         menuButton.addEventListener("click", event => {
           event.stopPropagation();
@@ -2091,6 +2203,12 @@ async function loadProjects() {
   if (!state.activeRunId && state.projects.length > 0) {
     state.activeRunId = state.projects[0].runs?.[0]?.runId || null;
   }
+  if (state.activeRunId) {
+    const knownRunIds = new Set(state.projects.flatMap(project => Array.isArray(project.runs) ? project.runs.map(run => run.runId) : []));
+    if (!knownRunIds.has(state.activeRunId)) {
+      state.activeRunId = state.projects[0]?.runs?.[0]?.runId || null;
+    }
+  }
 
   syncComposerFromProject(getActiveProject());
 
@@ -2210,6 +2328,7 @@ async function submitRunRequest(request) {
   });
 
   state.activeRun = snapshot;
+  state.activeRunId = snapshot?.runId || state.activeRunId;
   elements.taskPrompt.value = "";
   saveShellState();
   renderActiveRun();
@@ -2222,16 +2341,81 @@ async function cancelRun() {
     method: "DELETE"
   });
   renderActiveRun();
+  renderRunDetailsActions();
 }
 
 async function refreshActiveRun() {
   state.activeRun = await requestJson("/api/runs/active");
+  if (state.activeRun?.runId && !state.activeRunId) {
+    state.activeRunId = state.activeRun.runId;
+  }
   renderActiveRun();
+  renderRunDetailsActions();
   return state.activeRun;
 }
 
+function getSelectedProjectAndRun() {
+  const project = state.projects.find(candidate => candidate.projectId === state.activeProjectId) || null;
+  if (!project) {
+    return { project: null, run: null };
+  }
+
+  const run = Array.isArray(project.runs)
+    ? project.runs.find(candidate => candidate.runId === state.activeRunId) || null
+    : null;
+  return { project, run };
+}
+
+function renderRunDetailsActions() {
+  renderComposerState();
+}
+
+async function loadSelectedRunState(project, run) {
+  if (!project?.workspacePath || !run?.runId) {
+    state.selectedRunState = null;
+    renderComposerState();
+    return;
+  }
+
+  try {
+    state.selectedRunState = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/state?workspacePath=${encodeURIComponent(project.workspacePath)}`);
+  } catch (error) {
+    if (error?.status !== 404) {
+      console.error("Load run state failed:", error);
+    }
+
+    state.selectedRunState = null;
+  }
+
+  renderComposerState();
+}
+
+async function resumeSelectedRun() {
+  const { project, run } = getSelectedProjectAndRun();
+  if (!project || !run) {
+    return;
+  }
+
+  elements.resumeRun.disabled = true;
+  elements.resumeRun.textContent = "Resuming...";
+
+  try {
+    state.activeRun = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/resume?workspacePath=${encodeURIComponent(project.workspacePath)}`, {
+      method: "POST"
+    });
+    state.activeRunId = run.runId;
+    saveShellState();
+    renderActiveRun();
+    connectEventStream();
+    await loadProjects();
+  } catch (error) {
+    console.error("Resume failed:", error);
+    renderComposerState();
+  }
+}
+
 function connectEventStream() {
-  if (state.eventSource || !state.activeRun?.isRunning) {
+  if (state.eventSource || !state.activeRun?.isRunning || !isSelectedRunLive()) {
     return;
   }
 
@@ -3047,6 +3231,8 @@ async function openRunDetails(project, run) {
   }
   state.activeProjectId = project.projectId;
   state.activeRunId = run.runId;
+  saveShellState();
+  void loadSelectedRunStream();
   elements.runDetailsTitle.textContent = run.runTitle || `Run ${run.runId}`;
   elements.artifactSummary.textContent = `${formatRunTimestamp(run.runId)} • ${project.displayName}`;
   elements.artifactPreview.textContent = "Loading artifacts...";
@@ -4019,6 +4205,10 @@ function attachHandlers() {
   elements.cancelRun.addEventListener("click", () => cancelRun().catch(error => {
     console.error("Cancel failed:", error);
   }));
+  elements.resumeRun?.addEventListener("click", () => resumeSelectedRun().catch(error => {
+    console.error("Resume failed:", error);
+    renderRunDetailsActions();
+  }));
   elements.taskPrompt.addEventListener("input", () => {
     saveShellState();
     renderComposerState();
@@ -4147,7 +4337,7 @@ async function init() {
   await loadSettings();
   await loadProjects();
   await refreshActiveRun();
-  renderStream();
+  await loadSelectedRunStream();
   renderInlineInteraction();
   connectEventStream();
   await pollPendingInteraction();

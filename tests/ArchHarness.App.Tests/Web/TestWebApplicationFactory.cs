@@ -160,6 +160,23 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             return Task.FromResult(this._snapshot);
         }
 
+        Task<WebRunSnapshot> IWebRunSessionManager.ResumeRunAsync(PersistedRunState runState, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            this._snapshot = new WebRunSnapshot(
+                true,
+                "resuming",
+                runState.StartedAtUtc,
+                null,
+                runState.RunId,
+                runState.RunDirectory,
+                runState.Request.TaskPrompt,
+                runState.WorkspaceRoot,
+                null);
+            this._events.Enqueue(new WebRunEvent(DateTimeOffset.UtcNow, "run-state", "test", "resume-accepted"));
+            return Task.FromResult(this._snapshot);
+        }
+
         public WebRunSnapshot GetSnapshot() => this._snapshot;
 
         public Task<WebRunSnapshot> CancelRunAsync()

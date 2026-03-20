@@ -12,6 +12,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 {
     private readonly StepAgentDependencies _agents;
     private readonly IArtefactStore _artefactStore;
+    private readonly IRunStateStore _runStateStore;
     private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
@@ -22,10 +23,12 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
     public AgentStepExecutor(
         StepAgentDependencies agents,
         IArtefactStore artefactStore,
+        IRunStateStore runStateStore,
         RuntimeStateAccessors stateAccessors)
     {
         this._agents = agents;
         this._artefactStore = artefactStore;
+        this._runStateStore = runStateStore;
         this._stateAccessors = stateAccessors;
     }
 
@@ -45,16 +48,24 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         ExecutionPlan plan,
         IWorkspaceAdapter adapter,
         RunRequest request,
-        string runId,
-        string runDirectory,
+        StepExecutionContext context,
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        ExecutionState state = new ExecutionState();
+        string runId = context.RunId;
+        string runDirectory = context.RunDirectory;
+        PersistedRunState? resumeState = context.ResumeState;
+        ExecutionState state = CreateExecutionState(resumeState);
         Dictionary<string, Func<ExecutionPlanStep, Task>> agentStrategies = this.CreateAgentStrategies(adapter, request, state, cancellationToken);
+        StepCheckpoint checkpoint = new StepCheckpoint(adapter.RootPath, request, runId, runDirectory, resumeState?.ReviewIteration ?? 0);
 
-        Dictionary<int, ExecutionPlanStep> pendingSteps = plan.Steps.ToDictionary(s => s.Id);
-        HashSet<int> completedStepIds = new HashSet<int>();
+        Dictionary<int, ExecutionPlanStep> pendingSteps = plan.Steps
+            .Where(step => !(resumeState?.CompletedStepIds.Contains(step.Id) ?? false))
+            .ToDictionary(s => s.Id);
+        HashSet<int> completedStepIds = new HashSet<int>(resumeState?.CompletedStepIds ?? Array.Empty<int>());
+
+        await this.WriteRunStateAsync(checkpoint, RunPhases.EXECUTING_PLAN, completedStepIds, state, null, cancellationToken);
+
         while (pendingSteps.Count > 0)
         {
             ExecutionPlanStep step = await this.ResolveNextStepAsync(pendingSteps, completedStepIds, runDirectory, runId, cancellationToken);
@@ -62,10 +73,66 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
             completedStepIds.Add(step.Id);
             pendingSteps.Remove(step.Id);
+            await this._artefactStore.AppendEventAsync(runDirectory, new
+            {
+                runId,
+                source = step.Agent,
+                status = "completed",
+                stepId = step.Id,
+                objective = step.Objective,
+                message = $"Step {step.Id} completed"
+            }, cancellationToken);
+            await this.WriteRunStateAsync(checkpoint, RunPhases.EXECUTING_PLAN, completedStepIds, state, null, cancellationToken);
         }
 
         return new StepExecutionResult(state.FrontendPlan, state.FilesTouched, state.Review, state.SecurityReview);
     }
+
+    private static ExecutionState CreateExecutionState(PersistedRunState? resumeState)
+        => new ExecutionState
+        {
+            FrontendPlan = resumeState?.FrontendPlan ?? string.Empty,
+            FilesTouched = resumeState?.FilesTouched ?? Array.Empty<string>(),
+            Review = resumeState?.Review ?? new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+            SecurityReview = resumeState?.SecurityReview ?? new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())
+        };
+
+    private Task WriteRunStateAsync(
+        StepCheckpoint checkpoint,
+        string phase,
+        IEnumerable<int> completedStepIds,
+        ExecutionState state,
+        string? failureMessage,
+        CancellationToken cancellationToken)
+    {
+        PersistedRunState? existingState = this._runStateStore.GetState(checkpoint.RunDirectory);
+        return this._runStateStore.WriteStateAsync(
+            checkpoint.RunDirectory,
+            new PersistedRunState(
+                checkpoint.RunId,
+                checkpoint.RunDirectory,
+                checkpoint.WorkspaceRoot,
+                failureMessage is null ? "running" : RunPhases.FAILED,
+                phase,
+                existingState?.StartedAtUtc ?? DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                checkpoint.Request,
+                completedStepIds.OrderBy(id => id).ToArray(),
+                checkpoint.ReviewIteration,
+                state.FrontendPlan,
+                state.FilesTouched.ToArray(),
+                state.Review,
+                state.SecurityReview,
+                failureMessage),
+            cancellationToken);
+    }
+
+    private sealed record StepCheckpoint(
+        string WorkspaceRoot,
+        RunRequest Request,
+        string RunId,
+        string RunDirectory,
+        int ReviewIteration);
 
     private Dictionary<string, Func<ExecutionPlanStep, Task>> CreateAgentStrategies(
         IWorkspaceAdapter adapter,

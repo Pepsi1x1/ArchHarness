@@ -62,6 +62,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<SecurityAgent>();
         services.AddSingleton<ArchitectureAgent>();
         services.AddSingleton<IRunStore, RunStore>();
+        services.AddSingleton<IRunStateStore, RunStateStore>();
         services.AddSingleton<IArtefactStore, ArtefactStore>();
         services.AddSingleton<OrchestratorRuntime.OrchestratorAgentDependencies>();
         services.AddSingleton<OrchestratorRuntime.RunPhaseDependencies>();
