@@ -68,7 +68,9 @@ class WindowManager {
       return { action: "deny" };
     });
 
-    this.#mainWindow.loadURL(loadUrl);
+    this.#mainWindow.loadURL(loadUrl).catch(error => {
+      console.error("Failed to load main window URL.", { loadUrl, error });
+    });
 
     this.#mainWindow.on("closed", () => {
       this.#mainWindow = null;
