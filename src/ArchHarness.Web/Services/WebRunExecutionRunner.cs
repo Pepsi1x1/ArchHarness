@@ -64,12 +64,12 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
         }
         catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
         {
-            this._snapshotStore.FailRun("stopped", "Web host is shutting down.");
+            this._snapshotStore.FailRun("stopped", RUN_STOPPED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE));
         }
         catch (Exception ex)
         {
-            await Console.Error.WriteLineAsync($"[WebRunSessionManager] Run failed: {ex}");
+            await Console.Error.WriteLineAsync($"[WebRunExecutionRunner] Run failed: {ex}");
             this._snapshotStore.FailRun("failed", INTERNAL_ERROR_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
         }
