@@ -60,17 +60,16 @@ app.on("activate", () => {
   }
 });
 
-app.whenReady().then(async () => {
-  try {
-    const dockIcon = windowIconPath ? nativeImage.createFromPath(windowIconPath) : null;
-    if (process.platform === "darwin" && dockIcon && !dockIcon.isEmpty()) {
-      app.dock.setIcon(dockIcon);
-    }
-
-    await webHost.ensure();
-    windowManager.createMainWindow(webHost.hostUrl);
-  } catch (error) {
-    dialog.showErrorBox("ArchHarness failed to start", error instanceof Error ? error.message : String(error));
-    app.quit();
+await app.whenReady();
+try {
+  const dockIcon = windowIconPath ? nativeImage.createFromPath(windowIconPath) : null;
+  if (process.platform === "darwin" && dockIcon && !dockIcon.isEmpty()) {
+    app.dock.setIcon(dockIcon);
   }
-});
+
+  await webHost.ensure();
+  windowManager.createMainWindow(webHost.hostUrl);
+} catch (error) {
+  dialog.showErrorBox("ArchHarness failed to start", error instanceof Error ? error.message : String(error));
+  app.quit();
+}
