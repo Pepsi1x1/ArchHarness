@@ -114,19 +114,242 @@ public sealed class ExecutionPlanParser : IExecutionPlanParser
     /// <returns>The extracted JSON string, or <c>null</c> if no JSON object is found.</returns>
     internal static string? ExtractJson(string text)
     {
-        Match fenceMatch = Regex.Match(text, @"```(?:json)?\s*\n?(\{[\s\S]*?\})\s*```", RegexOptions.IgnoreCase);
-        if (fenceMatch.Success)
-        {
-            return fenceMatch.Groups[1].Value;
-        }
-
-        int start = text.IndexOf('{');
-        int end = text.LastIndexOf('}');
-        if (start < 0 || end <= start)
+        string candidate = ExtractFenceContent(text) ?? text;
+        int start = candidate.IndexOf('{');
+        if (start < 0)
         {
             return null;
         }
 
-        return text[start..(end + 1)];
+        string jsonCandidate = candidate[start..];
+        if (TryExtractBalancedJsonObject(jsonCandidate, out string? balancedJson))
+        {
+            return balancedJson;
+        }
+
+        return TryRepairTruncatedJsonObject(jsonCandidate);
+    }
+
+    private static string? ExtractFenceContent(string text)
+    {
+        Match fenceMatch = Regex.Match(text, @"```(?:json)?\s*\n?([\s\S]*?)\s*```", RegexOptions.IgnoreCase);
+        return fenceMatch.Success ? fenceMatch.Groups[1].Value : null;
+    }
+
+    private static bool TryExtractBalancedJsonObject(string text, out string? json)
+    {
+        json = null;
+        bool inString = false;
+        bool escape = false;
+        int objectDepth = 0;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char current = text[i];
+
+            if (TryAdvanceJsonStringState(current, ref inString, ref escape))
+            {
+                continue;
+            }
+
+            if (current == '{')
+            {
+                objectDepth++;
+                continue;
+            }
+
+            if (current != '}')
+            {
+                continue;
+            }
+
+            if (objectDepth == 0)
+            {
+                return false;
+            }
+
+            objectDepth--;
+            if (objectDepth == 0)
+            {
+                json = text[..(i + 1)];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? TryRepairTruncatedJsonObject(string text)
+    {
+        List<int> boundaryPositions = CollectRepairBoundaryPositions(text);
+        for (int i = boundaryPositions.Count - 1; i >= 0; i--)
+        {
+            string prefix = text[..boundaryPositions[i]];
+            string? repaired = TryCloseJsonPrefix(prefix);
+            if (string.IsNullOrWhiteSpace(repaired))
+            {
+                continue;
+            }
+
+            if (IsJsonObject(repaired))
+            {
+                return repaired;
+            }
+        }
+
+        return null;
+    }
+
+    private static List<int> CollectRepairBoundaryPositions(string text)
+    {
+        List<int> positions = new List<int> { text.Length };
+        bool inString = false;
+        bool escape = false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char current = text[i];
+
+            if (TryAdvanceJsonStringState(current, ref inString, ref escape))
+            {
+                continue;
+            }
+
+            if (current is ',' or '{' or '[' or '}' or ']')
+            {
+                positions.Add(i + 1);
+            }
+        }
+
+        return positions;
+    }
+
+    private static string? TryCloseJsonPrefix(string prefix)
+    {
+        string trimmed = prefix.TrimEnd();
+        while (!string.IsNullOrEmpty(trimmed))
+        {
+            char last = trimmed[^1];
+            if (last is ',' or ':' or '{' or '[')
+            {
+                trimmed = trimmed[..^1].TrimEnd();
+                continue;
+            }
+
+            break;
+        }
+
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed[0] != '{')
+        {
+            return null;
+        }
+
+        if (!TryComputeMissingClosers(trimmed, out string closers))
+        {
+            return null;
+        }
+
+        return Regex.Replace(trimmed + closers, @",(\s*[}\]])", "$1");
+    }
+
+    private static bool TryComputeMissingClosers(string text, out string closers)
+    {
+        Stack<char> expectedClosers = new Stack<char>();
+        bool inString = false;
+        bool escape = false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            char current = text[i];
+
+            if (TryAdvanceJsonStringState(current, ref inString, ref escape))
+            {
+                continue;
+            }
+
+            switch (current)
+            {
+                case '{':
+                    expectedClosers.Push('}');
+                    break;
+                case '[':
+                    expectedClosers.Push(']');
+                    break;
+                case '}':
+                case ']':
+                    if (!TryHandleJsonCloser(current, expectedClosers))
+                    {
+                        closers = string.Empty;
+                        return false;
+                    }
+                    break;
+            }
+        }
+
+        if (inString)
+        {
+            closers = string.Empty;
+            return false;
+        }
+
+        closers = new string(expectedClosers.ToArray());
+        return true;
+    }
+
+    private static bool TryAdvanceJsonStringState(char current, ref bool inString, ref bool escape)
+    {
+        if (!inString)
+        {
+            if (current == '"')
+            {
+                inString = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        if (escape)
+        {
+            escape = false;
+            return true;
+        }
+
+        if (current == '\\')
+        {
+            escape = true;
+            return true;
+        }
+
+        if (current == '"')
+        {
+            inString = false;
+        }
+
+        return true;
+    }
+
+    private static bool TryHandleJsonCloser(char current, Stack<char> expectedClosers)
+    {
+        if (!expectedClosers.TryPeek(out char expected) || expected != current)
+        {
+            return false;
+        }
+
+        expectedClosers.Pop();
+        return true;
+    }
+
+    private static bool IsJsonObject(string json)
+    {
+        try
+        {
+            using JsonDocument doc = JsonDocument.Parse(json);
+            return doc.RootElement.ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }

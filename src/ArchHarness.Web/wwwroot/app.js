@@ -69,6 +69,7 @@ let reviewPrState = {
   folderPath: '',
   prFiles: [],
   prFilesError: "",
+  startReviewError: "",
   isPreparingWorkspace: false,
   isStartingReview: false
 };
@@ -3560,6 +3561,7 @@ async function openReviewPrModal() {
     folderPath: "",
     prFiles: [],
     prFilesError: "",
+    startReviewError: "",
     isPreparingWorkspace: false,
     isStartingReview: false
   };
@@ -3869,6 +3871,8 @@ async function startPullRequestReview() {
   }
 
   reviewPrState.isStartingReview = true;
+  reviewPrState.startReviewError = "";
+  renderConfirmStep();
   updateReviewPrNavigation();
 
   try {
@@ -3926,6 +3930,7 @@ function renderProviderPicker() {
       }
 
       reviewPrState.selectedProvider = provider;
+      reviewPrState.startReviewError = "";
       list.querySelectorAll(".provider-picker-item").forEach(b => b.classList.remove("selected"));
       btn.classList.add("selected");
       showReviewPrStep(1);
@@ -4260,6 +4265,7 @@ function renderPullRequestList() {
     li.append(titleEl, metaEl);
     li.addEventListener("click", () => {
       reviewPrState.selectedPr = pr;
+      reviewPrState.startReviewError = "";
       listEl.querySelectorAll(".pr-list-item").forEach(item => item.classList.remove("selected"));
       li.classList.add("selected");
       if (nextBtn) nextBtn.disabled = false;
@@ -4303,6 +4309,7 @@ function renderFolderStep() {
     reviewPrState.projectId = null;
     reviewPrState.prFiles = [];
     reviewPrState.prFilesError = "";
+    reviewPrState.startReviewError = "";
     updateReviewPrNavigation();
   };
 
@@ -4322,6 +4329,7 @@ async function loadPrFiles() {
   if (!providerName || !prId) {
     reviewPrState.prFiles = [];
     reviewPrState.prFilesError = "Select a valid provider and pull request to load changed files.";
+    reviewPrState.startReviewError = "";
     renderConfirmStep();
     return;
   }
@@ -4331,9 +4339,11 @@ async function loadPrFiles() {
     const files = await requestJson(`/api/providers/${encodeURIComponent(providerName)}/pullrequests/${encodeURIComponent(prId)}/files${qs ? "?" + qs : ""}`);
     reviewPrState.prFiles = Array.isArray(files) ? files : [];
     reviewPrState.prFilesError = "";
+    reviewPrState.startReviewError = "";
   } catch (error) {
     reviewPrState.prFiles = [];
     reviewPrState.prFilesError = error?.message || "Failed to load changed files for this pull request.";
+    reviewPrState.startReviewError = "";
   }
 
   renderConfirmStep();
@@ -4362,7 +4372,12 @@ function renderConfirmStep() {
   fileList.replaceChildren();
 
   if (statusEl) {
-    if (reviewPrState.prFilesError) {
+    statusEl.classList.toggle("review-pr-error-note", Boolean(reviewPrState.startReviewError || reviewPrState.prFilesError));
+
+    if (reviewPrState.startReviewError) {
+      statusEl.textContent = reviewPrState.startReviewError;
+      statusEl.classList.remove("hidden");
+    } else if (reviewPrState.prFilesError) {
       statusEl.textContent = reviewPrState.prFilesError;
       statusEl.classList.remove("hidden");
     } else if (reviewPrState.prFiles.length === 0) {
@@ -4579,8 +4594,9 @@ function attachHandlers() {
   document.getElementById("review-pr-back-button").addEventListener("click", handleReviewPrBack);
   elements.reviewPrGoButton.addEventListener("click", () => {
     void startPullRequestReview().catch(error => {
-      setReviewPrFolderHint(error?.message || "Failed to start the PR architecture review.");
+      reviewPrState.startReviewError = error?.message || "Failed to start the PR architecture review.";
       reviewPrState.isStartingReview = false;
+      renderConfirmStep();
       updateReviewPrNavigation();
       console.error("PR architecture review failed:", error);
     });

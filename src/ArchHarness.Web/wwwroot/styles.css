@@ -2159,6 +2159,10 @@ html[data-desktop-platform="win32"] .field select option:hover {
   font-size: 0.86rem;
 }
 
+#review-pr-file-status.review-pr-error-note {
+  color: var(--danger);
+}
+
 .pr-list {
   list-style: none;
   padding: 0;
