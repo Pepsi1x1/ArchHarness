@@ -22,7 +22,7 @@ internal static class ProgramEndpointExtensions
         endpoints.MapGet("/api/projects/{projectId}/git/diff", ProgramHandlers.GetProjectGitDiff);
         endpoints.MapPost("/api/projects/{projectId}/git/stash", ProgramHandlers.StashProjectChanges);
         endpoints.MapPost("/api/projects/{projectId}/git/clone", ProgramHandlers.CloneProjectRepositoryAsync);
-        endpoints.MapPost("/api/projects/{projectId}/branch", ProgramHandlers.SwitchProjectBranch);
+        endpoints.MapPost("/api/projects/{projectId}/branch", ProgramHandlers.SwitchProjectBranchAsync);
         endpoints.MapGet("/api/projects/{projectId}/pullrequests", ProgramHandlers.GetProjectPullRequestsAsync);
         endpoints.MapPut("/api/projects/{projectId}/source-control", ProgramHandlers.UpdateProjectSourceControl);
 

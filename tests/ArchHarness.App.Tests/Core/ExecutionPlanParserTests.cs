@@ -109,6 +109,41 @@ public sealed class ExecutionPlanParserTests
     }
 
     /// <summary>
+    /// Invalid agent errors should list the full supported set, including accepted aliases.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_InvalidAgent_ListsSupportedAliasesInError()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"unknown-agent","objective":"build things"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+
+            Assert.False(result);
+            Assert.NotNull(error);
+            Assert.Contains("secure", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("review", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("frontend-developer", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("backend-developer", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("coding-style", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
     /// Step ordering should place CodingStyle before Security before Architecture.
     /// </summary>
     [Fact]

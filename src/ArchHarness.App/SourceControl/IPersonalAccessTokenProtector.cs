@@ -18,10 +18,10 @@ public interface IPersonalAccessTokenProtector
     /// <summary>
     /// Encrypts a personal access token for storage.
     /// </summary>
-    string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null);
+    Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null);
 
     /// <summary>
     /// Decrypts a previously protected personal access token.
     /// </summary>
-    string Unprotect(string protectedPersonalAccessToken);
+    Task<string> UnprotectAsync(string protectedPersonalAccessToken);
 }

@@ -10,12 +10,12 @@ public interface IProviderConnectionSettingsCoordinator
     /// <summary>
     /// Normalizes and hydrates settings for a connectivity test.
     /// </summary>
-    ProviderConnectionSettings PrepareForConnectionTest(ProviderConnectionSettings settings);
+    Task<ProviderConnectionSettings> PrepareForConnectionTestAsync(ProviderConnectionSettings settings);
 
     /// <summary>
     /// Normalizes and hydrates settings for persistence.
     /// </summary>
-    ProviderConnectionSettings PrepareForSave(ProviderConnectionSettings settings);
+    Task<ProviderConnectionSettings> PrepareForSaveAsync(ProviderConnectionSettings settings);
 
     /// <summary>
     /// Returns field-level validation errors for the supplied settings.
@@ -46,12 +46,12 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
     }
 
     /// <inheritdoc />
-    public ProviderConnectionSettings PrepareForConnectionTest(ProviderConnectionSettings settings)
-        => HydrateTestCredential(Normalize(settings), this.FindExistingProvider(settings.DisplayName));
+    public async Task<ProviderConnectionSettings> PrepareForConnectionTestAsync(ProviderConnectionSettings settings)
+        => HydrateTestCredential(Normalize(settings), await this.FindExistingProviderAsync(settings.DisplayName).ConfigureAwait(false));
 
     /// <inheritdoc />
-    public ProviderConnectionSettings PrepareForSave(ProviderConnectionSettings settings)
-        => HydrateSavedCredential(Normalize(settings), this.FindExistingProvider(settings.DisplayName));
+    public async Task<ProviderConnectionSettings> PrepareForSaveAsync(ProviderConnectionSettings settings)
+        => HydrateSavedCredential(Normalize(settings), await this.FindExistingProviderAsync(settings.DisplayName).ConfigureAwait(false));
 
     /// <inheritdoc />
     public Dictionary<string, string[]> GetValidationErrors(ProviderConnectionSettings settings, bool requirePersonalAccessToken)
@@ -63,60 +63,89 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
             AddError(errors, "provider", "Provider is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(settings.DisplayName))
-        {
-            AddError(errors, "displayName", "DisplayName is required.");
-        }
-        else if (settings.DisplayName.IndexOfAny(_invalidDisplayNameCharacters) >= 0)
-        {
-            AddError(errors, "displayName", "DisplayName cannot contain path separator characters.");
-        }
+        ValidateDisplayName(settings, errors);
+
+        const string ORGANIZATION_KEY = "organization";
 
         if (string.IsNullOrWhiteSpace(settings.Organization))
         {
-            AddError(errors, "organization", "Organization is required.");
+            AddError(errors, ORGANIZATION_KEY, "Organization is required.");
         }
 
-        if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubOwnerType))
-        {
-            AddError(errors, "gitHubOwnerType", "GitHubOwnerType is required for GitHub providers.");
-        }
-
-        if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubAuthenticationMode))
-        {
-            AddError(errors, "gitHubAuthenticationMode", "GitHubAuthenticationMode is invalid for GitHub providers.");
-        }
+        ValidateGithub(settings, errors);
 
         if (settings.Provider == SourceControlProvider.AzureDevOpsServer)
         {
-            if (string.IsNullOrWhiteSpace(settings.ServerUrl))
-            {
-                AddError(errors, "serverUrl", "ServerUrl is required for Azure DevOps Server.");
-            }
-            else if (!Uri.TryCreate(settings.ServerUrl, UriKind.Absolute, out Uri? parsedServerUrl))
-            {
-                AddError(errors, "serverUrl", "ServerUrl must be an absolute URL.");
-            }
-            else if (!string.Equals(parsedServerUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            {
-                AddError(errors, "serverUrl", "ServerUrl must use HTTPS.");
-            }
-            else if (!string.IsNullOrEmpty(parsedServerUrl.UserInfo))
-            {
-                AddError(errors, "serverUrl", "ServerUrl cannot include embedded credentials.");
-            }
+            ValidateAzureDevOpsServer(settings, errors);
         }
+
+        ValidatePersonalAccessToken(settings, requirePersonalAccessToken, errors);
+
+        return errors.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void ValidatePersonalAccessToken(ProviderConnectionSettings settings, bool requirePersonalAccessToken, Dictionary<string, List<string>> errors)
+    {
+        const string PERSONAL_ACCESS_TOKEN_KEY = "personalAccessToken";
 
         if (requirePersonalAccessToken && string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
         {
-            AddError(errors, "personalAccessToken", "PersonalAccessToken is required.");
+            AddError(errors, PERSONAL_ACCESS_TOKEN_KEY, "PersonalAccessToken is required.");
         }
         else if (LooksLikeAbsoluteHttpUrl(settings.PersonalAccessToken))
         {
-            AddError(errors, "personalAccessToken", "PersonalAccessToken looks like a URL. Check browser autofill and re-enter the token.");
+            AddError(errors, PERSONAL_ACCESS_TOKEN_KEY, "PersonalAccessToken looks like a URL. Check browser autofill and re-enter the token.");
+        }
+    }
+
+    private static void ValidateAzureDevOpsServer(ProviderConnectionSettings settings, Dictionary<string, List<string>> errors)
+    {
+        const string SERVER_URL_KEY = "serverUrl";
+        if (string.IsNullOrWhiteSpace(settings.ServerUrl))
+        {
+            AddError(errors, SERVER_URL_KEY, "ServerUrl is required for Azure DevOps Server.");
+        }
+        else if (!Uri.TryCreate(settings.ServerUrl, UriKind.Absolute, out Uri? parsedServerUrl))
+        {
+            AddError(errors, SERVER_URL_KEY, "ServerUrl must be an absolute URL.");
+        }
+        else if (!string.Equals(parsedServerUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            AddError(errors, SERVER_URL_KEY, "ServerUrl must use HTTPS.");
+        }
+        else if (!string.IsNullOrEmpty(parsedServerUrl.UserInfo))
+        {
+            AddError(errors, SERVER_URL_KEY, "ServerUrl cannot include embedded credentials.");
+        }
+    }
+
+    private static void ValidateGithub(ProviderConnectionSettings settings, Dictionary<string, List<string>> errors)
+    {
+        const string GITHUB_OWNER_TYPE_KEY = "gitHubOwnerType";
+        if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubOwnerType))
+        {
+            AddError(errors, GITHUB_OWNER_TYPE_KEY, "GitHubOwnerType is required for GitHub providers.");
         }
 
-        return errors.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
+        const string GITHUB_AUTHENTICATION_MODE_KEY = "gitHubAuthenticationMode";
+        if (settings.Provider == SourceControlProvider.GitHub && !Enum.IsDefined(settings.GitHubAuthenticationMode))
+        {
+            AddError(errors, GITHUB_AUTHENTICATION_MODE_KEY, "GitHubAuthenticationMode is invalid for GitHub providers.");
+        }
+    }
+
+    private static void ValidateDisplayName(ProviderConnectionSettings settings, Dictionary<string, List<string>> errors)
+    {
+        const string DISPLAY_NAME_KEY = "displayName";
+
+        if (string.IsNullOrWhiteSpace(settings.DisplayName))
+        {
+            AddError(errors, DISPLAY_NAME_KEY, "DisplayName is required.");
+        }
+        else if (settings.DisplayName.IndexOfAny(_invalidDisplayNameCharacters) >= 0)
+        {
+            AddError(errors, DISPLAY_NAME_KEY, "DisplayName cannot contain path separator characters.");
+        }
     }
 
     /// <inheritdoc />
@@ -152,13 +181,14 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
             RetainPersonalAccessToken = settings.Provider == SourceControlProvider.GitHub && settings.RetainPersonalAccessToken
         };
 
-    private ProviderConnectionSettings? FindExistingProvider(string? displayName)
+    private async Task<ProviderConnectionSettings?> FindExistingProviderAsync(string? displayName)
     {
         string? normalizedDisplayName = NormalizeText(displayName);
         return string.IsNullOrWhiteSpace(normalizedDisplayName)
             ? null
-            : this._providerConnectionCatalog
-                .GetProviders()
+            : (await this._providerConnectionCatalog
+                .GetProvidersAsync()
+                .ConfigureAwait(false))
                 .FirstOrDefault(provider => string.Equals(provider.DisplayName, normalizedDisplayName, StringComparison.OrdinalIgnoreCase));
     }
 

@@ -17,7 +17,7 @@ public sealed class DpapiPersonalAccessTokenProtector : IPersonalAccessTokenProt
     public string? UnavailableReason => this.CanProtect ? null : UNAVAILABLE_REASON;
 
     /// <inheritdoc />
-    public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+    public Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -28,11 +28,11 @@ public sealed class DpapiPersonalAccessTokenProtector : IPersonalAccessTokenProt
 
         byte[] plaintext = Encoding.UTF8.GetBytes(personalAccessToken);
         byte[] protectedBytes = ProtectedData.Protect(plaintext, optionalEntropy: null, DataProtectionScope.CurrentUser);
-        return Convert.ToBase64String(protectedBytes);
+        return Task.FromResult(Convert.ToBase64String(protectedBytes));
     }
 
     /// <inheritdoc />
-    public string Unprotect(string protectedPersonalAccessToken)
+    public Task<string> UnprotectAsync(string protectedPersonalAccessToken)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -43,6 +43,6 @@ public sealed class DpapiPersonalAccessTokenProtector : IPersonalAccessTokenProt
 
         byte[] protectedBytes = Convert.FromBase64String(protectedPersonalAccessToken);
         byte[] plaintext = ProtectedData.Unprotect(protectedBytes, optionalEntropy: null, DataProtectionScope.CurrentUser);
-        return Encoding.UTF8.GetString(plaintext);
+        return Task.FromResult(Encoding.UTF8.GetString(plaintext));
     }
 }

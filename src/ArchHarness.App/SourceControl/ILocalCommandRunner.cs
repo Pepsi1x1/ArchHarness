@@ -11,7 +11,7 @@ public interface ILocalCommandRunner
     bool IsCommandAvailable(string commandName);
 
     /// <summary>
-    /// Runs a local command and captures its output.
+    /// Runs a local command asynchronously and captures its output.
     /// </summary>
-    LocalCommandResult Run(string commandName, IReadOnlyList<string> arguments, string? standardInput = null);
+    Task<LocalCommandResult> RunAsync(string commandName, IReadOnlyList<string> arguments, string? standardInput = null);
 }

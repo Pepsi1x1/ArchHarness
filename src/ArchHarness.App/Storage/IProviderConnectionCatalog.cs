@@ -10,15 +10,15 @@ public interface IProviderConnectionCatalog
     /// <summary>
     /// Gets all configured provider connections.
     /// </summary>
-    IReadOnlyList<ProviderConnectionSettings> GetProviders();
+    Task<IReadOnlyList<ProviderConnectionSettings>> GetProvidersAsync();
 
     /// <summary>
     /// Saves a provider connection.
     /// </summary>
-    void SaveProvider(ProviderConnectionSettings settings);
+    Task SaveProviderAsync(ProviderConnectionSettings settings);
 
     /// <summary>
     /// Deletes a provider connection.
     /// </summary>
-    bool DeleteProvider(string displayName);
+    Task<bool> DeleteProviderAsync(string displayName);
 }

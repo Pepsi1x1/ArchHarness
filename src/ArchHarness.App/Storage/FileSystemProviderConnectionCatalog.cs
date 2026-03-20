@@ -10,7 +10,7 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCatalog
 {
-    private readonly object _sync = new object();
+    private readonly SemaphoreSlim _sync = new SemaphoreSlim(1, 1);
     private readonly string _storageFilePath;
     private readonly IPersonalAccessTokenProtector _personalAccessTokenProtector;
 
@@ -32,24 +32,30 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
     }
 
     /// <inheritdoc />
-    public IReadOnlyList<ProviderConnectionSettings> GetProviders()
+    public async Task<IReadOnlyList<ProviderConnectionSettings>> GetProvidersAsync()
     {
-        lock (this._sync)
+        await this._sync.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return this.LoadProviders();
+            return await this.LoadProvidersAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            this._sync.Release();
         }
     }
 
     /// <inheritdoc />
-    public void SaveProvider(ProviderConnectionSettings settings)
+    public async Task SaveProviderAsync(ProviderConnectionSettings settings)
     {
-        lock (this._sync)
+        await this._sync.WaitAsync().ConfigureAwait(false);
+        try
         {
             List<PersistedProviderConnection> persistedProviders = this.LoadPersistedProviders().ToList();
             int existingIndex = persistedProviders.FindIndex(provider =>
                 string.Equals(provider.DisplayName, settings.DisplayName, StringComparison.OrdinalIgnoreCase));
             PersistedProviderConnection? existing = existingIndex >= 0 ? persistedProviders[existingIndex] : null;
-            PersistedProviderConnection persisted = this.MapToPersisted(settings, existing?.EncryptedPersonalAccessToken);
+            PersistedProviderConnection persisted = await this.MapToPersistedAsync(settings, existing?.EncryptedPersonalAccessToken).ConfigureAwait(false);
 
             if (existingIndex >= 0)
             {
@@ -60,14 +66,19 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
                 persistedProviders.Add(persisted);
             }
 
-            this.SavePersistedProviders(persistedProviders);
+            await this.SavePersistedProvidersAsync(persistedProviders).ConfigureAwait(false);
+        }
+        finally
+        {
+            this._sync.Release();
         }
     }
 
     /// <inheritdoc />
-    public bool DeleteProvider(string displayName)
+    public async Task<bool> DeleteProviderAsync(string displayName)
     {
-        lock (this._sync)
+        await this._sync.WaitAsync().ConfigureAwait(false);
+        try
         {
             List<PersistedProviderConnection> providers = this.LoadPersistedProviders().ToList();
             int removedCount = providers.RemoveAll(provider =>
@@ -78,16 +89,27 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
                 return false;
             }
 
-            this.SavePersistedProviders(providers);
+            await this.SavePersistedProvidersAsync(providers).ConfigureAwait(false);
             return true;
+        }
+        finally
+        {
+            this._sync.Release();
         }
     }
 
-    private IReadOnlyList<ProviderConnectionSettings> LoadProviders()
+    private async Task<IReadOnlyList<ProviderConnectionSettings>> LoadProvidersAsync()
     {
         List<PersistedProviderConnection> persistedProviders = this.LoadPersistedProviders().ToList();
-        this.MigrateLegacyPlainTextTokens(persistedProviders);
-        return persistedProviders.Select(this.MapFromPersisted).ToArray();
+        await this.MigrateLegacyPlainTextTokensAsync(persistedProviders).ConfigureAwait(false);
+
+        List<ProviderConnectionSettings> providers = new List<ProviderConnectionSettings>(persistedProviders.Count);
+        foreach (PersistedProviderConnection persistedProvider in persistedProviders)
+        {
+            providers.Add(await this.MapFromPersistedAsync(persistedProvider).ConfigureAwait(false));
+        }
+
+        return providers.ToArray();
     }
 
     private IReadOnlyList<PersistedProviderConnection> LoadPersistedProviders()
@@ -125,16 +147,16 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
         return persistedProviders;
     }
 
-    private void SavePersistedProviders(IReadOnlyList<PersistedProviderConnection> providers)
+    private Task SavePersistedProvidersAsync(IReadOnlyList<PersistedProviderConnection> providers)
     {
         PersistedProviderConnection[] persistedProviders = providers
             .OrderBy(provider => provider.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        FileSystemStorageHelper.WriteJsonFile(this._storageFilePath, persistedProviders, JsonDefaults.WEB_INDENTED);
+        return FileSystemStorageHelper.WriteJsonFileAsync(this._storageFilePath, persistedProviders, JsonDefaults.WEB_INDENTED, CancellationToken.None);
     }
 
-    private ProviderConnectionSettings MapFromPersisted(PersistedProviderConnection persisted)
+    private async Task<ProviderConnectionSettings> MapFromPersistedAsync(PersistedProviderConnection persisted)
     {
         string? personalAccessToken = null;
         PersonalAccessTokenStorageMode storageMode = persisted.PersonalAccessTokenStorageMode;
@@ -143,7 +165,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
         {
             try
             {
-                personalAccessToken = this._personalAccessTokenProtector.Unprotect(persisted.EncryptedPersonalAccessToken);
+                personalAccessToken = await this._personalAccessTokenProtector.UnprotectAsync(persisted.EncryptedPersonalAccessToken).ConfigureAwait(false);
                 storageMode = PersonalAccessTokenStorageMode.Protected;
             }
             catch (Exception ex) when (ex is CryptographicException or FormatException or PlatformNotSupportedException)
@@ -174,7 +196,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
         };
     }
 
-    private PersistedProviderConnection MapToPersisted(ProviderConnectionSettings settings, string? existingProtectedPersonalAccessToken)
+    private async Task<PersistedProviderConnection> MapToPersistedAsync(ProviderConnectionSettings settings, string? existingProtectedPersonalAccessToken)
     {
         string? encryptedPersonalAccessToken = null;
 
@@ -204,7 +226,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
                         ?? "Secure personal access token storage is required on this platform.");
             }
 
-            encryptedPersonalAccessToken = this._personalAccessTokenProtector.Protect(settings.PersonalAccessToken, existingProtectedPersonalAccessToken);
+            encryptedPersonalAccessToken = await this._personalAccessTokenProtector.ProtectAsync(settings.PersonalAccessToken, existingProtectedPersonalAccessToken).ConfigureAwait(false);
         }
 
         return new PersistedProviderConnection(
@@ -221,7 +243,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             settings.IsEnabled);
     }
 
-    private void MigrateLegacyPlainTextTokens(List<PersistedProviderConnection> persistedProviders)
+    private async Task MigrateLegacyPlainTextTokensAsync(List<PersistedProviderConnection> persistedProviders)
     {
         bool updated = false;
 
@@ -242,9 +264,9 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             // When secure storage becomes available later, opportunistically upgrade the token without changing behavior.
             persistedProviders[index] = persisted with
             {
-                EncryptedPersonalAccessToken = this._personalAccessTokenProtector.Protect(
+                EncryptedPersonalAccessToken = await this._personalAccessTokenProtector.ProtectAsync(
                     persisted.PlainTextPersonalAccessToken,
-                    persisted.EncryptedPersonalAccessToken),
+                    persisted.EncryptedPersonalAccessToken).ConfigureAwait(false),
                 PlainTextPersonalAccessToken = null,
                 PersonalAccessTokenStorageMode = PersonalAccessTokenStorageMode.Protected
             };
@@ -253,7 +275,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
 
         if (updated)
         {
-            this.SavePersistedProviders(persistedProviders);
+            await this.SavePersistedProvidersAsync(persistedProviders).ConfigureAwait(false);
         }
     }
 

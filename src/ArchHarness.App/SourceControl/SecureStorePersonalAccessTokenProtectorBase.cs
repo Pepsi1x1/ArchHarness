@@ -26,10 +26,10 @@ public abstract class SecureStorePersonalAccessTokenProtectorBase : IPersonalAcc
     public string? UnavailableReason => this.CanProtect ? null : this._unavailableReason;
 
     /// <inheritdoc />
-    public abstract string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null);
+    public abstract Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null);
 
     /// <inheritdoc />
-    public abstract string Unprotect(string protectedPersonalAccessToken);
+    public abstract Task<string> UnprotectAsync(string protectedPersonalAccessToken);
 
     /// <summary>
     /// Throws when the current platform-specific secure store is unavailable.

@@ -28,13 +28,13 @@ public sealed class KeychainPersonalAccessTokenProtector : SecureStorePersonalAc
     public override bool CanProtect => this._runtimePlatform.IsMacOS && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
 
     /// <inheritdoc />
-    public override string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+    public override async Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(personalAccessToken);
         this.EnsureSupported();
 
         string secretId = this.ResolveSecretId(existingProtectedPersonalAccessToken);
-        LocalCommandResult result = this._commandRunner.Run(
+        LocalCommandResult result = await this._commandRunner.RunAsync(
             COMMAND_NAME,
             new[]
             {
@@ -46,7 +46,7 @@ public sealed class KeychainPersonalAccessTokenProtector : SecureStorePersonalAc
                 SERVICE_NAME,
                 "-w",
                 personalAccessToken
-            });
+            }).ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -57,12 +57,12 @@ public sealed class KeychainPersonalAccessTokenProtector : SecureStorePersonalAc
     }
 
     /// <inheritdoc />
-    public override string Unprotect(string protectedPersonalAccessToken)
+    public override async Task<string> UnprotectAsync(string protectedPersonalAccessToken)
     {
         this.EnsureSupported();
 
         string secretId = this.ParseSecretId(protectedPersonalAccessToken, "The stored macOS Keychain token reference is invalid.");
-        LocalCommandResult result = this._commandRunner.Run(
+        LocalCommandResult result = await this._commandRunner.RunAsync(
             COMMAND_NAME,
             new[]
             {
@@ -72,7 +72,7 @@ public sealed class KeychainPersonalAccessTokenProtector : SecureStorePersonalAc
                 "-s",
                 SERVICE_NAME,
                 "-w"
-            });
+            }).ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {

@@ -281,7 +281,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                 filesTouched.ToArray(),
                 review,
                 securityReview,
-                existingState?.FailureMessage),
+                null),
             cancellationToken);
     }
 

@@ -228,7 +228,7 @@ internal static class ProgramHandlers
             return Results.BadRequest(new { error = "Repository name is not configured for this project." });
         }
 
-        ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, project.SourceControlProviderName);
+        ProviderConnectionSettings? providerSettings = await FindProviderByDisplayNameAsync(providerCatalog, project.SourceControlProviderName).ConfigureAwait(false);
         if (providerSettings is null)
         {
             return Results.BadRequest(new { error = $"Source control provider '{project.SourceControlProviderName}' was not found." });
@@ -296,7 +296,7 @@ internal static class ProgramHandlers
         }
     }
 
-    public static IResult SwitchProjectBranch(string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IProviderConnectionCatalog providerCatalog, IGitRepositoryInfoService gitRepositoryInfoService)
+    public static async Task<IResult> SwitchProjectBranchAsync(string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IProviderConnectionCatalog providerCatalog, IGitRepositoryInfoService gitRepositoryInfoService)
     {
         PersistedProjectWorkspace? project = projectCatalog.GetProject(projectId);
         if (project is null)
@@ -304,7 +304,7 @@ internal static class ProgramHandlers
             return Results.NotFound(new { error = $"Project '{projectId}' was not found." });
         }
 
-        ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, project.SourceControlProviderName);
+        ProviderConnectionSettings? providerSettings = await FindProviderByDisplayNameAsync(providerCatalog, project.SourceControlProviderName).ConfigureAwait(false);
         GitBranchCheckoutResult result = gitRepositoryInfoService.CheckoutBranch(
             project.WorkspacePath,
             request.BranchName,
@@ -422,8 +422,9 @@ internal static class ProgramHandlers
 
     public static async Task<IResult> SaveProviderAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService, IProviderConnectionSettingsCoordinator settingsCoordinator)
     {
+        ProviderConnectionSettings preparedSettings = await settingsCoordinator.PrepareForSaveAsync(settings);
         Dictionary<string, string[]> validationErrors = settingsCoordinator.GetValidationErrors(
-            settingsCoordinator.PrepareForSave(settings),
+            preparedSettings,
             requirePersonalAccessToken: false);
         if (validationErrors.Count > 0)
         {
@@ -488,7 +489,7 @@ internal static class ProgramHandlers
 
     public static async Task<IResult> TestProviderConnectionAsync(ProviderConnectionSettings settings, ISourceControlProviderService providerService, IProviderConnectionSettingsCoordinator settingsCoordinator)
     {
-        ProviderConnectionSettings preparedSettings = settingsCoordinator.PrepareForConnectionTest(settings);
+        ProviderConnectionSettings preparedSettings = await settingsCoordinator.PrepareForConnectionTestAsync(settings);
         Dictionary<string, string[]> validationErrors = settingsCoordinator.GetValidationErrors(
             preparedSettings,
             requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(preparedSettings.Provider));
@@ -567,7 +568,7 @@ internal static class ProgramHandlers
         string? normalizedProject = NormalizeFilterValue(project);
         string? normalizedRepository = NormalizeFilterValue(repository);
         string? normalizedAuthor = NormalizeFilterValue(author);
-        ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, normalizedProviderName);
+        ProviderConnectionSettings? providerSettings = await FindProviderByDisplayNameAsync(providerCatalog, normalizedProviderName).ConfigureAwait(false);
         if (providerSettings is null)
         {
             return Results.NotFound(new { error = $"Source control provider '{normalizedProviderName}' was not found." });
@@ -614,7 +615,7 @@ internal static class ProgramHandlers
         string? normalizedProject = NormalizeFilterValue(lookup.Project);
         string? normalizedRepository = NormalizeFilterValue(lookup.Repository);
         string? normalizedAuthor = NormalizeFilterValue(lookup.Author);
-        ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, normalizedProviderName);
+        ProviderConnectionSettings? providerSettings = await FindProviderByDisplayNameAsync(providerCatalog, normalizedProviderName).ConfigureAwait(false);
         if (providerSettings is null)
         {
             return Results.NotFound(new { error = $"Source control provider '{normalizedProviderName}' was not found." });
@@ -717,7 +718,7 @@ internal static class ProgramHandlers
         string normalizedPullRequestId = NormalizePullRequestId(pullRequestId)!;
         string? normalizedProject = NormalizeFilterValue(project);
         string? normalizedRepository = NormalizeFilterValue(repository);
-        ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, normalizedProviderName);
+        ProviderConnectionSettings? providerSettings = await FindProviderByDisplayNameAsync(providerCatalog, normalizedProviderName).ConfigureAwait(false);
         if (providerSettings is null)
         {
             return Results.NotFound(new { error = $"Source control provider '{normalizedProviderName}' was not found." });
@@ -771,7 +772,7 @@ internal static class ProgramHandlers
             return Results.BadRequest(new { error = "Repository name is not configured for this project." });
         }
 
-        ProviderConnectionSettings? providerSettings = FindProviderByDisplayName(providerCatalog, project.SourceControlProviderName);
+        ProviderConnectionSettings? providerSettings = await FindProviderByDisplayNameAsync(providerCatalog, project.SourceControlProviderName);
         if (providerSettings is null)
         {
             return Results.BadRequest(new { error = $"Source control provider '{project.SourceControlProviderName}' was not found." });
@@ -1258,12 +1259,12 @@ internal static class ProgramHandlers
     private static string? NormalizePullRequestId(string? value)
         => NormalizeText(value);
 
-    private static ProviderConnectionSettings? FindProviderByDisplayName(IProviderConnectionCatalog providerCatalog, string? providerName)
+    private static async Task<ProviderConnectionSettings?> FindProviderByDisplayNameAsync(IProviderConnectionCatalog providerCatalog, string? providerName)
     {
         string? normalizedProviderName = NormalizeText(providerName);
         return string.IsNullOrWhiteSpace(normalizedProviderName)
             ? null
-            : providerCatalog.GetProviders()
+            : (await providerCatalog.GetProvidersAsync())
                 .FirstOrDefault(provider => string.Equals(provider.DisplayName, normalizedProviderName, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -1282,3 +1283,4 @@ internal static class ProgramHandlers
 }
 
 internal sealed record PullRequestLookupContext(string ProviderName, string? Project, string? Repository, string? Author);
+

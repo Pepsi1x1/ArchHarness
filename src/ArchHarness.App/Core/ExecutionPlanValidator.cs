@@ -8,6 +8,8 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class ExecutionPlanValidator
 {
+    private const string SUPPORTED_AGENT_MESSAGE = "FrontendDeveloper (or frontend-developer), BackendDeveloper (or backend-developer), Build, CodingStyle (or coding-style), Security (or secure), Architecture (or review)";
+
     private static readonly HashSet<string> _allowedAgents = new HashSet<string>(StringComparer.Ordinal)
     {
         "frontenddeveloper",
@@ -101,7 +103,7 @@ internal static class ExecutionPlanValidator
         string normalizedAgent = agentValue!.Trim().ToLowerInvariant();
         if (!_allowedAgents.Contains(normalizedAgent))
         {
-            error = $"Step {index}: agent '{normalizedAgent}' is not recognized. Use one of: FrontendDeveloper, BackendDeveloper, Build, CodingStyle, Security, Architecture.";
+            error = $"Step {index}: agent '{normalizedAgent}' is not recognized. Use one of: {SUPPORTED_AGENT_MESSAGE}.";
             return false;
         }
 

@@ -51,6 +51,8 @@ public interface IAgentStreamEventStream
 
 public abstract class MulticastEventStream<TEvent>
 {
+    private const int MAX_BUFFERED_EVENTS = 256;
+
     private readonly object _sync = new object();
     private readonly Dictionary<Guid, Channel<TEvent>> _subscribers = new Dictionary<Guid, Channel<TEvent>>();
 
@@ -71,8 +73,9 @@ public abstract class MulticastEventStream<TEvent>
     public async IAsyncEnumerable<TEvent> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         Guid subscriberId = Guid.NewGuid();
-        Channel<TEvent> channel = Channel.CreateUnbounded<TEvent>(new UnboundedChannelOptions
+        Channel<TEvent> channel = Channel.CreateBounded<TEvent>(new BoundedChannelOptions(MAX_BUFFERED_EVENTS)
         {
+            FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
             SingleWriter = false
         });
@@ -84,7 +87,7 @@ public abstract class MulticastEventStream<TEvent>
 
         try
         {
-            await foreach (TEvent evt in channel.Reader.ReadAllAsync(cancellationToken))
+            await foreach (TEvent evt in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return evt;
             }

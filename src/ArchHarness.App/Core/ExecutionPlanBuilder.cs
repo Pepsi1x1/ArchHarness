@@ -97,39 +97,45 @@ internal sealed class ExecutionPlanBuilder
     {
         reviewLoopAgents ??= this.GetCurrentReviewLoopAgents();
 
-        List<ExecutionPlanStep> terminalValidationBuilds = steps
-            .Where(IsTerminalValidationBuildStep)
-            .ToList();
-        List<ExecutionPlanStep> nonTerminalSteps = steps
-            .Where(s => !IsTerminalValidationBuildStep(s))
-            .ToList();
-        List<ExecutionPlanStep> enabledReviewSteps = nonTerminalSteps
-            .Where(s => IsReviewAgent(s.Agent) && reviewLoopAgents.IsEnabled(s.Agent))
-            .ToList();
-        List<ExecutionPlanStep> nonReview = nonTerminalSteps
-            .Where(s => !IsReviewAgent(s.Agent))
-            .ToList();
-        List<ExecutionPlanStep> codingStyle = enabledReviewSteps
-            .Where(s => s.Agent == CODING_STYLE_AGENT_NAME)
-            .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
-            .ToList();
-        List<ExecutionPlanStep> security = enabledReviewSteps
-            .Where(s => s.Agent == SECURITY_AGENT_NAME)
-            .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
-            .ToList();
-        List<ExecutionPlanStep> architecture = enabledReviewSteps
-            .Where(s => s.Agent == ARCHITECTURE_AGENT_NAME)
-            .Where(s => this._workspaceContext.IsReviewObjective(s.Objective))
-            .ToList();
-
-        if (nonReview.Count == 0 && terminalValidationBuilds.Count == 0)
+        var categorizedSteps = CategorizeSteps(steps, reviewLoopAgents);
+        
+        if (categorizedSteps.NonReview.Count == 0 && categorizedSteps.TerminalValidationBuilds.Count == 0)
         {
             return steps;
         }
 
-        if (reviewLoopAgents.CodingStyleEnabled && codingStyle.Count == 0)
+        InjectMissingReviewSteps(categorizedSteps, reviewLoopAgents, workspaceLanguages);
+        
+        var reordered = BuildReorderedList(categorizedSteps);
+        RemapStepIds(reordered);
+        EnforceCodingStyleDependencies(reordered);
+        EnforceSecurityDependencies(reordered);
+        EnforceArchitectureDependencies(reordered);
+        EnforceTerminalBuildDependencies(reordered);
+
+        return reordered;
+    }
+
+    private (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) CategorizeSteps(List<ExecutionPlanStep> steps, ReviewLoopAgentSelection reviewLoopAgents)
+    {
+        var terminalBuilds = steps.Where(IsTerminalValidationBuildStep).ToList();
+        var nonTerminal = steps.Where(s => !IsTerminalValidationBuildStep(s)).ToList();
+        var enabledReview = nonTerminal.Where(s => IsReviewAgent(s.Agent) && reviewLoopAgents.IsEnabled(s.Agent)).ToList();
+        var nonReview = nonTerminal.Where(s => !IsReviewAgent(s.Agent)).ToList();
+        var codingStyle = enabledReview.Where(s => s.Agent == CODING_STYLE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
+        var security = enabledReview.Where(s => s.Agent == SECURITY_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
+        var architecture = enabledReview.Where(s => s.Agent == ARCHITECTURE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
+        
+        return (nonReview, codingStyle, security, architecture, terminalBuilds, -1, -1, -1);
+    }
+
+    private static void InjectMissingReviewSteps(
+        (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorized,
+        ReviewLoopAgentSelection reviewLoopAgents, IReadOnlyList<string> workspaceLanguages)
+    {
+        if (reviewLoopAgents.CodingStyleEnabled && categorized.CodeStyle.Count == 0)
         {
-            codingStyle.Add(new ExecutionPlanStep(
+            categorized.CodeStyle.Add(new ExecutionPlanStep(
                 Id: -1,
                 Agent: CODING_STYLE_AGENT_NAME,
                 Objective: "Review completed implementation and enforce language coding standards and naming/style conventions; apply required corrections directly.",
@@ -137,9 +143,9 @@ internal sealed class ExecutionPlanBuilder
                 Languages: workspaceLanguages));
         }
 
-        if (reviewLoopAgents.SecurityEnabled && security.Count == 0)
+        if (reviewLoopAgents.SecurityEnabled && categorized.Security.Count == 0)
         {
-            security.Add(new ExecutionPlanStep(
+            categorized.Security.Add(new ExecutionPlanStep(
                 Id: -2,
                 Agent: SECURITY_AGENT_NAME,
                 Objective: "Review completed implementation for security defects and OWASP Top 10 risks; apply required remediations directly.",
@@ -147,66 +153,68 @@ internal sealed class ExecutionPlanBuilder
                 Languages: workspaceLanguages));
         }
 
-        if (reviewLoopAgents.ArchitectureEnabled && architecture.Count == 0)
+        if (reviewLoopAgents.ArchitectureEnabled && categorized.Architecture.Count == 0)
         {
-            architecture.Add(new ExecutionPlanStep(
+            categorized.Architecture.Add(new ExecutionPlanStep(
                 Id: -3,
                 Agent: ARCHITECTURE_AGENT_NAME,
                 Objective: "Review completed implementation and enforce SOLID/DRY/separation-of-concerns standards; apply required corrections directly.",
                 DependsOnStepIds: null,
                 Languages: workspaceLanguages));
         }
+    }
 
-        List<ExecutionPlanStep> reviewSteps = new List<ExecutionPlanStep>();
-        if (codingStyle.Count > 0)
+    private List<ExecutionPlanStep> BuildReorderedList(
+        (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorized)
+    {
+        var reviewSteps = new List<ExecutionPlanStep>();
+        
+        if (categorized.CodeStyle.Count > 0)
         {
-            reviewSteps.Add(codingStyle[^1] with
+            reviewSteps.Add(categorized.CodeStyle[^1] with
             {
-                Languages = codingStyle[^1].Languages is { Count: > 0 }
-                    ? codingStyle[^1].Languages
-                    : workspaceLanguages,
+                Languages = categorized.CodeStyle[^1].Languages is { Count: > 0 } ? categorized.CodeStyle[^1].Languages : new List<string>(),
                 Id = -1,
                 DependsOnStepIds = null
             });
         }
 
-        if (security.Count > 0)
+        if (categorized.Security.Count > 0)
         {
-            reviewSteps.Add(security[^1] with
+            reviewSteps.Add(categorized.Security[^1] with
             {
-                Languages = security[^1].Languages is { Count: > 0 }
-                    ? security[^1].Languages
-                    : workspaceLanguages,
+                Languages = categorized.Security[^1].Languages is { Count: > 0 } ? categorized.Security[^1].Languages : new List<string>(),
                 Id = -2,
                 DependsOnStepIds = null
             });
         }
 
-        if (architecture.Count > 0)
+        if (categorized.Architecture.Count > 0)
         {
-            reviewSteps.Add(architecture[^1] with
+            reviewSteps.Add(categorized.Architecture[^1] with
             {
-                Languages = architecture[^1].Languages is { Count: > 0 }
-                    ? architecture[^1].Languages
-                    : workspaceLanguages,
+                Languages = categorized.Architecture[^1].Languages is { Count: > 0 } ? categorized.Architecture[^1].Languages : new List<string>(),
                 Id = -3,
                 DependsOnStepIds = null
             });
         }
 
-        List<ExecutionPlanStep> reordered = nonReview
+        return categorized.NonReview
             .Concat(reviewSteps)
-            .Concat(terminalValidationBuilds.Select((step, index) => step with { Id = -100 - index, DependsOnStepIds = null }))
+            .Concat(categorized.TerminalValidationBuilds.Select((step, index) => step with { Id = -100 - index, DependsOnStepIds = null }))
             .ToList();
+    }
 
-        Dictionary<int, int> idMap = reordered
+    private void RemapStepIds(List<ExecutionPlanStep> reordered)
+    {
+        var idMap = reordered
             .Select((step, index) => new { oldId = step.Id, newId = index + 1 })
             .ToDictionary(x => x.oldId, x => x.newId);
 
         for (int i = 0; i < reordered.Count; i++)
         {
-            ExecutionPlanStep step = reordered[i];
-            int[]? remappedDepends = step.DependsOnStepIds?
+            var step = reordered[i];
+            var remappedDepends = step.DependsOnStepIds?
                 .Where(dep => idMap.ContainsKey(dep))
                 .Select(dep => idMap[dep])
                 .Distinct()
@@ -219,97 +227,121 @@ internal sealed class ExecutionPlanBuilder
                 DependsOnStepIds = remappedDepends is { Length: > 0 } ? remappedDepends : null
             };
         }
+    }
+
+    private void EnforceCodingStyleDependencies(List<ExecutionPlanStep> reordered)
+    {
+        int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
+        if (codingStyleIndex < 0) return;
+
+        var codingStyleStep = reordered[codingStyleIndex];
+        var codingStyleDepends = reordered
+            .Where((_, index) => index < codingStyleIndex)
+            .Select(s => s.Id)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToArray();
+
+        reordered[codingStyleIndex] = codingStyleStep with
+        {
+            DependsOnStepIds = codingStyleDepends.Length > 0 ? codingStyleDepends : null
+        };
+    }
+
+    private void EnforceSecurityDependencies(List<ExecutionPlanStep> reordered)
+    {
+        int securityIndex = reordered.FindLastIndex(s => s.Agent == SECURITY_AGENT_NAME);
+        if (securityIndex < 0) return;
 
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
-        if (codingStyleIndex >= 0)
+        var securityStep = reordered[securityIndex];
+        
+        int[] securityDepends = GetSecurityDependencies(reordered, securityIndex, codingStyleIndex);
+        reordered[securityIndex] = securityStep with
         {
-            ExecutionPlanStep codingStyleStep = reordered[codingStyleIndex];
-            int[] codingStyleDepends = reordered
-                .Where((_, index) => index < codingStyleIndex)
-                .Select(s => s.Id)
-                .Distinct()
-                .OrderBy(x => x)
-                .ToArray();
+            DependsOnStepIds = securityDepends.Length > 0 ? securityDepends : null
+        };
+    }
 
-            reordered[codingStyleIndex] = codingStyleStep with
-            {
-                DependsOnStepIds = codingStyleDepends.Length > 0 ? codingStyleDepends : null
-            };
+    private static int[] GetSecurityDependencies(List<ExecutionPlanStep> reordered, int securityIndex, int codingStyleIndex)
+    {
+        int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
+        if (codingStyleStepId > 0)
+        {
+            return new[] { codingStyleStepId };
         }
+
+        return reordered
+            .Where((_, index) => index < securityIndex)
+            .Select(s => s.Id)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToArray();
+    }
+
+    private void EnforceArchitectureDependencies(List<ExecutionPlanStep> reordered)
+    {
+        int architectureIndex = reordered.FindLastIndex(s => s.Agent == ARCHITECTURE_AGENT_NAME);
+        if (architectureIndex < 0) return;
 
         int securityIndex = reordered.FindLastIndex(s => s.Agent == SECURITY_AGENT_NAME);
-        if (securityIndex >= 0)
+        int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
+        
+        var architectureStep = reordered[architectureIndex];
+        int[] enforcedDepends = GetArchitectureDependencies(reordered, architectureIndex, securityIndex, codingStyleIndex);
+        
+        reordered[architectureIndex] = architectureStep with
         {
-            ExecutionPlanStep securityStep = reordered[securityIndex];
-            int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
-            int[] securityDepends = codingStyleStepId > 0
-                ? new[] { codingStyleStepId }
-                : reordered
-                    .Where((_, index) => index < securityIndex)
-                    .Select(s => s.Id)
-                    .Distinct()
-                    .OrderBy(x => x)
-                    .ToArray();
+            DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
+        };
+    }
 
-            reordered[securityIndex] = securityStep with
-            {
-                DependsOnStepIds = securityDepends.Length > 0 ? securityDepends : null
-            };
+    private static int[] GetArchitectureDependencies(List<ExecutionPlanStep> reordered, int architectureIndex, int securityIndex, int codingStyleIndex)
+    {
+        int securityStepId = securityIndex >= 0 ? reordered[securityIndex].Id : 0;
+        int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
+        
+        if (securityStepId > 0)
+        {
+            return new[] { securityStepId };
+        }
+        
+        if (codingStyleStepId > 0)
+        {
+            return new[] { codingStyleStepId };
         }
 
-        int architectureIndex = reordered.FindLastIndex(s => s.Agent == ARCHITECTURE_AGENT_NAME);
-        if (architectureIndex >= 0)
-        {
-            ExecutionPlanStep architectureStep = reordered[architectureIndex];
-            int securityStepId = securityIndex >= 0 ? reordered[securityIndex].Id : 0;
-            int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
-            int[] enforcedDepends;
-            if (securityStepId > 0)
-            {
-                enforcedDepends = new[] { securityStepId };
-            }
-            else if (codingStyleStepId > 0)
-            {
-                enforcedDepends = new[] { codingStyleStepId };
-            }
-            else
-            {
-                enforcedDepends = reordered
-                    .Where((_, index) => index < architectureIndex)
-                    .Select(s => s.Id)
-                    .Distinct()
-                    .OrderBy(x => x)
-                    .ToArray();
-            }
+        return reordered
+            .Where((_, index) => index < architectureIndex)
+            .Select(s => s.Id)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToArray();
+    }
 
-            reordered[architectureIndex] = architectureStep with
+    private void EnforceTerminalBuildDependencies(List<ExecutionPlanStep> reordered)
+    {
+        int architectureIndex = reordered.FindLastIndex(s => s.Agent == ARCHITECTURE_AGENT_NAME);
+        int previousDependencyId = architectureIndex >= 0 ? reordered[architectureIndex].Id : 0;
+        
+        int[] terminalBuildIndexes = reordered
+            .Select((step, index) => new { step, index })
+            .Where(x => IsTerminalValidationBuildStep(x.step))
+            .Select(x => x.index)
+            .ToArray();
+
+        foreach (int buildIndex in terminalBuildIndexes)
+        {
+            var buildStep = reordered[buildIndex];
+            int[] enforcedDepends = previousDependencyId > 0 ? new[] { previousDependencyId } : Array.Empty<int>();
+            
+            reordered[buildIndex] = buildStep with
             {
                 DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
             };
+            
+            previousDependencyId = reordered[buildIndex].Id;
         }
-
-        if (terminalValidationBuilds.Count > 0)
-        {
-            int previousDependencyId = architectureIndex >= 0 ? reordered[architectureIndex].Id : 0;
-            int[] terminalBuildIndexes = reordered
-                .Select((step, index) => new { step, index })
-                .Where(x => IsTerminalValidationBuildStep(x.step))
-                .Select(x => x.index)
-                .ToArray();
-
-            foreach (int buildIndex in terminalBuildIndexes)
-            {
-                ExecutionPlanStep buildStep = reordered[buildIndex];
-                int[] enforcedDepends = previousDependencyId > 0 ? new[] { previousDependencyId } : Array.Empty<int>();
-                reordered[buildIndex] = buildStep with
-                {
-                    DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
-                };
-                previousDependencyId = reordered[buildIndex].Id;
-            }
-        }
-
-        return reordered;
     }
 
     /// <summary>

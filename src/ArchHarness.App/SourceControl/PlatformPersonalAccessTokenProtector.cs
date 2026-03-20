@@ -36,24 +36,24 @@ public sealed class PlatformPersonalAccessTokenProtector : IPersonalAccessTokenP
             ?? "Secure personal access token storage is not available on this platform. Saving a personal access token requires a supported secure store.";
 
     /// <inheritdoc />
-    public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+    public Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         if (!this.CanProtect)
         {
             throw new PlatformNotSupportedException(this.UnavailableReason);
         }
 
-        return this._activeProtector!.Protect(personalAccessToken, existingProtectedPersonalAccessToken);
+        return this._activeProtector!.ProtectAsync(personalAccessToken, existingProtectedPersonalAccessToken);
     }
 
     /// <inheritdoc />
-    public string Unprotect(string protectedPersonalAccessToken)
+    public Task<string> UnprotectAsync(string protectedPersonalAccessToken)
     {
         if (!this.CanProtect)
         {
             throw new PlatformNotSupportedException(this.UnavailableReason);
         }
 
-        return this._activeProtector!.Unprotect(protectedPersonalAccessToken);
+        return this._activeProtector!.UnprotectAsync(protectedPersonalAccessToken);
     }
 }

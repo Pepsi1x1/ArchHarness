@@ -68,7 +68,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
         File.WriteAllText(Path.Combine(this._tempRoot, "settings.json"), JsonSerializer.Serialize(settings, JsonDefaults.WEB_INDENTED));
     }
 
-    public void SeedProviderConnections(params ProviderConnectionSettings[] providers)
+    public async Task SeedProviderConnectionsAsync(params ProviderConnectionSettings[] providers)
     {
         FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
             Path.Combine(this._tempRoot, "providers.json"),
@@ -76,7 +76,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
         foreach (ProviderConnectionSettings provider in providers)
         {
-            catalog.SaveProvider(provider);
+            await catalog.SaveProviderAsync(provider);
         }
     }
 
@@ -117,8 +117,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.AddSingleton<IGlobalSettingsCatalog>(_ => new FileSystemGlobalSettingsCatalog(
                 Path.Combine(this._tempRoot, "settings.json"),
                 agentsOptions,
-                copilotOptions,
-                this._personalAccessTokenProtector));
+                copilotOptions));
             services.AddSingleton<IPersonalAccessTokenProtector>(this._personalAccessTokenProtector);
             services.AddSingleton<IProviderConnectionCatalog>(_ => new FileSystemProviderConnectionCatalog(
                 Path.Combine(this._tempRoot, "providers.json"),
@@ -224,17 +223,17 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             ? null
             : "Secure token storage is not available in this test instance. Saving a personal access token requires a supported secure store.";
 
-        public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+        public Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
         {
             if (!this.CanProtectTokens)
             {
                 throw new PlatformNotSupportedException(this.UnavailableReason);
             }
 
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes($"protected::{personalAccessToken}"));
+            return Task.FromResult(Convert.ToBase64String(Encoding.UTF8.GetBytes($"protected::{personalAccessToken}")));
         }
 
-        public string Unprotect(string protectedPersonalAccessToken)
+        public Task<string> UnprotectAsync(string protectedPersonalAccessToken)
         {
             string value = Encoding.UTF8.GetString(Convert.FromBase64String(protectedPersonalAccessToken));
             if (!value.StartsWith("protected::", StringComparison.Ordinal))
@@ -242,7 +241,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
                 throw new CryptographicException("Invalid protected token.");
             }
 
-            return value["protected::".Length..];
+            return Task.FromResult(value["protected::".Length..]);
         }
     }
 

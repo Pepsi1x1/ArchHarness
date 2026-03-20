@@ -1,6 +1,5 @@
 using System.Text.Json;
 using ArchHarness.App.Core;
-using ArchHarness.App.SourceControl;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Storage;
@@ -18,7 +17,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     /// <summary>
     /// Initializes a new instance of the <see cref="FileSystemGlobalSettingsCatalog"/> class.
     /// </summary>
-    public FileSystemGlobalSettingsCatalog(IOptions<AgentsOptions> agentsOptions, IOptions<CopilotOptions> copilotOptions, IPersonalAccessTokenProtector _)
+    public FileSystemGlobalSettingsCatalog(IOptions<AgentsOptions> agentsOptions, IOptions<CopilotOptions> copilotOptions)
         : this(GetDefaultStorageFilePath(), agentsOptions.Value, copilotOptions.Value)
     {
     }
@@ -26,7 +25,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     /// <summary>
     /// Initializes a new instance of the <see cref="FileSystemGlobalSettingsCatalog"/> class using explicit defaults and storage path.
     /// </summary>
-    public FileSystemGlobalSettingsCatalog(string storageFilePath, AgentsOptions agentsOptions, CopilotOptions copilotOptions, IPersonalAccessTokenProtector? _ = null)
+    public FileSystemGlobalSettingsCatalog(string storageFilePath, AgentsOptions agentsOptions, CopilotOptions copilotOptions)
     {
         this._storageFilePath = FileSystemStorageHelper.NormalizePath(storageFilePath);
         this._agentsOptions = agentsOptions;

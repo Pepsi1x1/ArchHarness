@@ -639,7 +639,7 @@ public sealed class WebApiTests
     public async Task PullRequestsEndpoint_ReturnsConfiguredProviderPullRequests()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -717,7 +717,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsEndpoint_ReturnsFilteredProviderPullRequests()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -791,7 +791,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsEndpoint_UsesGitHubUserRepositoriesWhenConfigured()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -865,7 +865,7 @@ public sealed class WebApiTests
     public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenSavedBlank()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -949,7 +949,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsEndpoint_UsesAzureDevOpsProjectFilterWithoutListingAllProjects()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.AzureDevOpsServer,
             DisplayName = "Carpenters",
@@ -1047,7 +1047,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsEndpoint_ReturnsValidationProblemForInvalidFilter()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -1071,7 +1071,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsEndpoint_ReturnsUnauthorizedWhenProviderAuthenticationIsRejected()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.AzureDevOpsServer,
             DisplayName = "Carpenters",
@@ -1104,7 +1104,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsStreamEndpoint_ReturnsFriendlyErrorWhenTransportFails()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.AzureDevOpsServer,
             DisplayName = "Carpenters",
@@ -1130,7 +1130,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsStreamEndpoint_ReturnsServerSentEvents()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -1203,7 +1203,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestFilesEndpoint_ReturnsFilesForPullRequest()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -1251,7 +1251,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestFilesEndpoint_ReturnsFriendlyErrorWhenTransportFails()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -1292,7 +1292,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestFilesEndpoint_ReturnsUnauthorizedWhenProviderAuthenticationIsRejected()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -1345,7 +1345,7 @@ public sealed class WebApiTests
     public async Task ProviderPullRequestsEndpoint_DoesNotExposeUnhandledExceptionDetails()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-        factory.SeedProviderConnections(new ProviderConnectionSettings
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",

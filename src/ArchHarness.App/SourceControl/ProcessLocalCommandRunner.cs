@@ -13,14 +13,16 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
         => TryResolveExecutable(commandName) is not null;
 
     /// <inheritdoc />
-    public LocalCommandResult Run(string commandName, IReadOnlyList<string> arguments, string? standardInput = null)
+    public async Task<LocalCommandResult> RunAsync(string commandName, IReadOnlyList<string> arguments, string? standardInput = null)
     {
         string executablePath = TryResolveExecutable(commandName)
             ?? throw new Win32Exception($"Command '{commandName}' was not found on PATH.");
 
+        bool redirectStandardInput = standardInput is not null;
+
         ProcessStartInfo info = new ProcessStartInfo(executablePath)
         {
-            RedirectStandardInput = true,
+            RedirectStandardInput = redirectStandardInput,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -35,17 +37,19 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
         using Process process = new Process { StartInfo = info };
         process.Start();
 
-        if (standardInput is not null)
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+
+        if (redirectStandardInput)
         {
-            process.StandardInput.Write(standardInput);
+            await process.StandardInput.WriteAsync(standardInput).ConfigureAwait(false);
             process.StandardInput.Close();
         }
 
-        string stdout = process.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        Task waitForExitTask = process.WaitForExitAsync();
+        await Task.WhenAll(stdoutTask, stderrTask, waitForExitTask).ConfigureAwait(false);
 
-        return new LocalCommandResult(process.ExitCode, stdout, stderr);
+        return new LocalCommandResult(process.ExitCode, await stdoutTask.ConfigureAwait(false), await stderrTask.ConfigureAwait(false));
     }
 
     private static string? TryResolveExecutable(string commandName)

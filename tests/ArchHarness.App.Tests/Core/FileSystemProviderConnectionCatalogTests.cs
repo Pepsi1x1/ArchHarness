@@ -14,11 +14,11 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that saving a provider with a PAT stores it in encrypted form and allows retrieval.
     /// </summary>
     [Fact]
-    public void SaveProvider_PersistsEncryptedPersonalAccessToken()
+    public async Task SaveProviderAsync_PersistsEncryptedPersonalAccessToken()
     {
         FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
 
-        catalog.SaveProvider(new ProviderConnectionSettings
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -27,10 +27,10 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             IsEnabled = true
         });
 
-        string json = File.ReadAllText(Path.Combine(this._root, "providers.json"));
+        string json = await File.ReadAllTextAsync(Path.Combine(this._root, "providers.json"));
         Assert.DoesNotContain("github-pat", json);
 
-        ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
+        ProviderConnectionSettings persisted = Assert.Single(await this.CreateCatalog().GetProvidersAsync());
         Assert.Equal("github-pat", persisted.PersonalAccessToken);
         Assert.Equal(PersonalAccessTokenStorageMode.Protected, persisted.PersonalAccessTokenStorageMode);
     }
@@ -39,11 +39,11 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that legacy plain-text tokens are migrated to protected storage when a secure store is available.
     /// </summary>
     [Fact]
-    public void GetProviders_MigratesLegacyPlainTextPersonalAccessTokens()
+    public async Task GetProvidersAsync_MigratesLegacyPlainTextPersonalAccessTokens()
     {
         string storagePath = Path.Combine(this._root, "providers.json");
         Directory.CreateDirectory(this._root);
-        File.WriteAllText(storagePath, """
+                await File.WriteAllTextAsync(storagePath, """
             [
               {
                 "provider": 2,
@@ -61,12 +61,12 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             ]
             """);
 
-        ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
+        ProviderConnectionSettings persisted = Assert.Single(await this.CreateCatalog().GetProvidersAsync());
 
         Assert.Equal("github-pat", persisted.PersonalAccessToken);
         Assert.Equal(PersonalAccessTokenStorageMode.Protected, persisted.PersonalAccessTokenStorageMode);
 
-        string migratedJson = File.ReadAllText(storagePath);
+        string migratedJson = await File.ReadAllTextAsync(storagePath);
         Assert.DoesNotContain("github-pat", migratedJson);
         Assert.Contains("encryptedPersonalAccessToken", migratedJson);
     }
@@ -75,11 +75,11 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that the GitHub owner type is persisted and restored correctly.
     /// </summary>
     [Fact]
-    public void SaveProvider_PersistsGitHubOwnerType()
+    public async Task SaveProviderAsync_PersistsGitHubOwnerType()
     {
         FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
 
-        catalog.SaveProvider(new ProviderConnectionSettings
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub User",
@@ -89,7 +89,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             IsEnabled = true
         });
 
-        ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
+        ProviderConnectionSettings persisted = Assert.Single(await this.CreateCatalog().GetProvidersAsync());
         Assert.Equal(GitHubOwnerType.User, persisted.GitHubOwnerType);
     }
 
@@ -97,11 +97,11 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that GitHub OAuth metadata (authentication mode and authenticated user) is persisted correctly.
     /// </summary>
     [Fact]
-    public void SaveProvider_PersistsGitHubOAuthMetadata()
+    public async Task SaveProviderAsync_PersistsGitHubOAuthMetadata()
     {
         FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
 
-        catalog.SaveProvider(new ProviderConnectionSettings
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub OAuth",
@@ -112,7 +112,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             IsEnabled = true
         });
 
-        ProviderConnectionSettings persisted = Assert.Single(this.CreateCatalog().GetProviders());
+        ProviderConnectionSettings persisted = Assert.Single(await this.CreateCatalog().GetProvidersAsync());
         Assert.Equal(GitHubAuthenticationMode.OAuthDeviceFlow, persisted.GitHubAuthenticationMode);
         Assert.Equal("octocat", persisted.GitHubAuthenticatedUser);
         Assert.Equal("oauth-token", persisted.PersonalAccessToken);
@@ -122,14 +122,14 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that saving with protected storage still fails when secure storage is unavailable.
     /// </summary>
     [Fact]
-    public void SaveProvider_ThrowsWhenProtectedStorageIsUnavailable()
+    public async Task SaveProviderAsync_ThrowsWhenProtectedStorageIsUnavailable()
     {
         FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
             Path.Combine(this._root, "providers.json"),
             new TestPersonalAccessTokenProtector(canProtect: false));
 
-        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
-            catalog.SaveProvider(new ProviderConnectionSettings
+        InvalidOperationException ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            catalog.SaveProviderAsync(new ProviderConnectionSettings
             {
                 Provider = SourceControlProvider.GitHub,
                 DisplayName = "GitHub",
@@ -145,13 +145,13 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that explicit plain-text storage persists when secure storage is unavailable.
     /// </summary>
     [Fact]
-    public void SaveProvider_PersistsPlainTextPersonalAccessTokenWhenRequested()
+    public async Task SaveProviderAsync_PersistsPlainTextPersonalAccessTokenWhenRequested()
     {
         FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
             Path.Combine(this._root, "providers.json"),
             new TestPersonalAccessTokenProtector(canProtect: false));
 
-        catalog.SaveProvider(new ProviderConnectionSettings
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.GitHub,
             DisplayName = "GitHub",
@@ -161,11 +161,11 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             IsEnabled = true
         });
 
-        string json = File.ReadAllText(Path.Combine(this._root, "providers.json"));
+        string json = await File.ReadAllTextAsync(Path.Combine(this._root, "providers.json"));
         Assert.Contains("plainTextPersonalAccessToken", json);
         Assert.Contains("github-pat", json);
 
-        ProviderConnectionSettings persisted = Assert.Single(catalog.GetProviders());
+        ProviderConnectionSettings persisted = Assert.Single(await catalog.GetProvidersAsync());
         Assert.Equal("github-pat", persisted.PersonalAccessToken);
         Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
     }
@@ -174,11 +174,11 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that plain-text tokens remain readable when secure storage is unavailable.
     /// </summary>
     [Fact]
-    public void GetProviders_LoadsPlainTextPersonalAccessTokensWhenProtectionIsUnavailable()
+    public async Task GetProvidersAsync_LoadsPlainTextPersonalAccessTokensWhenProtectionIsUnavailable()
     {
         string storagePath = Path.Combine(this._root, "providers.json");
         Directory.CreateDirectory(this._root);
-        File.WriteAllText(storagePath, """
+                await File.WriteAllTextAsync(storagePath, """
             [
               {
                 "provider": 2,
@@ -200,7 +200,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             storagePath,
             new TestPersonalAccessTokenProtector(canProtect: false));
 
-        ProviderConnectionSettings persisted = Assert.Single(catalog.GetProviders());
+        ProviderConnectionSettings persisted = Assert.Single(await catalog.GetProvidersAsync());
 
         Assert.Equal("github-pat", persisted.PersonalAccessToken);
         Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
@@ -210,10 +210,10 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     /// Verifies that deleting a provider by display name is case-insensitive.
     /// </summary>
     [Fact]
-    public void DeleteProvider_RemovesMatchingProviderIgnoringCase()
+    public async Task DeleteProviderAsync_RemovesMatchingProviderIgnoringCase()
     {
         FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
-        catalog.SaveProvider(new ProviderConnectionSettings
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
         {
             Provider = SourceControlProvider.AzureDevOpsServices,
             DisplayName = "Contoso Cloud",
@@ -222,10 +222,10 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             IsEnabled = true
         });
 
-        bool deleted = catalog.DeleteProvider("contoso cloud");
+        bool deleted = await catalog.DeleteProviderAsync("contoso cloud");
 
         Assert.True(deleted);
-        Assert.Empty(catalog.GetProviders());
+        Assert.Empty(await catalog.GetProvidersAsync());
     }
 
     private FileSystemProviderConnectionCatalog CreateCatalog()
@@ -254,17 +254,17 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
             ? null
             : "Secure token storage is not available in this test instance. Saving a personal access token requires a supported secure store.";
 
-        public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+        public Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
         {
             if (!this._canProtect)
             {
                 throw new PlatformNotSupportedException(this.UnavailableReason);
             }
 
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes($"protected::{personalAccessToken}"));
+            return Task.FromResult(Convert.ToBase64String(Encoding.UTF8.GetBytes($"protected::{personalAccessToken}")));
         }
 
-        public string Unprotect(string protectedPersonalAccessToken)
+        public Task<string> UnprotectAsync(string protectedPersonalAccessToken)
         {
             string value = Encoding.UTF8.GetString(Convert.FromBase64String(protectedPersonalAccessToken));
             if (!value.StartsWith("protected::", StringComparison.Ordinal))
@@ -272,7 +272,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
                 throw new CryptographicException("Invalid protected token.");
             }
 
-            return value["protected::".Length..];
+            return Task.FromResult(value["protected::".Length..]);
         }
     }
 }

@@ -50,29 +50,83 @@ internal static class FileSystemStorageHelper
     internal static void WriteJsonFile<T>(string filePath, T value, JsonSerializerOptions options)
     {
         string normalizedPath = NormalizePath(filePath);
-        string? directory = Path.GetDirectoryName(normalizedPath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
+        string directory = EnsureParentDirectory(normalizedPath);
         string json = JsonSerializer.Serialize(value, options);
-        File.WriteAllText(normalizedPath, json);
+        string tempPath = CreateSiblingTempFilePath(directory, normalizedPath);
+
+        try
+        {
+            File.WriteAllText(tempPath, json);
+            ReplaceFileAtomically(tempPath, normalizedPath);
+        }
+        finally
+        {
+            DeleteTempFileIfPresent(tempPath);
+        }
     }
 
     /// <summary>
     /// Serialises <paramref name="value"/> to JSON and writes it asynchronously.
     /// </summary>
     internal static Task WriteJsonFileAsync<T>(string filePath, T value, JsonSerializerOptions options, CancellationToken cancellationToken)
+        => WriteJsonFileInternalAsync(filePath, value, options, cancellationToken);
+
+    private static async Task WriteJsonFileInternalAsync<T>(string filePath, T value, JsonSerializerOptions options, CancellationToken cancellationToken)
     {
         string normalizedPath = NormalizePath(filePath);
-        string? directory = Path.GetDirectoryName(normalizedPath);
-        if (!string.IsNullOrWhiteSpace(directory))
+        string directory = EnsureParentDirectory(normalizedPath);
+        string json = JsonSerializer.Serialize(value, options);
+        string tempPath = CreateSiblingTempFilePath(directory, normalizedPath);
+
+        try
         {
-            Directory.CreateDirectory(directory);
+            await File.WriteAllTextAsync(tempPath, json, cancellationToken);
+            ReplaceFileAtomically(tempPath, normalizedPath);
+        }
+        finally
+        {
+            DeleteTempFileIfPresent(tempPath);
+        }
+    }
+
+    private static string EnsureParentDirectory(string normalizedPath)
+    {
+        string? directory = Path.GetDirectoryName(normalizedPath);
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            throw new InvalidOperationException($"A parent directory is required for '{normalizedPath}'.");
         }
 
-        string json = JsonSerializer.Serialize(value, options);
-        return File.WriteAllTextAsync(normalizedPath, json, cancellationToken);
+        Directory.CreateDirectory(directory);
+        return directory;
+    }
+
+    private static string CreateSiblingTempFilePath(string directory, string destinationPath)
+        => Path.Combine(directory, $".{Path.GetFileName(destinationPath)}.{Guid.NewGuid():N}.tmp");
+
+    private static void ReplaceFileAtomically(string tempPath, string destinationPath)
+    {
+        if (!File.Exists(destinationPath))
+        {
+            File.Move(tempPath, destinationPath);
+            return;
+        }
+
+        try
+        {
+            File.Replace(tempPath, destinationPath, destinationBackupFileName: null);
+        }
+        catch (PlatformNotSupportedException)
+        {
+            File.Move(tempPath, destinationPath, overwrite: true);
+        }
+    }
+
+    private static void DeleteTempFileIfPresent(string tempPath)
+    {
+        if (File.Exists(tempPath))
+        {
+            File.Delete(tempPath);
+        }
     }
 }

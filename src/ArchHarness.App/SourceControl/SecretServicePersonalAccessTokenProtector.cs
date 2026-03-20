@@ -31,13 +31,13 @@ public sealed class SecretServicePersonalAccessTokenProtector : SecureStorePerso
     public override bool CanProtect => this._runtimePlatform.IsLinux && this._commandRunner.IsCommandAvailable(COMMAND_NAME);
 
     /// <inheritdoc />
-    public override string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
+    public override async Task<string> ProtectAsync(string personalAccessToken, string? existingProtectedPersonalAccessToken = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(personalAccessToken);
         this.EnsureSupported();
 
         string secretId = this.ResolveSecretId(existingProtectedPersonalAccessToken);
-        LocalCommandResult result = this._commandRunner.Run(
+        LocalCommandResult result = await this._commandRunner.RunAsync(
             COMMAND_NAME,
             new[]
             {
@@ -48,7 +48,7 @@ public sealed class SecretServicePersonalAccessTokenProtector : SecureStorePerso
                 ACCOUNT_ATTRIBUTE_NAME,
                 secretId
             },
-            personalAccessToken);
+            personalAccessToken).ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -59,12 +59,12 @@ public sealed class SecretServicePersonalAccessTokenProtector : SecureStorePerso
     }
 
     /// <inheritdoc />
-    public override string Unprotect(string protectedPersonalAccessToken)
+    public override async Task<string> UnprotectAsync(string protectedPersonalAccessToken)
     {
         this.EnsureSupported();
 
         string secretId = this.ParseSecretId(protectedPersonalAccessToken, "The stored Secret Service token reference is invalid.");
-        LocalCommandResult result = this._commandRunner.Run(
+        LocalCommandResult result = await this._commandRunner.RunAsync(
             COMMAND_NAME,
             new[]
             {
@@ -73,7 +73,7 @@ public sealed class SecretServicePersonalAccessTokenProtector : SecureStorePerso
                 SERVICE_ATTRIBUTE_VALUE,
                 ACCOUNT_ATTRIBUTE_NAME,
                 secretId
-            });
+            }).ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {

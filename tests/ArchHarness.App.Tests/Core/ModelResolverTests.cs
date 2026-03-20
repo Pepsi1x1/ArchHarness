@@ -113,24 +113,12 @@ public sealed class ModelResolverTests
         FileSystemGlobalSettingsCatalog settingsCatalog = new FileSystemGlobalSettingsCatalog(
             Path.Combine(Path.GetTempPath(), "ArchHarnessModelResolverTests", Guid.NewGuid().ToString("N"), "settings.json"),
             agentsOptions,
-            copilotOptions,
-            new TestPersonalAccessTokenProtector());
+            copilotOptions);
 
         return new ModelResolver(
             Options.Create(agentsOptions),
             Options.Create(copilotOptions),
             catalog,
             settingsCatalog);
-    }
-
-    private sealed class TestPersonalAccessTokenProtector : IPersonalAccessTokenProtector
-    {
-        public bool CanProtect => true;
-
-        public string? UnavailableReason => null;
-
-        public string Protect(string personalAccessToken, string? existingProtectedPersonalAccessToken = null) => personalAccessToken;
-
-        public string Unprotect(string protectedPersonalAccessToken) => protectedPersonalAccessToken;
     }
 }

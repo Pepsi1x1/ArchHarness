@@ -25,31 +25,32 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
     }
 
     /// <inheritdoc />
-    public Task<ConnectionTestResult> TestConnectionAsync(ProviderConnectionSettings settings)
+    public async Task<ConnectionTestResult> TestConnectionAsync(ProviderConnectionSettings settings)
     {
-        ProviderConnectionSettings normalized = this._settingsCoordinator.PrepareForConnectionTest(settings);
+        ProviderConnectionSettings normalized = await this._settingsCoordinator.PrepareForConnectionTestAsync(settings).ConfigureAwait(false);
         this._settingsCoordinator.ValidateOrThrow(normalized, requirePersonalAccessToken: RequiresPersonalAccessTokenForConnectionTest(normalized.Provider));
 
         ISourceControlReviewProviderService service = this._providerFactory.GetProvider(normalized.Provider);
-        return service.TestConnectionAsync(normalized, CancellationToken.None);
+        return await service.TestConnectionAsync(normalized, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<ProviderConnectionSettings>> GetConfiguredProvidersAsync()
+    public async Task<IReadOnlyList<ProviderConnectionSettings>> GetConfiguredProvidersAsync()
     {
-        ProviderConnectionSettings[] providers = this._providerConnectionCatalog
-            .GetProviders()
+        ProviderConnectionSettings[] providers = (await this._providerConnectionCatalog
+            .GetProvidersAsync()
+            .ConfigureAwait(false))
             .OrderBy(provider => provider.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Select(provider => provider.WithoutPersonalAccessToken())
             .ToArray();
 
-        return Task.FromResult<IReadOnlyList<ProviderConnectionSettings>>(providers);
+        return providers;
     }
 
     /// <inheritdoc />
-    public Task SaveProviderAsync(ProviderConnectionSettings settings)
+    public async Task SaveProviderAsync(ProviderConnectionSettings settings)
     {
-        ProviderConnectionSettings normalized = this._settingsCoordinator.PrepareForSave(settings);
+        ProviderConnectionSettings normalized = await this._settingsCoordinator.PrepareForSaveAsync(settings).ConfigureAwait(false);
         this._settingsCoordinator.ValidateOrThrow(normalized, requirePersonalAccessToken: false);
 
         if (string.IsNullOrWhiteSpace(normalized.PersonalAccessToken) && RequiresPersonalAccessTokenForSave(normalized.Provider))
@@ -57,13 +58,11 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
             throw new InvalidOperationException("PersonalAccessToken is required when creating a provider connection.");
         }
 
-        this._providerConnectionCatalog.SaveProvider(normalized);
-
-        return Task.CompletedTask;
+        await this._providerConnectionCatalog.SaveProviderAsync(normalized).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public Task DeleteProviderAsync(string displayName)
+    public async Task DeleteProviderAsync(string displayName)
     {
         string? normalizedDisplayName = NormalizeText(displayName);
         if (string.IsNullOrWhiteSpace(normalizedDisplayName))
@@ -71,12 +70,10 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
             throw new InvalidOperationException("DisplayName is required.");
         }
 
-        if (!this._providerConnectionCatalog.DeleteProvider(normalizedDisplayName))
+        if (!await this._providerConnectionCatalog.DeleteProviderAsync(normalizedDisplayName).ConfigureAwait(false))
         {
             throw new KeyNotFoundException($"Provider '{normalizedDisplayName}' was not found.");
         }
-
-        return Task.CompletedTask;
     }
 
     private static bool RequiresPersonalAccessTokenForSave(SourceControlProvider provider)
