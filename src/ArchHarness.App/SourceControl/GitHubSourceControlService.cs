@@ -50,7 +50,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                 : await SendRequestAsync(BuildOwnerEndpoint(settings), settings.PersonalAccessToken, TokenAuthorizationScheme, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                return new ConnectionTestResult(false, await BuildFailureMessageAsync(response, cancellationToken));
+                return new ConnectionTestResult(false, await BuildFailureMessageAsync(response, hasPersonalAccessToken, cancellationToken));
             }
 
             return new ConnectionTestResult(true, "Successfully connected to GitHub.");
@@ -361,11 +361,11 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         return isDraft ? "draft" : state;
     }
 
-    private static async Task<string> BuildFailureMessageAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<string> BuildFailureMessageAsync(HttpResponseMessage response, bool usedAuthentication, CancellationToken cancellationToken)
     {
         if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
         {
-            return "GitHub connection failed because authentication was rejected. Verify the personal access token and required repository permissions.";
+            return BuildUnauthorizedOrForbiddenMessage("connection", usedAuthentication);
         }
 
         string? providerMessage = await ReadProviderMessageAsync(response, cancellationToken);
@@ -530,13 +530,21 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
     private async Task<JsonDocument> SendArrayRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await SendRequestAsync(requestUri, personalAccessToken, BearerAuthorizationScheme, cancellationToken);
-        return await ParseArrayResponseAsync(response, "pull request data retrieval", cancellationToken);
+        return await ParseArrayResponseAsync(
+            response,
+            "pull request data retrieval",
+            !string.IsNullOrWhiteSpace(personalAccessToken),
+            cancellationToken);
     }
 
     private async Task<JsonDocument> SendObjectRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await SendRequestAsync(requestUri, personalAccessToken, BearerAuthorizationScheme, cancellationToken);
-        await EnsureSuccessStatusCodeAsync(response, "repository metadata retrieval", cancellationToken);
+        await EnsureSuccessStatusCodeAsync(
+            response,
+            "repository metadata retrieval",
+            !string.IsNullOrWhiteSpace(personalAccessToken),
+            cancellationToken);
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
@@ -549,9 +557,9 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         return document;
     }
 
-    private static async Task<JsonDocument> ParseArrayResponseAsync(HttpResponseMessage response, string operationName, CancellationToken cancellationToken)
+    private static async Task<JsonDocument> ParseArrayResponseAsync(HttpResponseMessage response, string operationName, bool usedAuthentication, CancellationToken cancellationToken)
     {
-        await EnsureSuccessStatusCodeAsync(response, operationName, cancellationToken);
+        await EnsureSuccessStatusCodeAsync(response, operationName, usedAuthentication, cancellationToken);
 
         await using Stream contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         JsonDocument document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
@@ -564,7 +572,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         return document;
     }
 
-    private static async Task EnsureSuccessStatusCodeAsync(HttpResponseMessage response, string operationName, CancellationToken cancellationToken)
+    private static async Task EnsureSuccessStatusCodeAsync(HttpResponseMessage response, string operationName, bool usedAuthentication, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)
         {
@@ -572,15 +580,15 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         }
 
         throw new SourceControlRequestFailedException(
-            await BuildRequestFailureMessageAsync(operationName, response, cancellationToken),
+            await BuildRequestFailureMessageAsync(operationName, response, usedAuthentication, cancellationToken),
             response.StatusCode);
     }
 
-    private static async Task<string> BuildRequestFailureMessageAsync(string operationName, HttpResponseMessage response, CancellationToken cancellationToken)
+    private static async Task<string> BuildRequestFailureMessageAsync(string operationName, HttpResponseMessage response, bool usedAuthentication, CancellationToken cancellationToken)
     {
         if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
         {
-            return $"GitHub {operationName} failed because authentication was rejected. Verify the personal access token and required repository permissions.";
+            return BuildUnauthorizedOrForbiddenMessage(operationName, usedAuthentication);
         }
 
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -596,6 +604,11 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
 
         return $"GitHub {operationName} failed: {providerMessage}";
     }
+
+    private static string BuildUnauthorizedOrForbiddenMessage(string operationName, bool usedAuthentication)
+        => usedAuthentication
+            ? $"GitHub {operationName} failed because authentication was rejected. Verify the personal access token and required repository permissions."
+            : $"GitHub {operationName} failed without authentication. Verify the owner type and owner name, or provide a personal access token if the repository access is restricted or GitHub requires authentication.";
 
     private static Uri ValidateHttpsRequestUri(string requestUri)
     {

@@ -284,6 +284,10 @@ internal static class ProgramHandlers
         {
             return Results.BadRequest(new { error = ex.Message });
         }
+        catch (HttpRequestException)
+        {
+            return CreateSourceControlTransportErrorResult(providerSettings.Provider, "pull request retrieval");
+        }
     }
 
     public static IResult SwitchProjectBranch(string projectId, SwitchProjectBranchRequest request, IProjectWorkspaceCatalog projectCatalog, IProviderConnectionCatalog providerCatalog, IGitRepositoryInfoService gitRepositoryInfoService)
@@ -606,6 +610,22 @@ internal static class ProgramHandlers
                 cancellationToken);
             return Results.Empty;
         }
+        catch (HttpRequestException)
+        {
+            string errorMessage = BuildSourceControlTransportErrorMessage(providerSettings.Provider, "pull request retrieval");
+            if (!context.Response.HasStarted)
+            {
+                return Results.Json(new { error = errorMessage }, statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            await WriteServerSentEventAsync(
+                context.Response,
+                "error",
+                new { error = errorMessage },
+                eventJsonOptions,
+                cancellationToken);
+            return Results.Empty;
+        }
     }
 
     public static async Task<IResult> GetProviderPullRequestFilesAsync(string providerName, string pullRequestId, string? project, string? repository, IProviderConnectionCatalog providerCatalog, SourceControlProviderFactory providerFactory, CancellationToken cancellationToken)
@@ -649,6 +669,10 @@ internal static class ProgramHandlers
         catch (InvalidOperationException ex)
         {
             return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (HttpRequestException)
+        {
+            return CreateSourceControlTransportErrorResult(providerSettings.Provider, "pull request file retrieval");
         }
     }
 
@@ -701,6 +725,10 @@ internal static class ProgramHandlers
         catch (InvalidOperationException ex)
         {
             return Results.BadRequest(new { error = ex.Message });
+        }
+        catch (HttpRequestException)
+        {
+            return CreateSourceControlTransportErrorResult(providerSettings.Provider, "pull request retrieval");
         }
     }
 
@@ -895,6 +923,19 @@ internal static class ProgramHandlers
                 statusCode: StatusCodes.Status401Unauthorized),
             HttpStatusCode.NotFound => Results.NotFound(new { error = ex.Message }),
             _ => Results.BadRequest(new { error = ex.Message })
+        };
+
+    private static IResult CreateSourceControlTransportErrorResult(SourceControlProvider provider, string operationName)
+        => Results.Json(
+            new { error = BuildSourceControlTransportErrorMessage(provider, operationName) },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    private static string BuildSourceControlTransportErrorMessage(SourceControlProvider provider, string operationName)
+        => provider switch
+        {
+            SourceControlProvider.GitHub => $"GitHub {operationName} failed. Unable to reach GitHub over HTTPS.",
+            SourceControlProvider.AzureDevOpsServer or SourceControlProvider.AzureDevOpsServices => $"Azure DevOps {operationName} failed. Unable to reach the server over HTTPS.",
+            _ => $"Source control {operationName} failed due to a network error."
         };
 
     private static async Task WriteServerSentEventAsync(HttpResponse response, string eventName, object payload, JsonSerializerOptions serializerOptions, CancellationToken cancellationToken)

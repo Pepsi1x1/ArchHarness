@@ -774,6 +774,37 @@ public sealed class SourceControlProviderServiceTests
       }
 
       [Fact]
+      public async Task GitHub_TestConnectionWithoutPersonalAccessToken_DoesNotReportAuthRejectedWhenUserEndpointReturnsForbidden()
+      {
+        StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
+        {
+          Assert.Equal("https://api.github.com/users/octocat", request.RequestUri?.ToString());
+          Assert.Null(request.Headers.Authorization);
+          return new HttpResponseMessage(HttpStatusCode.Forbidden)
+          {
+            Content = new StringContent("""{ "message": "API rate limit exceeded" }""", Encoding.UTF8, "application/json")
+          };
+        });
+
+        GitHubSourceControlService service = CreateGitHubService(handler);
+        ProviderConnectionSettings settings = new ProviderConnectionSettings
+        {
+          Provider = SourceControlProvider.GitHub,
+          DisplayName = "GitHub",
+          Organization = "octocat",
+          GitHubOwnerType = GitHubOwnerType.User,
+          PersonalAccessToken = null,
+          IsEnabled = true
+        };
+
+        ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("failed without authentication", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("authentication was rejected", result.Message, StringComparison.OrdinalIgnoreCase);
+      }
+
+      [Fact]
       public async Task GitHub_GetPullRequestsAsync_UsesUserRepositoriesEndpointWhenConfigured()
       {
         string? repositoryRequestUri = null;

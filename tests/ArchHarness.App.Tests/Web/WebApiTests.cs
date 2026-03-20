@@ -322,6 +322,40 @@ public sealed class WebApiTests
     }
 
     [Fact]
+    public async Task ProvidersTestEndpoint_ReturnsHelpfulMessageForUnauthenticatedGitHubUserConnectionFailure()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.ConfigureGitHubResponse((request, _) =>
+        {
+            Assert.Equal("https://api.github.com/users/octocat", request.RequestUri?.ToString());
+            Assert.Null(request.Headers.Authorization);
+            return new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("""{ "message": "API rate limit exceeded" }""", Encoding.UTF8, "application/json")
+            };
+        });
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/providers/test", new
+        {
+            provider = (int)SourceControlProvider.GitHub,
+            displayName = "GitHub",
+            serverUrl = (string?)null,
+            organization = "octocat",
+            gitHubOwnerType = (int)GitHubOwnerType.User,
+            personalAccessToken = (string?)null,
+            isEnabled = true
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(document.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("failed without authentication", document.RootElement.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("authentication was rejected", document.RootElement.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ProvidersEndpoint_ReturnsConflictWhenProtectedStorageIsUnavailable()
     {
         using TestWebApplicationFactory factory = new TestWebApplicationFactory();
@@ -836,6 +870,29 @@ public sealed class WebApiTests
         Assert.Contains("authentication was rejected", payload, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ProviderPullRequestsStreamEndpoint_ReturnsFriendlyErrorWhenTransportFails()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.SeedProviderConnections(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.AzureDevOpsServer,
+            DisplayName = "Carpenters",
+            ServerUrl = "https://devops.carpenters-law.co.uk",
+            Organization = "DefaultCollection",
+            PersonalAccessToken = "ado-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureAzureDevOpsResponse((_, _) => throw new HttpRequestException("The response ended prematurely."));
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/providers/Carpenters/pullrequests/stream", HttpCompletionOption.ResponseHeadersRead);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        string payload = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Azure DevOps pull request retrieval failed. Unable to reach the server over HTTPS.", payload, StringComparison.Ordinal);
+    }
+
         [Fact]
         public async Task ProviderPullRequestsStreamEndpoint_ReturnsServerSentEvents()
         {
@@ -949,6 +1006,28 @@ public sealed class WebApiTests
         Assert.Equal("src/ArchHarness.App/SourceControl/PullRequestFile.cs", files[0].GetProperty("path").GetString());
         Assert.Equal("Added", files[0].GetProperty("changeType").GetString());
         Assert.Equal("Modified", files[1].GetProperty("changeType").GetString());
+    }
+
+    [Fact]
+    public async Task ProviderPullRequestFilesEndpoint_ReturnsFriendlyErrorWhenTransportFails()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        factory.SeedProviderConnections(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureGitHubResponse((_, _) => throw new HttpRequestException("The response ended prematurely."));
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests/21/files?repository=archharness");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        string payload = await response.Content.ReadAsStringAsync();
+        Assert.Contains("GitHub pull request file retrieval failed. Unable to reach GitHub over HTTPS.", payload, StringComparison.Ordinal);
     }
 
     [Fact]

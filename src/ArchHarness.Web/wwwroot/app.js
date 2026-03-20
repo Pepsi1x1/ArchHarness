@@ -61,6 +61,7 @@ let reviewPrState = {
   projectId: null,
   folderPath: '',
   prFiles: [],
+  prFilesError: "",
   isPreparingWorkspace: false,
   isStartingReview: false
 };
@@ -3111,6 +3112,7 @@ async function openReviewPrModal() {
     projectId: null,
     folderPath: "",
     prFiles: [],
+    prFilesError: "",
     isPreparingWorkspace: false,
     isStartingReview: false
   };
@@ -3505,6 +3507,7 @@ async function loadPullRequests() {
   reviewPrState.pullRequestError = "";
   reviewPrState.selectedPr = null;
   reviewPrState.prFiles = [];
+  reviewPrState.prFilesError = "";
   if (nextBtn) nextBtn.disabled = true;
 
   const providerName = normalizeReviewLookupValue(reviewPrState.selectedProvider?.displayName, REVIEW_PROVIDER_NAME_MAX_LENGTH);
@@ -3852,6 +3855,7 @@ function renderFolderStep() {
     reviewPrState.folderPath = folderInput.value;
     reviewPrState.projectId = null;
     reviewPrState.prFiles = [];
+    reviewPrState.prFilesError = "";
     updateReviewPrNavigation();
   };
 
@@ -3870,6 +3874,7 @@ async function loadPrFiles() {
 
   if (!providerName || !prId) {
     reviewPrState.prFiles = [];
+    reviewPrState.prFilesError = "Select a valid provider and pull request to load changed files.";
     renderConfirmStep();
     return;
   }
@@ -3878,8 +3883,10 @@ async function loadPrFiles() {
     const qs = params.toString();
     const files = await requestJson(`/api/providers/${encodeURIComponent(providerName)}/pullrequests/${encodeURIComponent(prId)}/files${qs ? "?" + qs : ""}`);
     reviewPrState.prFiles = Array.isArray(files) ? files : [];
-  } catch {
+    reviewPrState.prFilesError = "";
+  } catch (error) {
     reviewPrState.prFiles = [];
+    reviewPrState.prFilesError = error?.message || "Failed to load changed files for this pull request.";
   }
 
   renderConfirmStep();
@@ -3888,6 +3895,7 @@ async function loadPrFiles() {
 function renderConfirmStep() {
   const pr = reviewPrState.selectedPr;
   const summaryEl = document.getElementById("review-pr-confirm-summary");
+  const statusEl = document.getElementById("review-pr-file-status");
   summaryEl.replaceChildren();
 
   const titleEl = document.createElement("strong");
@@ -3905,6 +3913,19 @@ function renderConfirmStep() {
 
   const fileList = document.getElementById("review-pr-file-list");
   fileList.replaceChildren();
+
+  if (statusEl) {
+    if (reviewPrState.prFilesError) {
+      statusEl.textContent = reviewPrState.prFilesError;
+      statusEl.classList.remove("hidden");
+    } else if (reviewPrState.prFiles.length === 0) {
+      statusEl.textContent = "No changed files were returned for this pull request.";
+      statusEl.classList.remove("hidden");
+    } else {
+      statusEl.textContent = "";
+      statusEl.classList.add("hidden");
+    }
+  }
 
   reviewPrState.prFiles.forEach(file => {
     const li = document.createElement("li");
