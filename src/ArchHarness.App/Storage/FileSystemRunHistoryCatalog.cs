@@ -358,7 +358,11 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             return null;
         }
 
-        DateTimeOffset timestampUtc = ReadTimestamp(root);
+        DateTimeOffset? timestampUtc = ReadTimestamp(root);
+        if (timestampUtc is null)
+        {
+            return null;
+        }
 
         if (string.Equals(source, "request", StringComparison.OrdinalIgnoreCase))
         {
@@ -369,7 +373,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             }
 
             return new PersistedRunEvent(
-                timestampUtc,
+                timestampUtc.Value,
                 "request",
                 source,
                 ReadString(root, "message") ?? "Run request received",
@@ -386,7 +390,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             }
 
             return new PersistedRunEvent(
-                timestampUtc,
+                timestampUtc.Value,
                 "agent-delta",
                 source,
                 message,
@@ -405,7 +409,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
                 ? eventType
                 : $"{eventType}: {details}";
             return new PersistedRunEvent(
-                timestampUtc,
+                timestampUtc.Value,
                 "copilot-session",
                 source,
                 message,
@@ -417,7 +421,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         return null;
     }
 
-    private static DateTimeOffset ReadTimestamp(JsonElement root)
+    private static DateTimeOffset? ReadTimestamp(JsonElement root)
     {
         string? rawTimestamp = ReadString(root, "timestampUtc") ?? ReadString(root, "timestamp");
         if (DateTimeOffset.TryParse(rawTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestampUtc))
@@ -425,7 +429,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
             return timestampUtc;
         }
 
-        return DateTimeOffset.MinValue;
+        return null;
     }
 
     private static string? ReadString(JsonElement root, string propertyName)

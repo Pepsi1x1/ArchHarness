@@ -1,3 +1,4 @@
+using System.Globalization;
 using ArchHarness.App.Storage;
 
 namespace ArchHarness.App.Tests.Desktop;
@@ -211,6 +212,39 @@ public sealed class RunHistoryServiceTests : IDisposable
                 Assert.Equal("copilot-session", evt.Kind);
                 Assert.Equal("session-123", evt.SessionId);
                 Assert.Equal("session.resume: resumed", evt.Message);
+            });
+    }
+
+    /// <summary>
+    /// Verifies that events with missing or malformed timestamps are skipped instead of being replayed at DateTimeOffset.MinValue.
+    /// </summary>
+    [Fact]
+    public void GetEvents_SkipsEventsWithInvalidTimestamps()
+    {
+        string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121910000");
+        Directory.CreateDirectory(runDirectory);
+        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), """
+            {"runId":"20260314T121910000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Malformed timestamp","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"not-a-timestamp"}
+            {"runId":"20260314T121910000","source":"request","message":"Run request received","taskPrompt":"Review the architecture boundary changes","timestampUtc":"2026-03-14T12:19:00Z"}
+            {"runId":"20260314T121910000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Missing timestamp","contentFormat":"markdown","streamKind":"assistant","title":"Architecture"}
+            {"runId":"20260314T121910000","source":"copilot.session","eventType":"session.resume","sessionId":"session-123","model":"gpt-5.4","details":"resumed","timestampUtc":"2026-03-14T12:19:03Z"}
+            """);
+
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
+
+        IReadOnlyList<PersistedRunEvent> events = service.GetEvents(runDirectory);
+
+        Assert.Collection(
+            events,
+            evt =>
+            {
+                Assert.Equal("request", evt.Kind);
+                Assert.Equal(DateTimeOffset.Parse("2026-03-14T12:19:00Z", CultureInfo.InvariantCulture), evt.TimestampUtc);
+            },
+            evt =>
+            {
+                Assert.Equal("copilot-session", evt.Kind);
+                Assert.Equal(DateTimeOffset.Parse("2026-03-14T12:19:03Z", CultureInfo.InvariantCulture), evt.TimestampUtc);
             });
     }
 
