@@ -53,7 +53,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
             cancellationToken.ThrowIfCancellationRequested();
             DateTimeOffset startedAt = DateTimeOffset.UtcNow;
             this._eventHub.Reset();
-            CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(
+            CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(new WebRunSessionStart(
                 this._disposeCts.Token,
                 RunStatuses.STARTING,
                 startedAt,
@@ -61,7 +61,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 null,
                 ResolveSnapshotPrompt(request),
                 request.WorkspacePath,
-                null);
+                null));
             this._eventHub.Publish(new WebRunEvent(startedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run accepted by local web host."));
             _ = Task.Run(() => this._executionRunner.ExecuteRunAsync(request, runCts, this._disposeCts.Token), CancellationToken.None);
             return this._snapshotStore.GetSnapshot();
@@ -80,7 +80,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         {
             cancellationToken.ThrowIfCancellationRequested();
             this._eventHub.Reset();
-            CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(
+            CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(new WebRunSessionStart(
                 this._disposeCts.Token,
                 RunStatuses.RESUMING,
                 runState.StartedAtUtc,
@@ -88,7 +88,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 runState.RunDirectory,
                 ResolveSnapshotPrompt(runState.Request),
                 runState.WorkspaceRoot,
-                null);
+                null));
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, $"Run {runState.RunId} resume accepted by local web host."));
             _ = Task.Run(() => this._executionRunner.ExecuteResumeAsync(runState, runCts, this._disposeCts.Token), CancellationToken.None);
             return this._snapshotStore.GetSnapshot();

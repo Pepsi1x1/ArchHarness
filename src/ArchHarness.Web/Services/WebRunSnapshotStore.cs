@@ -4,6 +4,19 @@ namespace ArchHarness.Web.Services;
 /// <summary>
 /// Owns mutable run-session snapshot state for the local web host.
 /// </summary>
+public sealed record WebRunSessionStart(
+    CancellationToken ShutdownToken,
+    string Status,
+    DateTimeOffset StartedAt,
+    string? RunId,
+    string? RunDirectory,
+    string? TaskPrompt,
+    string? WorkspacePath,
+    string? FailureMessage);
+
+/// <summary>
+/// Owns mutable run-session snapshot state for the local web host.
+/// </summary>
 public interface IWebRunSnapshotStore
 {
     /// <summary>
@@ -14,15 +27,7 @@ public interface IWebRunSnapshotStore
     /// <summary>
     /// Begins a new run session and returns the active cancellation source.
     /// </summary>
-    CancellationTokenSource BeginRunSession(
-        CancellationToken shutdownToken,
-        string status,
-        DateTimeOffset startedAt,
-        string? runId,
-        string? runDirectory,
-        string? taskPrompt,
-        string? workspacePath,
-        string? failureMessage);
+    CancellationTokenSource BeginRunSession(WebRunSessionStart start);
 
     /// <summary>
     /// Marks the active run as canceling and returns its cancellation source, if any.
@@ -74,15 +79,7 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
     }
 
     /// <inheritdoc />
-    public CancellationTokenSource BeginRunSession(
-        CancellationToken shutdownToken,
-        string status,
-        DateTimeOffset startedAt,
-        string? runId,
-        string? runDirectory,
-        string? taskPrompt,
-        string? workspacePath,
-        string? failureMessage)
+    public CancellationTokenSource BeginRunSession(WebRunSessionStart start)
     {
         lock (this._sync)
         {
@@ -91,18 +88,18 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
                 throw new InvalidOperationException("A run is already active in the local web host.");
             }
 
-            CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(shutdownToken);
+            CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(start.ShutdownToken);
             this._activeRunCts = runCts;
             this._snapshot = new WebRunSnapshot(
                 true,
-                status,
-                startedAt,
+                start.Status,
+                start.StartedAt,
                 null,
-                runId,
-                runDirectory,
-                taskPrompt,
-                workspacePath,
-                failureMessage);
+                start.RunId,
+                start.RunDirectory,
+                start.TaskPrompt,
+                start.WorkspacePath,
+                start.FailureMessage);
             return runCts;
         }
     }
@@ -144,6 +141,11 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
     {
         lock (this._sync)
         {
+            if (!ShouldApplyStatusUpdate(this._snapshot, status))
+            {
+                return;
+            }
+
             this._snapshot = this._snapshot with
             {
                 IsRunning = true,
@@ -200,6 +202,23 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
         }
 
         runCts.Dispose();
+    }
+
+    private static bool ShouldApplyStatusUpdate(WebRunSnapshot snapshot, string nextStatus)
+    {
+        if (!snapshot.IsRunning)
+        {
+            return false;
+        }
+
+        if (!string.Equals(nextStatus, RunStatuses.RUNNING, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return string.Equals(snapshot.Status, RunStatuses.STARTING, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(snapshot.Status, RunStatuses.RESUMING, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(snapshot.Status, RunStatuses.RUNNING, StringComparison.OrdinalIgnoreCase);
     }
 }
 
