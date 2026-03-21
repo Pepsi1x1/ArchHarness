@@ -169,7 +169,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
                 true,
                 RunStatuses.STARTING,
                 DateTimeOffset.UtcNow,
-                DateTimeOffset.UtcNow,
+                null,
                 runId,
                 Path.Combine(request.WorkspacePath, ".agent-harness", "runs", runId),
                 request.TaskPrompt,
