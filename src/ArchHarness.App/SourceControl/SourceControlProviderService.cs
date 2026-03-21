@@ -53,7 +53,9 @@ public sealed class SourceControlProviderService : ISourceControlProviderService
         ProviderConnectionSettings normalized = await this._settingsCoordinator.PrepareForSaveAsync(settings).ConfigureAwait(false);
         this._settingsCoordinator.ValidateOrThrow(normalized, requirePersonalAccessToken: false);
 
-        if (string.IsNullOrWhiteSpace(normalized.PersonalAccessToken) && RequiresPersonalAccessTokenForSave(normalized.Provider))
+        if (string.IsNullOrWhiteSpace(normalized.PersonalAccessToken)
+            && RequiresPersonalAccessTokenForSave(normalized.Provider)
+            && !normalized.ClearPersonalAccessToken)
         {
             throw new InvalidOperationException("PersonalAccessToken is required when creating a provider connection.");
         }

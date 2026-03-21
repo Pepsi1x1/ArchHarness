@@ -36,6 +36,68 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     }
 
     /// <summary>
+    /// Verifies that blank edits preserve an existing protected token instead of wiping it.
+    /// </summary>
+    [Fact]
+    public async Task SaveProviderAsync_BlankPersonalAccessTokenPreservesExistingProtectedToken()
+    {
+        FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = null,
+            IsEnabled = true
+        });
+
+        ProviderConnectionSettings persisted = Assert.Single(await this.CreateCatalog().GetProvidersAsync());
+        Assert.Equal("github-pat", persisted.PersonalAccessToken);
+        Assert.Equal(PersonalAccessTokenStorageMode.Protected, persisted.PersonalAccessTokenStorageMode);
+    }
+
+    /// <summary>
+    /// Verifies that an explicit clear action removes an existing protected token.
+    /// </summary>
+    [Fact]
+    public async Task SaveProviderAsync_ClearPersonalAccessTokenRemovesExistingProtectedToken()
+    {
+        FileSystemProviderConnectionCatalog catalog = this.CreateCatalog();
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            ClearPersonalAccessToken = true,
+            IsEnabled = true
+        });
+
+        ProviderConnectionSettings persisted = Assert.Single(await this.CreateCatalog().GetProvidersAsync());
+        Assert.Null(persisted.PersonalAccessToken);
+        Assert.False(persisted.HasStoredPersonalAccessToken);
+    }
+
+    /// <summary>
     /// Verifies that legacy plain-text tokens are migrated to protected storage when a secure store is available.
     /// </summary>
     [Fact]
@@ -168,6 +230,75 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
         ProviderConnectionSettings persisted = Assert.Single(await catalog.GetProvidersAsync());
         Assert.Equal("github-pat", persisted.PersonalAccessToken);
         Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
+    }
+
+    /// <summary>
+    /// Verifies that retention preserves an existing plain-text token and storage mode when no new token is supplied.
+    /// </summary>
+    [Fact]
+    public async Task SaveProviderAsync_RetainPersonalAccessTokenPreservesExistingPlainTextToken()
+    {
+        FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
+            Path.Combine(this._root, "providers.json"),
+            new TestPersonalAccessTokenProtector(canProtect: false));
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            PersonalAccessTokenStorageMode = PersonalAccessTokenStorageMode.PlainText,
+            IsEnabled = true
+        });
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = null,
+            RetainPersonalAccessToken = true,
+            IsEnabled = true
+        });
+
+        ProviderConnectionSettings persisted = Assert.Single(await catalog.GetProvidersAsync());
+        Assert.Equal("github-pat", persisted.PersonalAccessToken);
+        Assert.Equal(PersonalAccessTokenStorageMode.PlainText, persisted.PersonalAccessTokenStorageMode);
+    }
+
+    /// <summary>
+    /// Verifies that an explicit clear action removes an existing plain-text token.
+    /// </summary>
+    [Fact]
+    public async Task SaveProviderAsync_ClearPersonalAccessTokenRemovesExistingPlainTextToken()
+    {
+        FileSystemProviderConnectionCatalog catalog = new FileSystemProviderConnectionCatalog(
+            Path.Combine(this._root, "providers.json"),
+            new TestPersonalAccessTokenProtector(canProtect: false));
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            PersonalAccessTokenStorageMode = PersonalAccessTokenStorageMode.PlainText,
+            IsEnabled = true
+        });
+
+        await catalog.SaveProviderAsync(new ProviderConnectionSettings
+        {
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            ClearPersonalAccessToken = true,
+            IsEnabled = true
+        });
+
+        ProviderConnectionSettings persisted = Assert.Single(await catalog.GetProvidersAsync());
+        Assert.Null(persisted.PersonalAccessToken);
+        Assert.False(persisted.HasStoredPersonalAccessToken);
     }
 
     /// <summary>

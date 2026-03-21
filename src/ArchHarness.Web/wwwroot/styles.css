@@ -1787,6 +1787,14 @@ html[data-desktop-platform="win32"] .field select option:hover {
   min-width: 0;
 }
 
+.provider-token-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .provider-oauth-row {
   display: flex;
   align-items: center;

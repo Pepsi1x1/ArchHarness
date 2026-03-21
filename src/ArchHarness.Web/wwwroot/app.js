@@ -43,8 +43,10 @@ const state = {
   providerConnectionTested: false,
   editingProviderName: null,
   editingProviderStorageMode: 0,
+  editingProviderHasStoredToken: false,
   editingProviderGitHubAuthenticationMode: 0,
   editingProviderGitHubAuthenticatedUser: null,
+  providerClearStoredToken: false,
   providerGitHubOAuthFlow: null,
   providerGitHubOAuthToken: null,
   providerGitHubOAuthPollHandle: null
@@ -256,6 +258,8 @@ const elements = {
   providerPatWrap: document.getElementById("pf-pat-wrap"),
   providerPat: document.getElementById("pf-pat"),
   providerPatHint: document.getElementById("pf-pat-hint"),
+  providerPatClear: document.getElementById("pf-clear-token"),
+  providerPatClearNote: document.getElementById("pf-clear-token-note"),
   providerPatToggle: document.getElementById("pf-pat-toggle"),
   providerPatToggleIcon: document.getElementById("pf-pat-toggle-icon"),
   providerGitHubOAuthWrap: document.getElementById("pf-github-oauth-wrap"),
@@ -2877,6 +2881,7 @@ function normalizeProviderSummary(provider) {
       : GITHUB_AUTH_MODE_NONE,
     gitHubAuthenticatedUser: normalizeProviderField(provider.gitHubAuthenticatedUser) || null,
     personalAccessToken: null,
+    hasStoredPersonalAccessToken: provider.hasStoredPersonalAccessToken === true,
     personalAccessTokenStorageMode: Number.isInteger(provider.personalAccessTokenStorageMode)
       ? Number(provider.personalAccessTokenStorageMode)
       : PAT_STORAGE_MODE_PROTECTED,
@@ -2934,19 +2939,63 @@ function buildProviderPatHint(providerMeta) {
 
   const baseHint = providerMeta.patHint || "Requires Code (Read) permission.";
 
+  if (state.providerClearStoredToken) {
+    return `${baseHint} The stored token will be cleared when you save.`;
+  }
+
   if (!state.editingProviderName) {
     return baseHint;
   }
 
-  if (providerMeta.numericValue === 2 && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
-    return `${baseHint} Leave the PAT field blank to keep the stored OAuth token.`;
+  if (providerMeta.numericValue === 2 && state.editingProviderHasStoredToken && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+    return `${baseHint} Leave the PAT field blank to keep the stored OAuth token, or use Clear saved token to remove it.`;
+  }
+
+  if (providerMeta.numericValue === 2 && state.editingProviderHasStoredToken) {
+    return `${baseHint} Leave blank to keep the current token, or use Clear saved token to remove it.`;
   }
 
   if (providerMeta.numericValue === 2) {
     return `${baseHint} Leave blank to save without a token.`;
   }
 
-  return `${baseHint} Leave blank to keep the current token.`;
+  if (state.editingProviderHasStoredToken) {
+    return `${baseHint} Leave blank to keep the current token, or use Clear saved token to remove it.`;
+  }
+
+  return `${baseHint} Enter a token to save it with this provider.`;
+}
+
+function updateProviderClearTokenControls(providerMeta) {
+  const showClearAction = Boolean(
+    state.editingProviderName
+    && state.editingProviderHasStoredToken
+    && providerMeta?.visibleFields.includes("personalAccessToken")
+  );
+
+  elements.providerPatClear.classList.toggle("hidden", !showClearAction);
+
+  if (!showClearAction) {
+    elements.providerPatClearNote.classList.add("hidden");
+    elements.providerPatClearNote.textContent = "";
+    elements.providerPatClear.textContent = "Clear saved token";
+    return;
+  }
+
+  elements.providerPatClear.textContent = state.providerClearStoredToken
+    ? "Keep saved token"
+    : "Clear saved token";
+
+  if (state.providerClearStoredToken) {
+    elements.providerPatClearNote.textContent = providerMeta?.numericValue === 2
+      ? "The stored GitHub credential will be removed when you save. Enter a new token or authorize with GitHub to replace it."
+      : "The stored token will be removed when you save. Enter a new token before saving if you want to replace it instead.";
+    elements.providerPatClearNote.classList.remove("hidden");
+    return;
+  }
+
+  elements.providerPatClearNote.classList.add("hidden");
+  elements.providerPatClearNote.textContent = "";
 }
 
 function clearGitHubOAuthState() {
@@ -3003,6 +3052,13 @@ function getProviderCredentialBadge(provider) {
     return {
       text: getGitHubAuthModeLabel(provider),
       className
+    };
+  }
+
+  if (!provider.hasStoredPersonalAccessToken) {
+    return {
+      text: "No token",
+      className: "provider-badge-neutral"
     };
   }
 
@@ -3110,8 +3166,10 @@ function openProviderSetup(provider = null) {
   const providerMeta = getProviderMetaByType(normalizedProvider?.providerType ?? null);
   state.editingProviderName = normalizedProvider?.displayName || null;
   state.editingProviderStorageMode = normalizedProvider?.personalAccessTokenStorageMode ?? PAT_STORAGE_MODE_PROTECTED;
+  state.editingProviderHasStoredToken = normalizedProvider?.hasStoredPersonalAccessToken === true;
   state.editingProviderGitHubAuthenticationMode = normalizedProvider?.gitHubAuthenticationMode ?? GITHUB_AUTH_MODE_NONE;
   state.editingProviderGitHubAuthenticatedUser = normalizedProvider?.gitHubAuthenticatedUser || null;
+  state.providerClearStoredToken = false;
   state.providerConnectionTested = false;
 
   elements.providerTypeRadios.forEach(radio => { radio.checked = false; });
@@ -3161,8 +3219,10 @@ function closeProviderSetup() {
   elements.btnAddProvider.classList.remove("hidden");
   state.editingProviderName = null;
   state.editingProviderStorageMode = PAT_STORAGE_MODE_PROTECTED;
+  state.editingProviderHasStoredToken = false;
   state.editingProviderGitHubAuthenticationMode = GITHUB_AUTH_MODE_NONE;
   state.editingProviderGitHubAuthenticatedUser = null;
+  state.providerClearStoredToken = false;
   state.providerConnectionTested = false;
   setProviderPatMasked(true);
   setProviderStatus();
@@ -3192,6 +3252,12 @@ function onProviderSetupTypeChange() {
   elements.providerGitHubOAuthHint.textContent = gitHubOAuthHint;
 
   elements.providerPatHint.textContent = buildProviderPatHint(meta);
+  updateProviderClearTokenControls(meta);
+  if (state.providerClearStoredToken) {
+    setProviderStatus("Stored token will be cleared when you save this provider.", "info");
+    return;
+  }
+
   if (showGitHubOAuth && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH && state.editingProviderGitHubAuthenticatedUser) {
     setProviderStatus(`Stored OAuth token for @${state.editingProviderGitHubAuthenticatedUser}.`, "info");
     return;
@@ -3271,7 +3337,8 @@ function getGitHubAuthenticationMode(providerType, personalAccessToken) {
     return GITHUB_AUTH_MODE_PAT;
   }
 
-  if (state.providerGitHubOAuthToken || state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+  if (!state.providerClearStoredToken
+    && (state.providerGitHubOAuthToken || state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH)) {
     return GITHUB_AUTH_MODE_OAUTH;
   }
 
@@ -3287,7 +3354,7 @@ function getGitHubAuthenticatedUser(providerType) {
     return state.providerGitHubOAuthFlow?.authenticatedUser || null;
   }
 
-  if (state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
+  if (!state.providerClearStoredToken && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH) {
     return state.editingProviderGitHubAuthenticatedUser;
   }
 
@@ -3297,8 +3364,26 @@ function getGitHubAuthenticatedUser(providerType) {
 function shouldRetainGitHubToken(providerType, personalAccessToken) {
   return providerType === 2
     && !personalAccessToken
+    && !state.providerClearStoredToken
     && !state.providerGitHubOAuthToken
     && state.editingProviderGitHubAuthenticationMode === GITHUB_AUTH_MODE_OAUTH;
+}
+
+function toggleProviderClearStoredToken() {
+  const providerMeta = getProviderMetaByRadioValue(getSelectedProviderRadioValue());
+  if (!providerMeta || !state.editingProviderHasStoredToken) {
+    return;
+  }
+
+  state.providerClearStoredToken = !state.providerClearStoredToken;
+  state.providerConnectionTested = false;
+
+  if (state.providerClearStoredToken) {
+    elements.providerPat.value = "";
+    clearGitHubOAuthState();
+  }
+
+  onProviderSetupTypeChange();
 }
 
 function collectProviderPayload(options = {}) {
@@ -3338,12 +3423,18 @@ function collectProviderPayload(options = {}) {
 
   const gitHubAuthenticationMode = getGitHubAuthenticationMode(providerMeta.numericValue, personalAccessToken);
   const gitHubAuthenticatedUser = getGitHubAuthenticatedUser(providerMeta.numericValue);
-  const retainPersonalAccessToken = shouldRetainGitHubToken(providerMeta.numericValue, personalAccessToken);
+  const clearPersonalAccessToken = state.providerClearStoredToken
+    && !personalAccessToken
+    && !state.providerGitHubOAuthToken;
+  const retainPersonalAccessToken = clearPersonalAccessToken
+    ? false
+    : shouldRetainGitHubToken(providerMeta.numericValue, personalAccessToken);
 
   const payload = {
     provider: providerMeta.numericValue,
     displayName,
     personalAccessToken: personalAccessToken || state.providerGitHubOAuthToken || null,
+    clearPersonalAccessToken,
     personalAccessTokenStorageMode,
     isEnabled: true,
     serverUrl,
@@ -3418,7 +3509,9 @@ async function startGitHubOAuth() {
     return;
   }
 
+  state.providerClearStoredToken = false;
   clearGitHubOAuthState();
+  onProviderSetupTypeChange();
   elements.providerGitHubOAuthStart.disabled = true;
   setProviderStatus("Starting GitHub OAuth device flow...", "info");
 
@@ -3547,7 +3640,8 @@ async function saveProvider() {
 
   if (state.editingProviderName
     && state.editingProviderName !== payload.displayName
-    && !payload.personalAccessToken) {
+    && !payload.personalAccessToken
+    && !payload.clearPersonalAccessToken) {
     setProviderStatus("Enter a token or re-authorize when renaming a provider so the saved credential can be preserved.", "error");
     return;
   }
@@ -4616,6 +4710,7 @@ function attachHandlers() {
   elements.providerGitHubOAuthStart.addEventListener("click", () => {
     void startGitHubOAuth().catch(error => console.error("GitHub OAuth failed:", error));
   });
+  elements.providerPatClear.addEventListener("click", toggleProviderClearStoredToken);
   elements.providerGitHubOAuthCopy.addEventListener("click", () => {
     void copyGitHubOAuthCodeToClipboard().then(copied => {
       if (!copied) {
@@ -4631,8 +4726,12 @@ function attachHandlers() {
   });
   [elements.providerDisplayName, elements.providerServerUrl, elements.providerOrg, elements.providerPat].forEach(input => {
     input.addEventListener("input", () => {
+      if (input === elements.providerPat && state.providerClearStoredToken && normalizeProviderToken(elements.providerPat.value)) {
+        state.providerClearStoredToken = false;
+      }
+
       state.providerConnectionTested = false;
-      setProviderStatus();
+      onProviderSetupTypeChange();
     });
   });
   elements.providerPatToggle.addEventListener("click", () => {

@@ -88,7 +88,11 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
     {
         const string PERSONAL_ACCESS_TOKEN_KEY = "personalAccessToken";
 
-        if (requirePersonalAccessToken && string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
+        if (settings.ClearPersonalAccessToken && !string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
+        {
+            AddError(errors, PERSONAL_ACCESS_TOKEN_KEY, "Provide a personal access token or clear the stored token, but not both.");
+        }
+        else if (requirePersonalAccessToken && string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
         {
             AddError(errors, PERSONAL_ACCESS_TOKEN_KEY, "PersonalAccessToken is required.");
         }
@@ -178,7 +182,8 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
             GitHubAuthenticationMode = settings.Provider == SourceControlProvider.GitHub && Enum.IsDefined(settings.GitHubAuthenticationMode)
                 ? settings.GitHubAuthenticationMode
                 : GitHubAuthenticationMode.None,
-            RetainPersonalAccessToken = settings.Provider == SourceControlProvider.GitHub && settings.RetainPersonalAccessToken
+            RetainPersonalAccessToken = settings.Provider == SourceControlProvider.GitHub && settings.RetainPersonalAccessToken && !settings.ClearPersonalAccessToken,
+            ClearPersonalAccessToken = settings.ClearPersonalAccessToken
         };
 
     private async Task<ProviderConnectionSettings?> FindExistingProviderAsync(string? displayName)
@@ -194,6 +199,11 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
 
     private static ProviderConnectionSettings HydrateTestCredential(ProviderConnectionSettings settings, ProviderConnectionSettings? existing)
     {
+        if (settings.ClearPersonalAccessToken)
+        {
+            return ClearStoredCredential(settings, existing);
+        }
+
         if (!string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
         {
             return FinalizeGitHubCredentialMetadata(settings);
@@ -215,6 +225,11 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
 
     private static ProviderConnectionSettings HydrateSavedCredential(ProviderConnectionSettings settings, ProviderConnectionSettings? existing)
     {
+        if (settings.ClearPersonalAccessToken)
+        {
+            return ClearStoredCredential(settings, existing);
+        }
+
         if (string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
         {
             if (settings.Provider == SourceControlProvider.GitHub)
@@ -246,6 +261,27 @@ public sealed class ProviderConnectionSettingsCoordinator : IProviderConnectionS
         }
 
         return FinalizeGitHubCredentialMetadata(settings);
+    }
+
+    private static ProviderConnectionSettings ClearStoredCredential(ProviderConnectionSettings settings, ProviderConnectionSettings? existing)
+    {
+        ProviderConnectionSettings cleared = settings with
+        {
+            PersonalAccessToken = null,
+            PersonalAccessTokenStorageMode = existing?.PersonalAccessTokenStorageMode ?? settings.PersonalAccessTokenStorageMode,
+            RetainPersonalAccessToken = false
+        };
+
+        if (settings.Provider != SourceControlProvider.GitHub)
+        {
+            return cleared;
+        }
+
+        return cleared with
+        {
+            GitHubAuthenticationMode = GitHubAuthenticationMode.None,
+            GitHubAuthenticatedUser = null
+        };
     }
 
     private static ProviderConnectionSettings FinalizeGitHubCredentialMetadata(ProviderConnectionSettings settings)

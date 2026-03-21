@@ -46,9 +46,19 @@ public sealed record ProviderConnectionSettings
     public string? PersonalAccessToken { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether a personal access token is currently stored for this provider.
+    /// </summary>
+    public bool HasStoredPersonalAccessToken { get; init; }
+
+    /// <summary>
     /// Gets a value indicating whether save/test operations should retain the stored token when none is supplied.
     /// </summary>
     public bool RetainPersonalAccessToken { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the currently stored token should be cleared on save.
+    /// </summary>
+    public bool ClearPersonalAccessToken { get; init; }
 
     /// <summary>
     /// Gets how the personal access token is stored at rest.
@@ -64,5 +74,5 @@ public sealed record ProviderConnectionSettings
     /// Creates a copy of the settings with the access token removed.
     /// </summary>
     public ProviderConnectionSettings WithoutPersonalAccessToken()
-        => this with { PersonalAccessToken = null, RetainPersonalAccessToken = false };
+        => this with { PersonalAccessToken = null, RetainPersonalAccessToken = false, ClearPersonalAccessToken = false };
 }

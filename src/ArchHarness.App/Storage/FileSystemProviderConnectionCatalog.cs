@@ -55,7 +55,7 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             int existingIndex = persistedProviders.FindIndex(provider =>
                 string.Equals(provider.DisplayName, settings.DisplayName, StringComparison.OrdinalIgnoreCase));
             PersistedProviderConnection? existing = existingIndex >= 0 ? persistedProviders[existingIndex] : null;
-            PersistedProviderConnection persisted = await this.MapToPersistedAsync(settings, existing?.EncryptedPersonalAccessToken).ConfigureAwait(false);
+            PersistedProviderConnection persisted = await this.MapToPersistedAsync(settings, existing).ConfigureAwait(false);
 
             if (existingIndex >= 0)
             {
@@ -191,14 +191,32 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             GitHubAuthenticationMode = persisted.GitHubAuthenticationMode,
             GitHubAuthenticatedUser = persisted.GitHubAuthenticatedUser,
             PersonalAccessToken = personalAccessToken,
+            HasStoredPersonalAccessToken = !string.IsNullOrWhiteSpace(persisted.EncryptedPersonalAccessToken)
+                || !string.IsNullOrWhiteSpace(persisted.PlainTextPersonalAccessToken),
             PersonalAccessTokenStorageMode = storageMode,
             IsEnabled = persisted.IsEnabled
         };
     }
 
-    private async Task<PersistedProviderConnection> MapToPersistedAsync(ProviderConnectionSettings settings, string? existingProtectedPersonalAccessToken)
+    private async Task<PersistedProviderConnection> MapToPersistedAsync(ProviderConnectionSettings settings, PersistedProviderConnection? existing)
     {
         string? encryptedPersonalAccessToken = null;
+
+        if (settings.ClearPersonalAccessToken)
+        {
+            return new PersistedProviderConnection(
+                settings.Provider,
+                settings.DisplayName,
+                settings.ServerUrl,
+                settings.Organization,
+                settings.GitHubOwnerType,
+                settings.GitHubAuthenticationMode,
+                settings.GitHubAuthenticatedUser,
+                null,
+                null,
+                existing?.PersonalAccessTokenStorageMode ?? settings.PersonalAccessTokenStorageMode,
+                settings.IsEnabled);
+        }
 
         if (!string.IsNullOrWhiteSpace(settings.PersonalAccessToken))
         {
@@ -226,7 +244,22 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
                         ?? "Secure personal access token storage is required on this platform.");
             }
 
-            encryptedPersonalAccessToken = await this._personalAccessTokenProtector.ProtectAsync(settings.PersonalAccessToken, existingProtectedPersonalAccessToken).ConfigureAwait(false);
+            encryptedPersonalAccessToken = await this._personalAccessTokenProtector.ProtectAsync(settings.PersonalAccessToken, existing?.EncryptedPersonalAccessToken).ConfigureAwait(false);
+        }
+        else if (ShouldPreserveExistingPersonalAccessToken(settings, existing))
+        {
+            return new PersistedProviderConnection(
+                settings.Provider,
+                settings.DisplayName,
+                settings.ServerUrl,
+                settings.Organization,
+                settings.GitHubOwnerType,
+                settings.GitHubAuthenticationMode,
+                settings.GitHubAuthenticatedUser,
+                existing!.EncryptedPersonalAccessToken,
+                existing.PlainTextPersonalAccessToken,
+                existing.PersonalAccessTokenStorageMode,
+                settings.IsEnabled);
         }
 
         return new PersistedProviderConnection(
@@ -239,8 +272,29 @@ public sealed class FileSystemProviderConnectionCatalog : IProviderConnectionCat
             settings.GitHubAuthenticatedUser,
             encryptedPersonalAccessToken,
             null,
-            PersonalAccessTokenStorageMode.Protected,
+            settings.PersonalAccessTokenStorageMode,
             settings.IsEnabled);
+    }
+
+    private static bool ShouldPreserveExistingPersonalAccessToken(ProviderConnectionSettings settings, PersistedProviderConnection? existing)
+    {
+        if (settings.ClearPersonalAccessToken)
+        {
+            return false;
+        }
+
+        if (existing is null)
+        {
+            return false;
+        }
+
+        if (settings.RetainPersonalAccessToken)
+        {
+            return !string.IsNullOrWhiteSpace(existing.EncryptedPersonalAccessToken)
+                || !string.IsNullOrWhiteSpace(existing.PlainTextPersonalAccessToken);
+        }
+
+        return !string.IsNullOrWhiteSpace(existing.EncryptedPersonalAccessToken);
     }
 
     private async Task MigrateLegacyPlainTextTokensAsync(List<PersistedProviderConnection> persistedProviders)
