@@ -2,6 +2,7 @@ using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using ArchHarness.App.Storage;
 using ArchHarness.Web.Services;
+using System.Collections.Concurrent;
 
 namespace ArchHarness.App.Tests.Web;
 
@@ -33,7 +34,7 @@ public sealed class WebRunExecutionRunnerTests
 
         await runner.ExecuteRunAsync(CreateRequest(), runCts, CancellationToken.None);
 
-        WebRunEvent progressEvent = Assert.Single(eventHub.Events, evt => evt.Kind == "runtime-progress");
+        WebRunEvent progressEvent = await eventHub.RuntimeProgressEventReceived.Task.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.NotNull(progressEvent.Details);
         Assert.DoesNotContain("github_pat_", progressEvent.Details, StringComparison.Ordinal);
         Assert.DoesNotContain("abc123secret", progressEvent.Details, StringComparison.Ordinal);
@@ -72,10 +73,19 @@ public sealed class WebRunExecutionRunnerTests
 
     private sealed class TestWebRunEventHub : IWebRunEventHub
     {
-        public List<WebRunEvent> Events { get; } = new();
+        public ConcurrentQueue<WebRunEvent> Events { get; } = new();
+
+        public TaskCompletionSource<WebRunEvent> RuntimeProgressEventReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public void Publish(WebRunEvent evt)
-            => this.Events.Add(evt);
+        {
+            this.Events.Enqueue(evt);
+
+            if (evt.Kind == "runtime-progress")
+            {
+                this.RuntimeProgressEventReceived.TrySetResult(evt);
+            }
+        }
 
         public void Reset()
             => this.Events.Clear();

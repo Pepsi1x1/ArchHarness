@@ -49,10 +49,10 @@ public sealed class MulticastEventStreamTests
 
     private sealed class TestEventStream : MulticastEventStream<int>
     {
-        public new void Publish(int evt)
-            => base.Publish(evt);
+        public void Publish(int evt)
+            => this.PublishCore(evt);
 
-        public new IAsyncEnumerable<int> ReadAllAsync(CancellationToken cancellationToken)
-            => base.ReadAllAsync(cancellationToken);
+        public IAsyncEnumerable<int> ReadAllAsync(CancellationToken cancellationToken)
+            => this.ReadAllAsyncCore(cancellationToken);
     }
 }

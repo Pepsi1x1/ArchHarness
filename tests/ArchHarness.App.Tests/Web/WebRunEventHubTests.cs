@@ -8,8 +8,8 @@ public sealed class WebRunEventHubTests
     public async Task ReadEventsAsync_ReturnsBufferedEventsBeforeFutureEvents()
     {
         WebRunEventHub hub = new WebRunEventHub();
-        WebRunEvent buffered = new WebRunEvent(DateTimeOffset.Parse("2026-03-21T10:00:00Z"), "run-state", "test", "buffered");
-        WebRunEvent future = new WebRunEvent(DateTimeOffset.Parse("2026-03-21T10:00:01Z"), "run-state", "test", "future");
+        WebRunEvent buffered = new WebRunEvent(new DateTimeOffset(2026, 3, 21, 10, 0, 0, TimeSpan.Zero), "run-state", "test", "buffered");
+        WebRunEvent future = new WebRunEvent(new DateTimeOffset(2026, 3, 21, 10, 0, 1, TimeSpan.Zero), "run-state", "test", "future");
 
         hub.Publish(buffered);
 

@@ -56,7 +56,7 @@ public abstract class MulticastEventStream<TEvent>
     private readonly object _sync = new object();
     private readonly Dictionary<Guid, Channel<TEvent>> _subscribers = new Dictionary<Guid, Channel<TEvent>>();
 
-    public void Publish(TEvent evt)
+    protected void PublishCore(TEvent evt)
     {
         Channel<TEvent>[] subscribers;
         lock (this._sync)
@@ -70,7 +70,7 @@ public abstract class MulticastEventStream<TEvent>
         }
     }
 
-    public async IAsyncEnumerable<TEvent> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    protected async IAsyncEnumerable<TEvent> ReadAllAsyncCore([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         Guid subscriberId = Guid.NewGuid();
         Channel<TEvent> channel = Channel.CreateBounded<TEvent>(new BoundedChannelOptions(MAX_BUFFERED_EVENTS)
@@ -110,12 +110,12 @@ public abstract class MulticastEventStream<TEvent>
 public sealed class CopilotSessionEventStream : MulticastEventStream<CopilotSessionLifecycleEvent>, ICopilotSessionEventStream
 {
     /// <inheritdoc />
-    public new void Publish(CopilotSessionLifecycleEvent evt)
-        => base.Publish(evt);
+    void ICopilotSessionEventStream.Publish(CopilotSessionLifecycleEvent evt)
+        => this.PublishCore(evt);
 
     /// <inheritdoc />
-    public new IAsyncEnumerable<CopilotSessionLifecycleEvent> ReadAllAsync(CancellationToken cancellationToken)
-        => base.ReadAllAsync(cancellationToken);
+    IAsyncEnumerable<CopilotSessionLifecycleEvent> ICopilotSessionEventStream.ReadAllAsync(CancellationToken cancellationToken)
+        => this.ReadAllAsyncCore(cancellationToken);
 }
 
 /// <summary>
@@ -124,10 +124,10 @@ public sealed class CopilotSessionEventStream : MulticastEventStream<CopilotSess
 public sealed class AgentStreamEventStream : MulticastEventStream<AgentStreamDeltaEvent>, IAgentStreamEventStream
 {
     /// <inheritdoc />
-    public new void Publish(AgentStreamDeltaEvent evt)
-        => base.Publish(evt);
+    void IAgentStreamEventStream.Publish(AgentStreamDeltaEvent evt)
+        => this.PublishCore(evt);
 
     /// <inheritdoc />
-    public new IAsyncEnumerable<AgentStreamDeltaEvent> ReadAllAsync(CancellationToken cancellationToken)
-        => base.ReadAllAsync(cancellationToken);
+    IAsyncEnumerable<AgentStreamDeltaEvent> IAgentStreamEventStream.ReadAllAsync(CancellationToken cancellationToken)
+        => this.ReadAllAsyncCore(cancellationToken);
 }
