@@ -114,9 +114,12 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
     private Progress<RuntimeProgressEvent> CreateProgress()
         => new(evt =>
         {
-            this._eventHub.Publish(new WebRunEvent(evt.TimestampUtc, RUNTIME_PROGRESS_EVENT_KIND, evt.Source, evt.Message, Details: evt.Prompt));
+            this._eventHub.Publish(new WebRunEvent(evt.TimestampUtc, RUNTIME_PROGRESS_EVENT_KIND, evt.Source, evt.Message, Details: RedactProgressDetails(evt.Prompt)));
             this._snapshotStore.UpdateStatus(RunStatuses.RUNNING, null, null);
         });
+
+    private static string? RedactProgressDetails(string? prompt)
+        => prompt is null ? null : Redaction.RedactSecrets(prompt);
 
     private void OnRunContextEstablished(string runId, string runDirectory)
     {
