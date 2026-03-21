@@ -153,7 +153,7 @@ internal static class SetupFieldEditor
             TaskPrompt: ResolveTaskPrompt(draft),
             WorkspacePath: workspacePath,
             WorkspaceMode: string.IsNullOrWhiteSpace(draft.WorkspaceMode) ? EXISTING_FOLDER_MODE : draft.WorkspaceMode,
-            Workflow: draft.ArchitectureLoopMode ? "architecture-loop" : "auto",
+            Workflow: draft.ArchitectureLoopMode ? WorkflowNames.ARCHITECTURE_LOOP : WorkflowNames.AUTO,
             ProjectName: string.IsNullOrWhiteSpace(draft.ProjectName) ? null : draft.ProjectName,
             ModelOverrides: CliArgumentParser.ParseOverrides(draft.ModelOverrides),
             BuildCommand: null,

@@ -23,6 +23,6 @@ public sealed record PersistedRunState(
     string? FailureMessage = null)
 {
     public bool CanResume
-        => !string.Equals(this.Status, RunPhases.COMPLETED, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(this.Status, RunPhases.CANCELED, StringComparison.OrdinalIgnoreCase);
+        => !string.Equals(this.Status, RunStatuses.COMPLETED, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(this.Status, RunStatuses.CANCELED, StringComparison.OrdinalIgnoreCase);
 }

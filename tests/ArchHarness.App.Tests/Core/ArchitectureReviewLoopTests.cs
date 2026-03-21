@@ -21,7 +21,7 @@ public sealed class ArchitectureReviewLoopTests
                 "run-001",
                 "C:\\runs\\run-001",
                 "C:\\workspace",
-                RunPhases.FAILED,
+                RunStatuses.FAILED,
                 RunPhases.ARCHITECTURE_LOOP,
                 DateTimeOffset.UtcNow.AddMinutes(-5),
                 DateTimeOffset.UtcNow.AddMinutes(-1),
@@ -74,7 +74,7 @@ public sealed class ArchitectureReviewLoopTests
         await writeTask;
 
         PersistedRunState writtenState = Assert.IsType<PersistedRunState>(runStateStore.LastWrittenState);
-        Assert.Equal("running", writtenState.Status);
+        Assert.Equal(RunStatuses.RUNNING, writtenState.Status);
         Assert.Null(writtenState.FailureMessage);
     }
 

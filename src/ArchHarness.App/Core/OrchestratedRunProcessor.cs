@@ -146,12 +146,12 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            await this.WriteTerminalRunStateAsync(runDirectory, RunPhases.CANCELED, "Run canceled before completion.").ConfigureAwait(false);
+            await this.WriteTerminalRunStateAsync(runDirectory, RunStatuses.CANCELED, RunTerminalPhases.CANCELED, "Run canceled before completion.").ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)
         {
-            await this.WriteTerminalRunStateAsync(runDirectory, RunPhases.FAILED, ex.Message).ConfigureAwait(false);
+            await this.WriteTerminalRunStateAsync(runDirectory, RunStatuses.FAILED, RunTerminalPhases.FAILED, ex.Message).ConfigureAwait(false);
             throw;
         }
         finally
@@ -281,9 +281,9 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             {
                 runId,
                 source = WellKnownSources.ORCHESTRATOR,
-                status = "failed",
+                status = RunEventStatuses.FAILED,
                 failureType = "parse_error",
-                stage = "planning",
+                stage = RunPhases.PLANNING,
                 message = ex.Message
             }, cancellationToken).ConfigureAwait(false);
             throw;
@@ -328,8 +328,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 new
                 {
                     runId,
-                    source = "architecture-loop",
-                    status = "blocked",
+                    source = WellKnownSources.ARCHITECTURE_LOOP,
+                    status = RunEventStatuses.BLOCKED,
                     message = "Architecture review iterations produced identical findings; loop stopped early."
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -371,7 +371,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
         await this._services.RunInfrastructure.ArtifactWriter.WriteRunLogAsync(checkpoint.RunDirectory, new
         {
-            status = completed ? "completed" : "incomplete",
+            status = completed ? RunStatuses.COMPLETED : "incomplete",
             projectId = request.ProjectId,
             projectName = request.ProjectName,
             runTitle = request.RunTitle,
@@ -387,14 +387,14 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         await this.WriteRunStateAsync(
             checkpoint,
             new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview),
-            RunPhases.COMPLETED,
+            RunTerminalPhases.COMPLETED,
             null,
             cancellationToken,
-            RunPhases.COMPLETED).ConfigureAwait(false);
+            RunStatuses.COMPLETED).ConfigureAwait(false);
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_COMPLETED_MESSAGE));
     }
 
-    private async Task WriteTerminalRunStateAsync(string runDirectory, string status, string failureMessage)
+    private async Task WriteTerminalRunStateAsync(string runDirectory, string status, string phase, string failureMessage)
     {
         PersistedRunState? existingState = this._services.SessionContext.RunStateStore.GetState(runDirectory);
         if (existingState is null)
@@ -407,7 +407,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             existingState with
             {
                 Status = status,
-                Phase = status,
+                Phase = phase,
                 UpdatedAtUtc = DateTimeOffset.UtcNow,
                 FailureMessage = failureMessage
             },
@@ -420,7 +420,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         string phase,
         string? failureMessage,
         CancellationToken cancellationToken,
-        string status = "running")
+        string status = RunStatuses.RUNNING)
     {
         PersistedRunState? existingState = this._services.SessionContext.RunStateStore.GetState(checkpoint.RunDirectory);
         return this._services.SessionContext.RunStateStore.WriteStateAsync(

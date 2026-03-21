@@ -55,7 +55,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
             this._eventHub.Reset();
             CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(
                 this._disposeCts.Token,
-                "starting",
+                RunStatuses.STARTING,
                 startedAt,
                 null,
                 null,
@@ -82,7 +82,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
             this._eventHub.Reset();
             CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(
                 this._disposeCts.Token,
-                "resuming",
+                RunStatuses.RESUMING,
                 runState.StartedAtUtc,
                 runState.RunId,
                 runState.RunDirectory,

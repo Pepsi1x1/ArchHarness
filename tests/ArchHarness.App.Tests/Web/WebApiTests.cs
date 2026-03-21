@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Globalization;
+using ArchHarness.App.Core;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 
@@ -101,14 +102,14 @@ public sealed class WebApiTests
 
         string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", "20260315T120000000");
         Directory.CreateDirectory(runDirectory);
-        await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), """
-            {
-              "status": "completed",
-              "projectId": "ignored-by-grouping",
-              "projectName": "API Workspace",
-              "runTitle": "Initial Scaffold"
-            }
-            """);
+                await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), $$"""
+                        {
+                            "status": "{{RunStatuses.COMPLETED}}",
+                            "projectId": "ignored-by-grouping",
+                            "projectName": "API Workspace",
+                            "runTitle": "Initial Scaffold"
+                        }
+                        """);
 
         JsonDocument document = JsonDocument.Parse(await client.GetStringAsync("/api/projects?maxRunsPerProject=10"));
         JsonElement project = Assert.Single(document.RootElement.EnumerateArray());
@@ -224,8 +225,8 @@ public sealed class WebApiTests
                     "runId": "{{runId}}",
                     "runDirectory": "{{runDirectory.Replace("\\", "\\\\")}}",
                     "workspaceRoot": "{{workspacePath.Replace("\\", "\\\\")}}",
-                    "status": "running",
-                    "phase": "executing-plan",
+                    "status": "{{RunStatuses.RUNNING}}",
+                    "phase": "{{RunPhases.EXECUTING_PLAN}}",
                     "startedAtUtc": "2026-03-15T12:17:00Z",
                     "updatedAtUtc": "2026-03-15T12:18:00Z",
                     "request": {
@@ -259,13 +260,13 @@ public sealed class WebApiTests
 
         JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
         Assert.True(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
-        Assert.Equal("executing-plan", stateDocument.RootElement.GetProperty("phase").GetString());
+    Assert.Equal(RunPhases.EXECUTING_PLAN, stateDocument.RootElement.GetProperty("phase").GetString());
 
         HttpResponseMessage resumeResponse = await client.PostAsync($"/api/runs/{runId}/resume?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
         Assert.Equal(HttpStatusCode.Accepted, resumeResponse.StatusCode);
 
         JsonDocument resumeDocument = JsonDocument.Parse(await resumeResponse.Content.ReadAsStringAsync());
-        Assert.Equal("resuming", resumeDocument.RootElement.GetProperty("status").GetString());
+        Assert.Equal(RunStatuses.RESUMING, resumeDocument.RootElement.GetProperty("status").GetString());
         Assert.Equal(runId, resumeDocument.RootElement.GetProperty("runId").GetString());
     }
 
@@ -293,6 +294,7 @@ public sealed class WebApiTests
         HttpResponseMessage runResponse = await client.PostAsJsonAsync("/api/runs", new
         {
             taskPrompt = "Create the initial project structure",
+            runTitle = "Create initial project structure",
             workspacePath,
             workspaceMode = "new-project",
             workflow = "auto",

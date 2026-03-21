@@ -67,7 +67,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             {
                 runId = context.RunId,
                 source = step.Agent,
-                status = "completed",
+                status = RunEventStatuses.COMPLETED,
                 stepId = step.Id,
                 objective = step.Objective,
                 message = $"Step {step.Id} completed"
@@ -176,7 +176,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         {
             runId,
             source = step.Agent,
-            status = "failed",
+            status = RunEventStatuses.FAILED,
             failureType,
             stepId = step.Id,
             objective = step.Objective,

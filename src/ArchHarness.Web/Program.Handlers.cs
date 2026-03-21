@@ -39,7 +39,7 @@ internal static class ProgramHandlers
             defaultTaskPrompt = settings.DefaultArchitectureReviewMode ? DefaultPrompts.ARCHITECTURE_LOOP_TASK : DefaultPrompts.DEFAULT_TASK,
             workspaceModes = new[] { "existing-folder", "new-project", "existing-git" },
             permissionModes = new[] { "approve-all", "prompt" },
-            workflow = settings.DefaultArchitectureReviewMode ? "architecture-loop" : "auto",
+            workflow = settings.DefaultArchitectureReviewMode ? WorkflowNames.ARCHITECTURE_LOOP : WorkflowNames.AUTO,
             architectureLoopMode = settings.DefaultArchitectureReviewMode,
             architectureLoopPrompt = settings.DefaultArchitectureReviewPrompt,
             defaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,

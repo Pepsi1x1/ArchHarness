@@ -62,7 +62,7 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
 {
     private readonly object _sync = new();
     private CancellationTokenSource? _activeRunCts;
-    private WebRunSnapshot _snapshot = new(false, "idle", null, null, null, null, null, null, null);
+    private WebRunSnapshot _snapshot = new(false, RunStatuses.IDLE, null, null, null, null, null, null, null);
 
     /// <inheritdoc />
     public WebRunSnapshot GetSnapshot()
@@ -119,7 +119,7 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
 
             this._snapshot = this._snapshot with
             {
-                Status = "canceling",
+                Status = RunStatuses.CANCELING,
                 FailureMessage = null
             };
             return this._activeRunCts;

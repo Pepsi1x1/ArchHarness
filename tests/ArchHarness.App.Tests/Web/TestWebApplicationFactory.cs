@@ -158,14 +158,14 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     private sealed class FakeWebRunSessionManager : IWebRunSessionManager
     {
         private readonly ConcurrentQueue<WebRunEvent> _events = new ConcurrentQueue<WebRunEvent>();
-        private WebRunSnapshot _snapshot = new WebRunSnapshot(false, "idle", null, null, null, null, null, null, null);
+        private WebRunSnapshot _snapshot = new WebRunSnapshot(false, RunStatuses.IDLE, null, null, null, null, null, null, null);
 
         public Task<WebRunSnapshot> StartRunAsync(RunRequest request, CancellationToken cancellationToken)
         {
             string runId = "test-run-001";
             this._snapshot = new WebRunSnapshot(
-                false,
-                "accepted",
+                true,
+                RunStatuses.STARTING,
                 DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow,
                 runId,
@@ -182,7 +182,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             _ = cancellationToken;
             this._snapshot = new WebRunSnapshot(
                 true,
-                "resuming",
+                RunStatuses.RESUMING,
                 runState.StartedAtUtc,
                 null,
                 runState.RunId,
@@ -198,7 +198,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
         public Task<WebRunSnapshot> CancelRunAsync()
         {
-            this._snapshot = this._snapshot with { IsRunning = false, Status = "canceled" };
+            this._snapshot = this._snapshot with { IsRunning = false, Status = RunStatuses.CANCELED };
             return Task.FromResult(this._snapshot);
         }
 

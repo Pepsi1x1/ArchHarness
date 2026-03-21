@@ -73,7 +73,7 @@ public sealed class StepExecutionStateStore : IStepExecutionStateStore
                 runId,
                 runDirectory,
                 workspaceRoot,
-                failureMessage is null ? "running" : RunPhases.FAILED,
+                failureMessage is null ? RunStatuses.RUNNING : RunStatuses.FAILED,
                 phase,
                 existingState?.StartedAtUtc ?? DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow,

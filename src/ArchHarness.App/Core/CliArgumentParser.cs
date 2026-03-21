@@ -72,7 +72,7 @@ public static class CliArgumentParser
             TaskPrompt: DEFAULT_ARCH_LOOP_TASK_PROMPT,
             WorkspacePath: args[1],
             WorkspaceMode: args[2],
-            Workflow: "architecture-loop",
+            Workflow: WorkflowNames.ARCHITECTURE_LOOP,
             ProjectName: args.Length >= 5 ? args[4] : null,
             ModelOverrides: args.Length >= 6 ? ParseOverrides(args[5]) : null,
             BuildCommand: args.Length >= 7 ? args[6] : null,
@@ -98,11 +98,11 @@ public static class CliArgumentParser
         string workflow;
         if (forceLoopWorkflow)
         {
-            workflow = "architecture-loop";
+            workflow = WorkflowNames.ARCHITECTURE_LOOP;
         }
         else
         {
-            workflow = args.Length >= 5 ? args[4] : "frontend_feature";
+            workflow = args.Length >= 5 ? args[4] : WorkflowNames.FRONTEND_FEATURE;
         }
 
         request = new RunRequest(

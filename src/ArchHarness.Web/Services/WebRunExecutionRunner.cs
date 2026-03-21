@@ -54,23 +54,23 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
         try
         {
             RunArtefacts artefacts = await this._runtime.RunAsync(request, progress, this.OnRunContextEstablished, runCts.Token).ConfigureAwait(false);
-            this._snapshotStore.CompleteRun("completed", artefacts, null);
+            this._snapshotStore.CompleteRun(RunStatuses.COMPLETED, artefacts, null);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {artefacts.RunId} completed.", Details: artefacts.RunDirectory));
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !shutdownToken.IsCancellationRequested)
         {
-            this._snapshotStore.FailRun("canceled", RUN_CANCELED_MESSAGE);
+            this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
         }
         catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
         {
-            this._snapshotStore.FailRun("stopped", RUN_STOPPED_MESSAGE);
+            this._snapshotStore.FailRun(RunStatuses.STOPPED, RUN_STOPPED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE));
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"[WebRunExecutionRunner] Run failed: {ex}");
-            this._snapshotStore.FailRun("failed", INTERNAL_ERROR_MESSAGE);
+            this._snapshotStore.FailRun(RunStatuses.FAILED, INTERNAL_ERROR_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
         }
         finally
@@ -86,23 +86,23 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
         try
         {
             RunArtefacts artefacts = await this._runtime.ResumeAsync(runState, progress, this.OnRunContextEstablished, runCts.Token).ConfigureAwait(false);
-            this._snapshotStore.CompleteRun("completed", artefacts, null);
+            this._snapshotStore.CompleteRun(RunStatuses.COMPLETED, artefacts, null);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {artefacts.RunId} completed.", Details: artefacts.RunDirectory));
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !shutdownToken.IsCancellationRequested)
         {
-            this._snapshotStore.FailRun("canceled", RUN_CANCELED_MESSAGE);
+            this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
         }
         catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
         {
-            this._snapshotStore.FailRun("stopped", RUN_STOPPED_MESSAGE);
+            this._snapshotStore.FailRun(RunStatuses.STOPPED, RUN_STOPPED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE));
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"[WebRunExecutionRunner] Resume failed: {ex}");
-            this._snapshotStore.FailRun("failed", INTERNAL_ERROR_MESSAGE);
+            this._snapshotStore.FailRun(RunStatuses.FAILED, INTERNAL_ERROR_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
         }
         finally
@@ -115,7 +115,7 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
         => new(evt =>
         {
             this._eventHub.Publish(new WebRunEvent(evt.TimestampUtc, RUNTIME_PROGRESS_EVENT_KIND, evt.Source, evt.Message, Details: evt.Prompt));
-            this._snapshotStore.UpdateStatus("running", null, null);
+            this._snapshotStore.UpdateStatus(RunStatuses.RUNNING, null, null);
         });
 
     private void OnRunContextEstablished(string runId, string runDirectory)

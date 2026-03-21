@@ -133,6 +133,25 @@ const PAT_STORAGE_MODE_PROTECTED = 0;
 const GITHUB_AUTH_MODE_NONE = 0;
 const GITHUB_AUTH_MODE_PAT = 1;
 const GITHUB_AUTH_MODE_OAUTH = 2;
+const WORKFLOWS = Object.freeze({
+  AUTO: "auto",
+  ARCHITECTURE_LOOP: "architecture-loop"
+});
+const RUN_STATUSES = Object.freeze({
+  IDLE: "idle",
+  STARTING: "starting",
+  RESUMING: "resuming",
+  RUNNING: "running",
+  CANCELING: "canceling",
+  COMPLETED: "completed",
+  CANCELED: "canceled",
+  STOPPED: "stopped",
+  FAILED: "failed"
+});
+const STREAM_CONNECTION_STATES = Object.freeze({
+  IDLE: RUN_STATUSES.IDLE,
+  RECONNECTING: "reconnecting"
+});
 const LEGACY_AUTOFILL_PROMPTS = new Set([
   "Implement requested change",
   "Run coding style, security, and architecture review loop for the existing workspace and apply required remediation."
@@ -1214,12 +1233,12 @@ function setSanitizedHtml(element, html) {
   element.replaceChildren(sanitizeHtmlFragment(html));
 }
 
-function closeEventStream(status = "idle") {
+function closeEventStream(status = STREAM_CONNECTION_STATES.IDLE) {
   if (state.eventSource) {
     state.eventSource.close();
     state.eventSource = null;
   }
-  if (status === "idle" && state.streamOrder.length > 0) {
+  if (status === STREAM_CONNECTION_STATES.IDLE && state.streamOrder.length > 0) {
     showStreamCompleted();
   }
 }
@@ -1288,7 +1307,7 @@ async function loadSelectedRunStream() {
   if (!project || !run) {
     state.selectedRunState = null;
     renderComposerState();
-    closeEventStream(state.activeRun?.isRunning ? "reconnecting" : "idle");
+    closeEventStream(state.activeRun?.isRunning ? STREAM_CONNECTION_STATES.RECONNECTING : STREAM_CONNECTION_STATES.IDLE);
     elements.streamEmpty.textContent = DEFAULT_STREAM_EMPTY_MESSAGE;
     resetStream();
     return;
@@ -1301,7 +1320,7 @@ async function loadSelectedRunStream() {
 
   const isLiveRun = isSelectedRunLive();
 
-  closeEventStream("reconnecting");
+  closeEventStream(STREAM_CONNECTION_STATES.RECONNECTING);
   resetStream();
   showStreamStarting();
 
@@ -1542,7 +1561,7 @@ function renderActiveRun() {
   if (!activeRun) {
     elements.cancelRun.disabled = true;
     if (!state.isUnloading) {
-      closeEventStream("idle");
+      closeEventStream(STREAM_CONNECTION_STATES.IDLE);
     }
     renderTopbar();
     return;
@@ -1558,7 +1577,7 @@ function renderActiveRun() {
   }
 
   if (!activeRun.isRunning && isSelectedRunLive() && !state.isUnloading) {
-    closeEventStream("idle");
+    closeEventStream(STREAM_CONNECTION_STATES.IDLE);
   }
 
   renderTopbar();
@@ -2349,7 +2368,7 @@ function collectRunRequest() {
     taskPrompt: architectureLoopMode ? "" : prompt,
     workspacePath: project.workspacePath,
     workspaceMode: project.workspaceMode,
-    workflow: architectureLoopMode ? "architecture-loop" : "auto",
+    workflow: architectureLoopMode ? WORKFLOWS.ARCHITECTURE_LOOP : WORKFLOWS.AUTO,
     projectName: project.displayName,
     projectId: project.projectId,
     modelOverrides: null,
@@ -2490,7 +2509,7 @@ function connectEventStream() {
 
     const snapshot = await refreshActiveRun();
     if (!snapshot?.isRunning) {
-      closeEventStream("idle");
+      closeEventStream(STREAM_CONNECTION_STATES.IDLE);
       await loadProjects();
     } else if (!sidebarRefreshed && snapshot?.runId) {
       sidebarRefreshed = true;
@@ -2508,7 +2527,7 @@ function connectEventStream() {
       return;
     }
 
-    closeEventStream(state.activeRun?.isRunning ? "reconnecting" : "idle");
+    closeEventStream(state.activeRun?.isRunning ? STREAM_CONNECTION_STATES.RECONNECTING : STREAM_CONNECTION_STATES.IDLE);
     if (state.activeRun?.isRunning) {
       globalThis.setTimeout(connectEventStream, 1000);
     }
@@ -3965,7 +3984,7 @@ async function startPullRequestReview() {
       taskPrompt: "",
       workspacePath: project.workspacePath,
       workspaceMode: project.workspaceMode || "existing-git",
-      workflow: "architecture-loop",
+      workflow: WORKFLOWS.ARCHITECTURE_LOOP,
       projectName: project.displayName,
       projectId: project.projectId,
       modelOverrides: null,

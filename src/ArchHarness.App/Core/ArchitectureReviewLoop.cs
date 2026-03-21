@@ -1,4 +1,5 @@
 using ArchHarness.App.Agents;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
@@ -76,7 +77,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             iteration < request.IterationStrategy.MaxIterations)
         {
             iteration++;
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", $"Review iteration {iteration}"));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ARCHITECTURE_LOOP, $"Review iteration {iteration}"));
 
             string remediationPrompt = await this.BuildRemediationPromptAsync(request, adapter.RootPath, review, securityReview, iteration, cancellationToken);
             LoopIterationContext iterationContext = new LoopIterationContext(request, adapter, reviewLoopAgents, currentFiles, remediationPrompt, progress);
@@ -93,7 +94,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                 && string.Equals(previousSecurityFindingsFingerprint, currentSecurityFindingsFingerprint, StringComparison.Ordinal))
             {
                 (review, securityReview) = ApplyBlockedStatus(reviewLoopAgents, review, securityReview);
-                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", "Review blocked due to identical findings across iterations."));
+                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ARCHITECTURE_LOOP, "Review blocked due to identical findings across iterations."));
                 break;
             }
 
@@ -270,7 +271,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                 runContext.RunId,
                 runContext.RunDirectory,
                 workspaceRoot,
-                "running",
+                RunStatuses.RUNNING,
                 RunPhases.ARCHITECTURE_LOOP,
                 existingState?.StartedAtUtc ?? DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow,
