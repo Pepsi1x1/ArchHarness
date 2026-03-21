@@ -1253,7 +1253,7 @@ function applyPersistedRunEvents(events, options = {}) {
     }
 
     if (kind === "agent-delta") {
-      recordStreamEvent(entry);
+      recordStreamEvent(entry, { deferRender: true });
     }
   });
 
@@ -1261,9 +1261,14 @@ function applyPersistedRunEvents(events, options = {}) {
     syncSubmittedPromptSection(submittedPrompt);
   }
 
+  renderStream();
+  state.streamOrder.forEach(agentId => {
+    scheduleStreamRender(agentId);
+  });
+
   if (state.streamOrder.length > 0) {
     if (isLive) {
-      renderStream();
+      scrollStreamToBottom();
     } else {
       showStreamCompleted();
     }
@@ -2127,20 +2132,26 @@ async function renderStreamSectionMarkdown(agentId) {
   const version = ++section.renderVersion;
   const textSegments = section.segments.filter(s => s.type === "text" && s.content);
 
-  for (const seg of textSegments) {
+  const renderedSegments = await Promise.all(textSegments.map(async seg => {
     try {
       const response = await requestJson("/api/markdown/render", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ markdown: seg.content })
       });
-      if (state.streamSections[agentId]?.renderVersion !== version) return;
-      seg.html = response.html || `<pre>${escapeHtml(seg.content)}</pre>`;
+      return response.html || `<pre>${escapeHtml(seg.content)}</pre>`;
     } catch {
-      if (state.streamSections[agentId]?.renderVersion !== version) return;
-      seg.html = `<pre>${escapeHtml(seg.content)}</pre>`;
+      return `<pre>${escapeHtml(seg.content)}</pre>`;
     }
+  }));
+
+  if (state.streamSections[agentId]?.renderVersion !== version) {
+    return;
   }
+
+  textSegments.forEach((seg, index) => {
+    seg.html = renderedSegments[index];
+  });
 
   const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
   if (container) {
@@ -2151,7 +2162,8 @@ async function renderStreamSectionMarkdown(agentId) {
   }
 }
 
-function recordStreamEvent(entry) {
+function recordStreamEvent(entry, options = {}) {
+  const deferRender = options.deferRender === true;
   const agentId = readEventField(entry, "agentId");
   if (!agentId) {
     return;
@@ -2175,7 +2187,9 @@ function recordStreamEvent(entry) {
     group.calls.push(message);
     section.segmentCount += 1;
     section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
-    renderStream();
+    if (!deferRender) {
+      renderStream();
+    }
     return;
   }
 
@@ -2185,8 +2199,10 @@ function recordStreamEvent(entry) {
   section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
   section.streamKind = streamKind;
 
-  renderStream();
-  scheduleStreamRender(agentId);
+  if (!deferRender) {
+    renderStream();
+    scheduleStreamRender(agentId);
+  }
 }
 
 function resetStream() {
