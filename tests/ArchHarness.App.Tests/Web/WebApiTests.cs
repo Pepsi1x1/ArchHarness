@@ -196,6 +196,44 @@ public sealed class WebApiTests
     }
 
     /// <summary>
+    /// RunEventsEndpoint — RedactsSensitiveRequestTaskPrompt
+    /// </summary>
+    [Fact]
+    public async Task RunEventsEndpoint_RedactsSensitiveRequestTaskPrompt()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("project-api-redacted-run-events-workspace");
+
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Replay Workspace",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", "20260315T121500001");
+        Directory.CreateDirectory(runDirectory);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "events.jsonl"), """
+            {"runId":"20260315T121500001","source":"request","message":"Run request received","taskPrompt":"Use github_pat_abcdefghijklmnopqrstuvwxyz123456 with Bearer abc123secret to inspect the repo"}
+            """);
+
+        JsonDocument document = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/20260315T121500001/events?workspacePath={Uri.EscapeDataString(workspacePath)}"));
+        JsonElement evt = Assert.Single(document.RootElement.EnumerateArray());
+        string taskPrompt = evt.GetProperty("taskPrompt").GetString()!;
+
+        Assert.Equal("request", evt.GetProperty("kind").GetString());
+        Assert.DoesNotContain("github_pat_", taskPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc123secret", taskPrompt, StringComparison.Ordinal);
+        Assert.Contains("***REDACTED***", taskPrompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// RunStateAndResumeEndpoints — ExposeResumableRuns
     /// </summary>
     [Fact]

@@ -281,6 +281,29 @@ public sealed class RunHistoryServiceTests : IDisposable
             });
     }
 
+    /// <summary>
+    /// Verifies that request-event task prompts are redacted before being returned from replay history.
+    /// </summary>
+    [Fact]
+    public void GetEvents_RedactsRequestTaskPromptSecrets()
+    {
+        string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260320T150000000");
+        Directory.CreateDirectory(runDirectory);
+        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), """
+            {"runId":"20260320T150000000","source":"request","message":"Run request received","taskPrompt":"Use github_pat_abcdefghijklmnopqrstuvwxyz123456 with Bearer abc123secret to inspect the repo","timestampUtc":"2026-03-20T15:00:00Z"}
+            """);
+
+        FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();
+
+        PersistedRunEvent evt = Assert.Single(service.GetEvents(runDirectory));
+
+        Assert.Equal("request", evt.Kind);
+        Assert.NotNull(evt.TaskPrompt);
+        Assert.DoesNotContain("github_pat_", evt.TaskPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc123secret", evt.TaskPrompt, StringComparison.Ordinal);
+        Assert.Contains("***REDACTED***", evt.TaskPrompt, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(this._workspaceRoot))

@@ -383,7 +383,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
                 "request",
                 source,
                 ReadString(root, "message") ?? "Run request received",
-                TaskPrompt: taskPrompt);
+                TaskPrompt: Redaction.RedactSecrets(taskPrompt));
         }
 
         string? kind = ReadString(root, "kind");
