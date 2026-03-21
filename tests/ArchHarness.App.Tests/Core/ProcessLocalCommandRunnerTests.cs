@@ -8,7 +8,7 @@ public sealed class ProcessLocalCommandRunnerTests
     public async Task RunAsync_CapturesStdoutAndStderrWithoutBlocking()
     {
         ProcessLocalCommandRunner runner = new ProcessLocalCommandRunner();
-        (string command, string[] arguments)? invocation = CreateLargeOutputInvocation();
+        (string command, string[] arguments)? invocation = CreateLargeOutputInvocation(runner);
         if (invocation is null)
         {
             return;
@@ -27,7 +27,7 @@ public sealed class ProcessLocalCommandRunnerTests
     public async Task RunAsync_ForwardsStandardInputWhenProvided()
     {
         ProcessLocalCommandRunner runner = new ProcessLocalCommandRunner();
-        (string command, string[] arguments)? invocation = CreateEchoStdInInvocation();
+        (string command, string[] arguments)? invocation = CreateEchoStdInInvocation(runner);
         if (invocation is null)
         {
             return;
@@ -39,11 +39,17 @@ public sealed class ProcessLocalCommandRunnerTests
         Assert.Contains("hello from stdin", result.StandardOutput, StringComparison.Ordinal);
     }
 
-    private static (string command, string[] arguments)? CreateLargeOutputInvocation()
+    private static (string command, string[] arguments)? CreateLargeOutputInvocation(ProcessLocalCommandRunner runner)
     {
         if (OperatingSystem.IsWindows())
         {
-            return ("pwsh", new[]
+            string? shell = ResolveWindowsPowerShellCommand(runner);
+            if (shell is null)
+            {
+                return null;
+            }
+
+            return (shell, new[]
             {
                 "-NoProfile",
                 "-Command",
@@ -58,11 +64,17 @@ public sealed class ProcessLocalCommandRunnerTests
         });
     }
 
-    private static (string command, string[] arguments)? CreateEchoStdInInvocation()
+    private static (string command, string[] arguments)? CreateEchoStdInInvocation(ProcessLocalCommandRunner runner)
     {
         if (OperatingSystem.IsWindows())
         {
-            return ("pwsh", new[]
+            string? shell = ResolveWindowsPowerShellCommand(runner);
+            if (shell is null)
+            {
+                return null;
+            }
+
+            return (shell, new[]
             {
                 "-NoProfile",
                 "-Command",
@@ -75,5 +87,20 @@ public sealed class ProcessLocalCommandRunnerTests
             "-c",
             "cat"
         });
+    }
+
+    private static string? ResolveWindowsPowerShellCommand(ProcessLocalCommandRunner runner)
+    {
+        if (runner.IsCommandAvailable("pwsh"))
+        {
+            return "pwsh";
+        }
+
+        if (runner.IsCommandAvailable("powershell"))
+        {
+            return "powershell";
+        }
+
+        return null;
     }
 }
