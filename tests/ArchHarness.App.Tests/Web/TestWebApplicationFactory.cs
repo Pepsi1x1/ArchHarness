@@ -29,7 +29,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     {
         Content = new StringContent("GitHub test response not configured.", Encoding.UTF8, "text/plain")
     };
-    private FakeGitHubOAuthDeviceFlowService _gitHubOAuthDeviceFlowService = new FakeGitHubOAuthDeviceFlowService();
+    private readonly FakeGitHubOAuthDeviceFlowService _gitHubOAuthDeviceFlowService = new FakeGitHubOAuthDeviceFlowService();
 
     public string CreateWorkspace(string directoryName)
     {
@@ -50,7 +50,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
     public void ConfigureGitHubOAuth(bool isEnabled)
     {
-        this._gitHubOAuthDeviceFlowService = new FakeGitHubOAuthDeviceFlowService { IsEnabled = isEnabled };
+        this._gitHubOAuthDeviceFlowService.IsEnabled = isEnabled;
     }
 
     public void ConfigureGitHubOAuthStartResult(GitHubOAuthDeviceFlowStartResult result)

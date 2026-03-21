@@ -27,6 +27,22 @@ public sealed class WebApiTests
     }
 
     /// <summary>
+    /// BootstrapEndpoint — ReflectsGitHubOAuthConfigurationAfterHostBuild
+    /// </summary>
+    [Fact]
+    public async Task BootstrapEndpoint_ReflectsGitHubOAuthConfigurationAfterHostBuild()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        factory.ConfigureGitHubOAuth(isEnabled: false);
+
+        JsonDocument document = JsonDocument.Parse(await client.GetStringAsync("/api/bootstrap"));
+
+        Assert.False(document.RootElement.GetProperty("gitHubOAuthEnabled").GetBoolean());
+    }
+
+    /// <summary>
     /// GitHubOAuthDeviceFlowEndpoints — ReturnConfiguredResults
     /// </summary>
     [Fact]
