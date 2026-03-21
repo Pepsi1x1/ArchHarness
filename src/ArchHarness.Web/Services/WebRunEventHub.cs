@@ -43,6 +43,7 @@ public sealed class WebRunEventHub : IWebRunEventHub
     /// <inheritdoc />
     public void Publish(WebRunEvent evt)
     {
+        Channel<WebRunEvent>[] subscribers;
         lock (this._sync)
         {
             this._bufferedEvents.Add(evt);
@@ -51,10 +52,12 @@ public sealed class WebRunEventHub : IWebRunEventHub
                 this._bufferedEvents.RemoveAt(0);
             }
 
-            foreach (KeyValuePair<Guid, Channel<WebRunEvent>> subscriber in this._subscribers)
-            {
-                subscriber.Value.Writer.TryWrite(evt);
-            }
+            subscribers = this._subscribers.Values.ToArray();
+        }
+
+        foreach (Channel<WebRunEvent> subscriber in subscribers)
+        {
+            subscriber.Writer.TryWrite(evt);
         }
     }
 
