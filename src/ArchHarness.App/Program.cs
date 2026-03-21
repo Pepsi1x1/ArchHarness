@@ -25,7 +25,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddHttpClient();
         services.AddHttpClient<AzureDevOpsSourceControlService>();
         services.AddHttpClient<GitHubSourceControlService>();
-        services.AddHttpClient<GitHubOAuthDeviceFlowService>();
+        services.AddSingleton<GitHubOAuthDeviceFlowService>();
         services.AddSingleton<IGitHubOAuthDeviceFlowService>(sp => sp.GetRequiredService<GitHubOAuthDeviceFlowService>());
         services.AddSingleton<IRuntimePlatform, RuntimePlatform>();
         services.AddSingleton<ILocalCommandRunner, ProcessLocalCommandRunner>();

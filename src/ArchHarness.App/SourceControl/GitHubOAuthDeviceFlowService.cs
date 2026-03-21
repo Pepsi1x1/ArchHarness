@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ArchHarness.App.Core;
+using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -22,15 +23,16 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
     private const string DeniedStatus = "denied";
     private const string ExpiredStatus = "expired";
     private const string ErrorStatus = "error";
+    private const string HttpClientName = "GitHubOAuthDeviceFlowService";
 
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<GitHubOAuthDeviceFlowService> _logger;
     private readonly GitHubOAuthOptions _options;
     private readonly ConcurrentDictionary<string, PendingDeviceFlow> _flows = new();
 
-    public GitHubOAuthDeviceFlowService(HttpClient httpClient, IOptions<GitHubOAuthOptions> options, ILogger<GitHubOAuthDeviceFlowService> logger)
+    public GitHubOAuthDeviceFlowService(IHttpClientFactory httpClientFactory, IOptions<GitHubOAuthOptions> options, ILogger<GitHubOAuthDeviceFlowService> logger)
     {
-        this._httpClient = httpClient;
+        this._httpClientFactory = httpClientFactory;
         this._options = options.Value;
         this._logger = logger;
     }
@@ -53,7 +55,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.UserAgent.ParseAdd("ArchHarness/1.0");
 
-        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await this.CreateHttpClient().SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         GitHubDeviceCodeResponse payload = await DeserializeRequiredAsync<GitHubDeviceCodeResponse>(response, cancellationToken).ConfigureAwait(false);
@@ -106,7 +108,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.UserAgent.ParseAdd("ArchHarness/1.0");
 
-        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await this.CreateHttpClient().SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         GitHubAccessTokenResponse payload = await DeserializeRequiredAsync<GitHubAccessTokenResponse>(response, cancellationToken).ConfigureAwait(false);
 
@@ -167,7 +169,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.UserAgent.ParseAdd("ArchHarness/1.0");
 
-        using HttpResponseMessage response = await this._httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using HttpResponseMessage response = await this.CreateHttpClient().SendAsync(request, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         GitHubUserResponse payload = await DeserializeRequiredAsync<GitHubUserResponse>(response, cancellationToken).ConfigureAwait(false);
@@ -188,6 +190,9 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
 
         return this._options.ClientId;
     }
+
+    private HttpClient CreateHttpClient()
+        => this._httpClientFactory.CreateClient(HttpClientName);
 
     private static async Task<T> DeserializeRequiredAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
         where T : class

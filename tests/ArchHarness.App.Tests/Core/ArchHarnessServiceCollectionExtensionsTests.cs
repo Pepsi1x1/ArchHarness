@@ -25,7 +25,9 @@ public sealed class ArchHarnessServiceCollectionExtensionsTests
 
         IGitHubOAuthDeviceFlowService first = serviceProvider.GetRequiredService<IGitHubOAuthDeviceFlowService>();
         IGitHubOAuthDeviceFlowService second = serviceProvider.GetRequiredService<IGitHubOAuthDeviceFlowService>();
+        GitHubOAuthDeviceFlowService concrete = serviceProvider.GetRequiredService<GitHubOAuthDeviceFlowService>();
 
         Assert.Same(first, second);
+        Assert.Same(first, concrete);
     }
 }
