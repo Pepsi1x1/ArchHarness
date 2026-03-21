@@ -1,5 +1,6 @@
 {
   "name": "archharness-electron",
+  "author": { "name": "Pepsi1x1" },
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
@@ -11,15 +12,15 @@
     "prepare:win-icon": "node scripts/generate-win-icon.mjs",
     "stamp:win-exe-icon": "node scripts/stamp-win-exe-icon.mjs",
     "bundle:web-host": "node scripts/publish-web-host.mjs",
-    "pack:dir": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --dir",
-    "pack:mac": "npm run bundle:web-host && electron-builder --mac zip",
+    "pack:dir": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --dir --publish never",
+    "pack:mac": "npm run bundle:web-host && electron-builder --mac zip --publish never",
     "pack:win": "node scripts/pack-win.mjs",
-    "pack:linux": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --linux AppImage zip"
+    "pack:linux": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --linux AppImage zip --publish never"
   },
   "devDependencies": {
-    "electron": "^35.7.4",
-    "electron-builder": "^26.0.12",
-    "png-to-ico": "^2.1.8",
+    "electron": "^41.0.3",
+    "electron-builder": "^26.8.1",
+    "png-to-ico": "^3.0.1",
     "rcedit": "^5.0.2",
     "sharp": "^0.34.5"
   },

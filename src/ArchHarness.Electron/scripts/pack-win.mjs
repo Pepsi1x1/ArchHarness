@@ -24,6 +24,8 @@ runCommand("npx", [
   "electron-builder",
   "--win",
   "dir",
+  "--publish",
+  "never",
   "-c.win.signAndEditExecutable=false"
 ]);
 runCommand("npm", ["run", "stamp:win-exe-icon"]);
@@ -34,5 +36,7 @@ runCommand("npx", [
   "--win",
   "nsis",
   "zip",
+  "--publish",
+  "never",
   "-c.win.signAndEditExecutable=false"
 ]);
