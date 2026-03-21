@@ -175,6 +175,7 @@ public sealed record CompletionValidationRequest(
 /// <param name="ArchitectureLanguages">Optional language scope for architecture review.</param>
 /// <param name="SecurityLanguages">Optional language scope for security review.</param>
 /// <param name="RunRequest">The originating run request.</param>
+/// <param name="StartingIteration">The iteration number to resume from, when applicable.</param>
 public sealed record ArchitectureLoopRequest(
     IterationStrategy IterationStrategy,
     ArchitectureReview InitialReview,
@@ -182,7 +183,8 @@ public sealed record ArchitectureLoopRequest(
     IReadOnlyList<string> FilesTouched,
     IReadOnlyList<string>? ArchitectureLanguages,
     IReadOnlyList<string>? SecurityLanguages,
-    RunRequest RunRequest);
+    RunRequest RunRequest,
+    int StartingIteration = 0);
 
 /// <summary>
 /// Identifies the artifacts produced by a completed run.

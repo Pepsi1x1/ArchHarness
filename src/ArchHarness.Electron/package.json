@@ -2,23 +2,32 @@
   "name": "archharness-electron",
   "version": "0.1.0",
   "private": true,
+  "type": "commonjs",
   "description": "Electron desktop wrapper for the local ArchHarness web host",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "prepare:win-icon": "node scripts/generate-win-icon.mjs",
+    "stamp:win-exe-icon": "node scripts/stamp-win-exe-icon.mjs",
     "bundle:web-host": "node scripts/publish-web-host.mjs",
-    "pack:dir": "npm run bundle:web-host && electron-builder --dir",
-    "pack:mac": "npm run bundle:web-host && electron-builder --mac zip"
+    "pack:dir": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --dir",
+    "pack:mac": "npm run bundle:web-host && electron-builder --mac zip",
+    "pack:win": "node scripts/pack-win.mjs",
+    "pack:linux": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --linux AppImage zip"
   },
   "devDependencies": {
     "electron": "^35.7.4",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "png-to-ico": "^2.1.8",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.34.5"
   },
   "build": {
     "appId": "com.archharness.desktop",
     "productName": "ArchHarness",
     "icon": "assets/icons/icon-1024.png",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist"
     },
@@ -43,6 +52,25 @@
       "icon": "assets/icons/icon.icns",
       "category": "public.app-category.developer-tools",
       "target": [
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "assets/icons/icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "installerIcon": "assets/icons/icon.ico",
+      "uninstallerIcon": "assets/icons/icon.ico",
+      "installerHeaderIcon": "assets/icons/icon.ico"
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        "AppImage",
         "zip"
       ]
     }

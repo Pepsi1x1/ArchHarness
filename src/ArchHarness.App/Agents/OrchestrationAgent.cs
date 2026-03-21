@@ -11,6 +11,7 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class OrchestrationAgent : AgentBase
 {
+    private const string OrchestrationPromptGroupName = "Orchestration";
     private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
 
     private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK = """
@@ -130,7 +131,7 @@ public sealed class OrchestrationAgent : AgentBase
             ?? this._reviewLoopAgentSelectionAccessor.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
 
-        string planningTemplate = PromptLoader.Load("Orchestration", "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
+        string planningTemplate = PromptLoader.Load(OrchestrationPromptGroupName, "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
         string planningPrompt = PromptLoader.Render(
             planningTemplate,
             ("{{TaskPrompt}}", effectiveTaskPrompt),
@@ -150,9 +151,10 @@ public sealed class OrchestrationAgent : AgentBase
 
         for (int attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt++)
         {
+            string? priorResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse;
             string promptForAttempt = attempt == 1
                 ? planningPrompt
-                : $"{planningPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.";
+                : $"{planningPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nValidation error: {lastValidationError ?? "Unknown validation error."}\nPrevious response:\n{priorResponsePreview}";
 
             lastResponse = await base.CopilotClient.CompleteAsync(
                 model,
@@ -208,7 +210,7 @@ public sealed class OrchestrationAgent : AgentBase
             ? string.Empty
             : $"{Environment.NewLine}ArchitectureLoopPrompt:{Environment.NewLine}{request.ArchitectureLoopPrompt}";
 
-        string remediationTemplate = PromptLoader.Load("Orchestration", "remediation.md", ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK);
+        string remediationTemplate = PromptLoader.Load(OrchestrationPromptGroupName, "remediation.md", ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK);
         string prompt = PromptLoader.Render(
             remediationTemplate,
             ("{{Iteration}}", iteration.ToString()),

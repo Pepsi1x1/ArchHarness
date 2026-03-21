@@ -109,6 +109,43 @@ public sealed class ExecutionPlanParserTests
     }
 
     /// <summary>
+    /// Invalid agent errors should list the supported execution agents without deprecated aliases.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_InvalidAgent_ListsSupportedAgentsInError()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"unknown-agent","objective":"build things"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+
+            Assert.False(result);
+            Assert.NotNull(error);
+            Assert.Contains("frontend-developer", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("backend-developer", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("coding-style", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("security", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("architecture", error, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("secure", error, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("review", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
     /// Step ordering should place CodingStyle before Security before Architecture.
     /// </summary>
     [Fact]
@@ -211,6 +248,73 @@ public sealed class ExecutionPlanParserTests
 
             Assert.True(result, $"Expected success but got error: {error}");
             Assert.NotNull(plan);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
+    /// Truncated JSON that is only missing closing brackets/braces should be repaired and parsed.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_TruncatedJsonWithMissingClosers_ParsesSuccessfully()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string raw = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Build feature"},
+                        {"id":2,"agent":"CodingStyle","objective":"Review coding style enforcement"},
+                        {"id":3,"agent":"Security","objective":"Review security enforcement"},
+                        {"id":4,"agent":"Architecture","objective":"Review architecture enforcement"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Coding style clean", "Security clean", "Architecture clean", "Build passes"]
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(raw, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.NotNull(plan);
+            Assert.Equal(2, plan.IterationStrategy.MaxIterations);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
+    /// A dangling trailing property after a valid plan should be trimmed back to the last valid JSON boundary.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_TruncatedJsonWithDanglingProperty_ParsesSuccessfully()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string raw = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Build feature"},
+                        {"id":2,"agent":"CodingStyle","objective":"Review coding style enforcement"},
+                        {"id":3,"agent":"Security","objective":"Review security enforcement"},
+                        {"id":4,"agent":"Architecture","objective":"Review architecture enforcement"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Coding style clean", "Security clean", "Architecture clean", "Build passes"],
+                    "notes":
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(raw, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.NotNull(plan);
+            Assert.True(plan.CompletionCriteria.Count >= 4);
         }
         finally
         {

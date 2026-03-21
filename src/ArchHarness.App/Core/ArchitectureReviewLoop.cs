@@ -1,4 +1,6 @@
 using ArchHarness.App.Agents;
+using ArchHarness.App.Constants;
+using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
 namespace ArchHarness.App.Core;
@@ -15,6 +17,8 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     public const string NO_PROGRESS_BLOCKED_STATUS = "blocked:no-progress-identical-findings";
     private readonly AgentsOptions _agentsOptions;
     private readonly LoopAgentDependencies _agents;
+    private readonly IRunStateStore _runStateStore;
+    private readonly IRunContextAccessor _runContextAccessor;
     private readonly RuntimeStateAccessors _stateAccessors;
 
     /// <summary>
@@ -23,10 +27,17 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
     /// <param name="agents">Grouped agent references needed for the review loop.</param>
     /// <param name="agentsOptions">Agent configuration options.</param>
     /// <param name="stateAccessors">Grouped async-local runtime state accessors.</param>
-    public ArchitectureReviewLoop(LoopAgentDependencies agents, Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions, RuntimeStateAccessors stateAccessors)
+    public ArchitectureReviewLoop(
+        LoopAgentDependencies agents,
+        Microsoft.Extensions.Options.IOptions<AgentsOptions> agentsOptions,
+        IRunStateStore runStateStore,
+        IRunContextAccessor runContextAccessor,
+        RuntimeStateAccessors stateAccessors)
     {
         this._agentsOptions = agentsOptions.Value;
         this._agents = agents;
+        this._runStateStore = runStateStore;
+        this._runContextAccessor = runContextAccessor;
         this._stateAccessors = stateAccessors;
     }
 
@@ -57,7 +68,7 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
         IReadOnlyList<string> currentFiles = request.RunRequest.ArchitectureLoopMode
             ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, request.ArchitectureLanguages)
             : request.FilesTouched;
-        int iteration = 0;
+        int iteration = request.StartingIteration;
         string previousFindingsFingerprint = BuildFindingsFingerprint(review.Findings);
         string previousSecurityFindingsFingerprint = BuildSecurityFindingsFingerprint(securityReview.Findings);
 
@@ -66,112 +77,24 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             iteration < request.IterationStrategy.MaxIterations)
         {
             iteration++;
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", $"Review iteration {iteration}"));
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ARCHITECTURE_LOOP, $"Review iteration {iteration}"));
 
-            string[] combinedRequiredActions = review.RequiredActions
-                .Concat(securityReview.RequiredActions)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            string remediationPrompt = await this._agents.Orchestration.BuildRemediationPromptAsync(
-                request.RunRequest,
-                adapter.RootPath,
-                combinedRequiredActions,
-                iteration,
-                this._agents.Orchestration.Id,
-                this._agents.Orchestration.Role,
-                cancellationToken);
+            string remediationPrompt = await this.BuildRemediationPromptAsync(request, adapter.RootPath, review, securityReview, iteration, cancellationToken);
+            LoopIterationContext iterationContext = new LoopIterationContext(request, adapter, reviewLoopAgents, currentFiles, remediationPrompt, progress);
 
             string latestDiff = await adapter.DiffAsync(cancellationToken);
-            if (reviewLoopAgents.CodingStyleEnabled)
-            {
-                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "CodingStyle", "Coding style enforcement prompt started", remediationPrompt));
-                string codingStyleDelegatedPrompt = request.RunRequest.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
-                    : remediationPrompt;
-                await this._agents.CodingStyle.EnforceAsync(
-                    new StyleEnforcementRequest(
-                        DelegatedPrompt: codingStyleDelegatedPrompt,
-                        Diff: latestDiff,
-                        WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: currentFiles,
-                        LanguageScope: request.ArchitectureLanguages,
-                        ModelOverrides: request.RunRequest.ModelOverrides),
-                    this._agents.CodingStyle.Id,
-                    this._agents.CodingStyle.Role,
-                    cancellationToken);
-            }
-
-            if (reviewLoopAgents.SecurityEnabled)
-            {
-                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Security", "Security enforcement prompt started", remediationPrompt));
-
-                latestDiff = await adapter.DiffAsync(cancellationToken);
-                string securityDelegatedPrompt = request.RunRequest.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
-                    : remediationPrompt;
-                IReadOnlyList<string> securityFiles = request.RunRequest.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, request.SecurityLanguages)
-                    : currentFiles;
-                securityReview = await this._agents.Security.ReviewAsync(
-                    new SecurityReviewRequest(
-                        DelegatedPrompt: securityDelegatedPrompt,
-                        Diff: latestDiff,
-                        WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: securityFiles,
-                        LanguageScope: request.SecurityLanguages,
-                        ModelOverrides: request.RunRequest.ModelOverrides),
-                    this._agents.Security.Id,
-                    this._agents.Security.Role,
-                    cancellationToken);
-            }
-
-            if (reviewLoopAgents.ArchitectureEnabled)
-            {
-                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", remediationPrompt));
-
-                latestDiff = await adapter.DiffAsync(cancellationToken);
-                string delegatedPrompt = request.RunRequest.ArchitectureLoopMode
-                    ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(remediationPrompt, request.RunRequest.ArchitectureLoopPrompt)
-                    : remediationPrompt;
-                review = await this._agents.Architecture.ReviewAsync(
-                    new ArchitectureReviewRequest(
-                        DelegatedPrompt: delegatedPrompt,
-                        Diff: latestDiff,
-                        WorkspaceRoot: adapter.RootPath,
-                        FilesTouched: currentFiles,
-                        LanguageScope: request.ArchitectureLanguages,
-                        ModelOverrides: request.RunRequest.ModelOverrides),
-                    this._agents.Architecture.Id,
-                    this._agents.Architecture.Role,
-                    cancellationToken);
-            }
+            await this.EnforceCodingStyleAsync(iterationContext, latestDiff, cancellationToken);
+            securityReview = await this.RunSecurityReviewAsync(iterationContext, securityReview, cancellationToken);
+            review = await this.RunArchitectureReviewAsync(iterationContext, review, cancellationToken);
+            latestDiff = await adapter.DiffAsync(cancellationToken);
 
             string currentFindingsFingerprint = BuildFindingsFingerprint(review.Findings);
             string currentSecurityFindingsFingerprint = BuildSecurityFindingsFingerprint(securityReview.Findings);
             if (string.Equals(previousFindingsFingerprint, currentFindingsFingerprint, StringComparison.Ordinal)
                 && string.Equals(previousSecurityFindingsFingerprint, currentSecurityFindingsFingerprint, StringComparison.Ordinal))
             {
-                if (reviewLoopAgents.ArchitectureEnabled)
-                {
-                    string[] blockedActions = review.RequiredActions
-                        .Concat(new[] { NO_PROGRESS_BLOCKED_STATUS })
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToArray();
-                    review = review with { RequiredActions = blockedActions };
-                }
-
-                if (reviewLoopAgents.SecurityEnabled)
-                {
-                    securityReview = securityReview with
-                    {
-                        RequiredActions = securityReview.RequiredActions
-                            .Concat(new[] { NO_PROGRESS_BLOCKED_STATUS })
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .ToArray()
-                    };
-                }
-                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "architecture-loop", "Review blocked due to identical findings across iterations."));
+                (review, securityReview) = ApplyBlockedStatus(reviewLoopAgents, review, securityReview);
+                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ARCHITECTURE_LOOP, "Review blocked due to identical findings across iterations."));
                 break;
             }
 
@@ -183,9 +106,184 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
                     .Concat(ParseTouchedFiles(latestDiff))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToArray();
+
+            await this.WriteLoopCheckpointAsync(
+                adapter.RootPath,
+                request,
+                iteration,
+                currentFiles,
+                review,
+                securityReview,
+                cancellationToken);
         }
 
         return (review, securityReview, currentFiles);
+    }
+
+    private async Task<string> BuildRemediationPromptAsync(ArchitectureLoopRequest request, string workspaceRoot, ArchitectureReview review, SecurityReview securityReview, int iteration, CancellationToken cancellationToken)
+    {
+        string[] combinedRequiredActions = review.RequiredActions
+            .Concat(securityReview.RequiredActions)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return await this._agents.Orchestration.BuildRemediationPromptAsync(
+            request.RunRequest,
+            workspaceRoot,
+            combinedRequiredActions,
+            iteration,
+            this._agents.Orchestration.Id,
+            this._agents.Orchestration.Role,
+            cancellationToken);
+    }
+
+    private async Task EnforceCodingStyleAsync(LoopIterationContext context, string latestDiff, CancellationToken cancellationToken)
+    {
+        if (!context.ReviewLoopAgents.CodingStyleEnabled)
+        {
+            return;
+        }
+
+        context.Progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "CodingStyle", "Coding style enforcement prompt started", context.RemediationPrompt));
+        string delegatedPrompt = context.Request.RunRequest.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(context.RemediationPrompt, context.Request.RunRequest.ArchitectureLoopPrompt)
+            : context.RemediationPrompt;
+        await this._agents.CodingStyle.EnforceAsync(
+            new StyleEnforcementRequest(
+                DelegatedPrompt: delegatedPrompt,
+                Diff: latestDiff,
+                WorkspaceRoot: context.Adapter.RootPath,
+                FilesTouched: context.CurrentFiles,
+                LanguageScope: context.Request.ArchitectureLanguages,
+                ModelOverrides: context.Request.RunRequest.ModelOverrides),
+            this._agents.CodingStyle.Id,
+            this._agents.CodingStyle.Role,
+            cancellationToken);
+    }
+
+    private async Task<SecurityReview> RunSecurityReviewAsync(LoopIterationContext context, SecurityReview securityReview, CancellationToken cancellationToken)
+    {
+        if (!context.ReviewLoopAgents.SecurityEnabled)
+        {
+            return securityReview;
+        }
+
+        context.Progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Security", "Security enforcement prompt started", context.RemediationPrompt));
+        string latestDiff = await context.Adapter.DiffAsync(cancellationToken);
+        string delegatedPrompt = context.Request.RunRequest.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(context.RemediationPrompt, context.Request.RunRequest.ArchitectureLoopPrompt)
+            : context.RemediationPrompt;
+        IReadOnlyList<string> securityFiles = context.Request.RunRequest.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(context.Adapter.RootPath, context.Request.SecurityLanguages)
+            : context.CurrentFiles;
+        return await this._agents.Security.ReviewAsync(
+            new SecurityReviewRequest(
+                DelegatedPrompt: delegatedPrompt,
+                Diff: latestDiff,
+                WorkspaceRoot: context.Adapter.RootPath,
+                FilesTouched: securityFiles,
+                LanguageScope: context.Request.SecurityLanguages,
+                ModelOverrides: context.Request.RunRequest.ModelOverrides),
+            this._agents.Security.Id,
+            this._agents.Security.Role,
+            cancellationToken);
+    }
+
+    private async Task<ArchitectureReview> RunArchitectureReviewAsync(LoopIterationContext context, ArchitectureReview review, CancellationToken cancellationToken)
+    {
+        if (!context.ReviewLoopAgents.ArchitectureEnabled)
+        {
+            return review;
+        }
+
+        context.Progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Architecture", "Enforcement prompt started", context.RemediationPrompt));
+        string latestDiff = await context.Adapter.DiffAsync(cancellationToken);
+        string delegatedPrompt = context.Request.RunRequest.ArchitectureLoopMode
+            ? ArchitectureLoopHelpers.BuildArchitectureLoopPrompt(context.RemediationPrompt, context.Request.RunRequest.ArchitectureLoopPrompt)
+            : context.RemediationPrompt;
+        return await this._agents.Architecture.ReviewAsync(
+            new ArchitectureReviewRequest(
+                DelegatedPrompt: delegatedPrompt,
+                Diff: latestDiff,
+                WorkspaceRoot: context.Adapter.RootPath,
+                FilesTouched: context.CurrentFiles,
+                LanguageScope: context.Request.ArchitectureLanguages,
+                ModelOverrides: context.Request.RunRequest.ModelOverrides),
+            this._agents.Architecture.Id,
+            this._agents.Architecture.Role,
+            cancellationToken);
+    }
+
+    private static (ArchitectureReview Review, SecurityReview SecurityReview) ApplyBlockedStatus(ReviewLoopAgentSelection reviewLoopAgents, ArchitectureReview review, SecurityReview securityReview)
+    {
+        if (reviewLoopAgents.ArchitectureEnabled)
+        {
+            review = review with
+            {
+                RequiredActions = review.RequiredActions
+                    .Concat(new[] { NO_PROGRESS_BLOCKED_STATUS })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+            };
+        }
+
+        if (reviewLoopAgents.SecurityEnabled)
+        {
+            securityReview = securityReview with
+            {
+                RequiredActions = securityReview.RequiredActions
+                    .Concat(new[] { NO_PROGRESS_BLOCKED_STATUS })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray()
+            };
+        }
+
+        return (review, securityReview);
+    }
+
+    private sealed record LoopIterationContext(
+        ArchitectureLoopRequest Request,
+        IWorkspaceAdapter Adapter,
+        ReviewLoopAgentSelection ReviewLoopAgents,
+        IReadOnlyList<string> CurrentFiles,
+        string RemediationPrompt,
+        IProgress<RuntimeProgressEvent>? Progress);
+
+    private Task WriteLoopCheckpointAsync(
+        string workspaceRoot,
+        ArchitectureLoopRequest request,
+        int iteration,
+        IReadOnlyList<string> filesTouched,
+        ArchitectureReview review,
+        SecurityReview securityReview,
+        CancellationToken cancellationToken)
+    {
+        RunContext? runContext = this._runContextAccessor.Current;
+        if (runContext is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        PersistedRunState? existingState = this._runStateStore.GetState(runContext.RunDirectory);
+        return this._runStateStore.WriteStateAsync(
+            runContext.RunDirectory,
+            new PersistedRunState(
+                runContext.RunId,
+                runContext.RunDirectory,
+                workspaceRoot,
+                RunStatuses.RUNNING,
+                RunPhases.ARCHITECTURE_LOOP,
+                existingState?.StartedAtUtc ?? DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                request.RunRequest,
+                existingState?.CompletedStepIds ?? Array.Empty<int>(),
+                iteration,
+                existingState?.FrontendPlan ?? string.Empty,
+                filesTouched.ToArray(),
+                review,
+                securityReview,
+                null),
+            cancellationToken);
     }
 
     private static bool HasEnabledHighArchitectureFindings(ReviewLoopAgentSelection reviewLoopAgents, ArchitectureReview review)

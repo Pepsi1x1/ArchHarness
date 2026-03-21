@@ -15,4 +15,5 @@ public sealed record WebRunEvent(
     string? Details = null,
     string? ContentFormat = null,
     string? StreamKind = null,
-    string? Title = null);
+    string? Title = null,
+    string? TaskPrompt = null);

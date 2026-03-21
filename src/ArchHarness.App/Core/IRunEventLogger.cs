@@ -23,4 +23,14 @@ public interface IRunEventLogger
     /// <param name="cancellationToken">Token to signal shutdown.</param>
     /// <returns>A task that completes when the pump stops.</returns>
     Task PumpSessionEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Continuously reads agent stream delta events and persists them to the run log
+    /// until cancellation is requested.
+    /// </summary>
+    /// <param name="runDirectory">The run artefact directory.</param>
+    /// <param name="runId">The unique run identifier.</param>
+    /// <param name="cancellationToken">Token to signal shutdown.</param>
+    /// <returns>A task that completes when the pump stops.</returns>
+    Task PumpAgentEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken);
 }

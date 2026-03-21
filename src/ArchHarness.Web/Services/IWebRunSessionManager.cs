@@ -1,4 +1,5 @@
 using ArchHarness.App.Core;
+using ArchHarness.App.Storage;
 
 namespace ArchHarness.Web.Services;
 
@@ -14,6 +15,14 @@ public interface IWebRunSessionManager
     /// <param name="cancellationToken">Token to cancel startup before the run begins.</param>
     /// <returns>The initial snapshot after the run is accepted.</returns>
     Task<WebRunSnapshot> StartRunAsync(RunRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Resumes a previously interrupted run.
+    /// </summary>
+    /// <param name="runState">The persisted checkpoint to resume.</param>
+    /// <param name="cancellationToken">Token to cancel startup before the resume begins.</param>
+    /// <returns>The initial snapshot after resume is accepted.</returns>
+    Task<WebRunSnapshot> ResumeRunAsync(PersistedRunState runState, CancellationToken cancellationToken);
 
     /// <summary>
     /// Returns the current run-session snapshot.

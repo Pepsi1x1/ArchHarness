@@ -37,9 +37,9 @@ public sealed class RunStore : IRunStore
     /// <returns>The full path to the newly created run directory.</returns>
     public string CreateRunDirectory(string workspaceRoot)
     {
-        string root = Path.Combine(workspaceRoot, ".agent-harness", "runs");
+        string root = FileSystemStorageHelper.GetRunsRootPath(workspaceRoot);
         string runId = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfff");
-        string runDir = Path.Combine(root, runId);
+        string runDir = FileSystemStorageHelper.NormalizePath(Path.Combine(root, runId));
         Directory.CreateDirectory(runDir);
         return runDir;
     }
@@ -55,7 +55,7 @@ public sealed class RunStore : IRunStore
     {
         string serialized = JsonSerializer.Serialize(payload, JsonDefaults.INDENTED);
         string redacted = Redaction.RedactSecrets(serialized);
-        string filePath = Path.Combine(runDirectory, "run-log.json");
+        string filePath = FileSystemStorageHelper.GetRunFilePath(runDirectory, "run-log.json");
         return File.WriteAllTextAsync(filePath, redacted, cancellationToken);
     }
 }

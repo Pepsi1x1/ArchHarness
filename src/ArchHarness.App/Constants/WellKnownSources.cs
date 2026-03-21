@@ -7,4 +7,7 @@ public static class WellKnownSources
 {
     /// <summary>The event source identifier for the orchestrator.</summary>
     public const string ORCHESTRATOR = "orchestrator";
+
+    /// <summary>The event source identifier for the architecture review loop.</summary>
+    public const string ARCHITECTURE_LOOP = "architecture-loop";
 }

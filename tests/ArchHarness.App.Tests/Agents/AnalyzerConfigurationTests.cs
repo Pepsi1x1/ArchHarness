@@ -9,6 +9,9 @@ namespace ArchHarness.App.Tests.Agents;
 /// </summary>
 public sealed class AnalyzerConfigurationTests
 {
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void Analyze_WhenArchitectureAnalyzersDisabled_SuppressesFindings()
     {
@@ -50,6 +53,9 @@ public sealed class AnalyzerConfigurationTests
         }
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void Analyze_WhenTodoAnalyzerEnabled_ReportsCompletenessFinding()
     {
@@ -83,6 +89,9 @@ public sealed class AnalyzerConfigurationTests
         }
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void Analyze_WhenSecurityAnalyzersDisabled_SuppressesFindings()
     {
@@ -121,6 +130,9 @@ public sealed class AnalyzerConfigurationTests
         }
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
     [Fact]
     public void Analyze_WhenOnlyHardcodedSecretsEnabled_ReportsOnlyThatFinding()
     {

@@ -49,34 +49,85 @@ public interface IAgentStreamEventStream
     IAsyncEnumerable<AgentStreamDeltaEvent> ReadAllAsync(CancellationToken cancellationToken);
 }
 
+public abstract class MulticastEventStream<TEvent>
+{
+    private const int MAX_BUFFERED_EVENTS = 256;
+
+    private readonly object _sync = new object();
+    private readonly Dictionary<Guid, Channel<TEvent>> _subscribers = new Dictionary<Guid, Channel<TEvent>>();
+
+    protected void PublishCore(TEvent evt)
+    {
+        Channel<TEvent>[] subscribers;
+        lock (this._sync)
+        {
+            subscribers = this._subscribers.Values.ToArray();
+        }
+
+        foreach (Channel<TEvent> subscriber in subscribers)
+        {
+            subscriber.Writer.TryWrite(evt);
+        }
+    }
+
+    protected async IAsyncEnumerable<TEvent> ReadAllAsyncCore([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        Guid subscriberId = Guid.NewGuid();
+        Channel<TEvent> channel = Channel.CreateBounded<TEvent>(new BoundedChannelOptions(MAX_BUFFERED_EVENTS)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
+
+        lock (this._sync)
+        {
+            this._subscribers[subscriberId] = channel;
+        }
+
+        try
+        {
+            await foreach (TEvent evt in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                yield return evt;
+            }
+        }
+        finally
+        {
+            lock (this._sync)
+            {
+                this._subscribers.Remove(subscriberId);
+            }
+
+            channel.Writer.TryComplete();
+        }
+    }
+}
+
 /// <summary>
 /// Channel-backed implementation of <see cref="ICopilotSessionEventStream"/>.
 /// </summary>
-public sealed class CopilotSessionEventStream : ICopilotSessionEventStream
+public sealed class CopilotSessionEventStream : MulticastEventStream<CopilotSessionLifecycleEvent>, ICopilotSessionEventStream
 {
-    private readonly Channel<CopilotSessionLifecycleEvent> _channel = Channel.CreateUnbounded<CopilotSessionLifecycleEvent>();
+    /// <inheritdoc />
+    void ICopilotSessionEventStream.Publish(CopilotSessionLifecycleEvent evt)
+        => this.PublishCore(evt);
 
     /// <inheritdoc />
-    public void Publish(CopilotSessionLifecycleEvent evt)
-        => this._channel.Writer.TryWrite(evt);
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<CopilotSessionLifecycleEvent> ReadAllAsync(CancellationToken cancellationToken)
-        => this._channel.Reader.ReadAllAsync(cancellationToken);
+    IAsyncEnumerable<CopilotSessionLifecycleEvent> ICopilotSessionEventStream.ReadAllAsync(CancellationToken cancellationToken)
+        => this.ReadAllAsyncCore(cancellationToken);
 }
 
 /// <summary>
 /// Channel-backed implementation of <see cref="IAgentStreamEventStream"/>.
 /// </summary>
-public sealed class AgentStreamEventStream : IAgentStreamEventStream
+public sealed class AgentStreamEventStream : MulticastEventStream<AgentStreamDeltaEvent>, IAgentStreamEventStream
 {
-    private readonly Channel<AgentStreamDeltaEvent> _channel = Channel.CreateUnbounded<AgentStreamDeltaEvent>();
+    /// <inheritdoc />
+    void IAgentStreamEventStream.Publish(AgentStreamDeltaEvent evt)
+        => this.PublishCore(evt);
 
     /// <inheritdoc />
-    public void Publish(AgentStreamDeltaEvent evt)
-        => this._channel.Writer.TryWrite(evt);
-
-    /// <inheritdoc />
-    public IAsyncEnumerable<AgentStreamDeltaEvent> ReadAllAsync(CancellationToken cancellationToken)
-        => this._channel.Reader.ReadAllAsync(cancellationToken);
+    IAsyncEnumerable<AgentStreamDeltaEvent> IAgentStreamEventStream.ReadAllAsync(CancellationToken cancellationToken)
+        => this.ReadAllAsyncCore(cancellationToken);
 }

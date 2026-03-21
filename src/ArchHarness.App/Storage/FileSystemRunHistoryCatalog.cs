@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Security;
+using System.Globalization;
 using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
@@ -10,17 +11,19 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 {
+    private const string FALLBACK_TITLE = "Run request";
+
     /// <inheritdoc />
     public IReadOnlyList<PersistedRunSummary> GetRecentRuns(string workspacePath, int maxCount = 20)
     {
-        string root = Path.Combine(Path.GetFullPath(workspacePath), ".agent-harness", "runs");
+        string root = FileSystemStorageHelper.GetRunsRootPath(workspacePath);
         return this.GetRecentRunsFromRoot(root, maxCount);
     }
 
     /// <inheritdoc />
     public IReadOnlyList<PersistedRunSummary> GetRecentRunsFromRoot(string runsRootDirectory, int maxCount = 20)
     {
-        string root = Path.GetFullPath(runsRootDirectory);
+        string root = FileSystemStorageHelper.NormalizePath(runsRootDirectory);
         if (!Directory.Exists(root))
         {
             return Array.Empty<PersistedRunSummary>();
@@ -45,14 +48,74 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     /// <inheritdoc />
     public IReadOnlyList<RunArtifactPreview> GetArtifacts(string runDirectory, int previewLength = 2400)
     {
-        if (!Directory.Exists(runDirectory))
+        string normalizedRunDirectory = FileSystemStorageHelper.NormalizePath(runDirectory);
+        if (!Directory.Exists(normalizedRunDirectory))
         {
             return Array.Empty<RunArtifactPreview>();
         }
 
-        return Directory.GetFiles(runDirectory)
+        return Directory.GetFiles(normalizedRunDirectory)
             .OrderBy(file => file)
             .Select(file => BuildArtifact(file, previewLength))
+            .ToList();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<PersistedRunEvent> GetEvents(string runDirectory)
+    {
+        string normalizedRunDirectory = FileSystemStorageHelper.NormalizePath(runDirectory);
+        if (!Directory.Exists(normalizedRunDirectory))
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+
+        string eventsPath = Path.Combine(normalizedRunDirectory, "events.jsonl");
+        if (!File.Exists(eventsPath))
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+
+        List<PersistedRunEvent> events = new List<PersistedRunEvent>();
+
+        try
+        {
+            foreach (string line in File.ReadLines(eventsPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    using JsonDocument document = JsonDocument.Parse(line);
+                    PersistedRunEvent? evt = TryBuildRunEvent(document.RootElement);
+                    if (evt is not null)
+                    {
+                        events.Add(evt);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Ignore malformed lines and continue scanning.
+                }
+            }
+        }
+        catch (IOException)
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+        catch (SecurityException)
+        {
+            return Array.Empty<PersistedRunEvent>();
+        }
+
+        return events
+            .OrderBy(evt => evt.TimestampUtc)
             .ToList();
     }
 
@@ -60,7 +123,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     {
         string name = Path.GetFileName(filePath);
         string extension = Path.GetExtension(filePath).ToLowerInvariant();
-        string rawText = TryReadText(filePath);
+        string rawText = Redaction.RedactSecrets(TryReadText(filePath));
         string kind = Classify(extension);
         string preview = FormatPreview(rawText, extension, previewLength);
         long fileSizeBytes = new FileInfo(filePath).Length;
@@ -184,7 +247,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         string? runTitle = FirstNonEmpty(runLogMetadata.RunTitle, requestMetadata.RunTitle);
         if (string.IsNullOrWhiteSpace(runTitle))
         {
-            runTitle = BuildFallbackTitle(requestMetadata.TaskPrompt);
+            runTitle = FALLBACK_TITLE;
         }
 
         return new PersistedRunSummaryMetadata(
@@ -260,7 +323,7 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
                         ReadString(root, "runTitle"),
                         ReadString(root, "projectId"),
                         ReadString(root, "projectName"),
-                        ReadString(root, "taskPrompt"));
+                        null);
                 }
                 catch (JsonException)
                 {
@@ -287,20 +350,114 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
     private static string? FirstNonEmpty(string? primary, string? fallback)
         => string.IsNullOrWhiteSpace(primary) ? fallback : primary;
 
-    private static string? BuildFallbackTitle(string? taskPrompt)
+    private static PersistedRunEvent? TryBuildRunEvent(JsonElement root)
     {
-        if (string.IsNullOrWhiteSpace(taskPrompt))
+        string? source = ReadString(root, "source");
+        if (string.IsNullOrWhiteSpace(source))
         {
             return null;
         }
 
-        string[] words = taskPrompt
-            .Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)
-            .Take(6)
-            .ToArray();
+        bool isRequest = string.Equals(source, "request", StringComparison.OrdinalIgnoreCase);
+        DateTimeOffset? timestampUtc = ReadTimestamp(root);
+        if (timestampUtc is null && isRequest)
+        {
+            timestampUtc = ReadTimestampFromRunId(root);
+        }
 
-        string candidate = string.Join(" ", words).Trim();
-        return string.IsNullOrWhiteSpace(candidate) ? null : candidate;
+        if (timestampUtc is null)
+        {
+            return null;
+        }
+
+        if (isRequest)
+        {
+            string? taskPrompt = ReadString(root, "taskPrompt");
+            if (string.IsNullOrWhiteSpace(taskPrompt))
+            {
+                return null;
+            }
+
+            return new PersistedRunEvent(
+                timestampUtc.Value,
+                "request",
+                source,
+                ReadString(root, "message") ?? "Run request received",
+                TaskPrompt: Redaction.RedactSecrets(taskPrompt));
+        }
+
+        string? kind = ReadString(root, "kind");
+        if (string.Equals(kind, "agent-delta", StringComparison.OrdinalIgnoreCase))
+        {
+            string? message = ReadString(root, "message");
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return null;
+            }
+
+            return new PersistedRunEvent(
+                timestampUtc.Value,
+                "agent-delta",
+                source,
+                message,
+                AgentId: ReadString(root, "agentId"),
+                AgentRole: ReadString(root, "agentRole"),
+                ContentFormat: ReadString(root, "contentFormat"),
+                StreamKind: ReadString(root, "streamKind"),
+                Title: ReadString(root, "title"));
+        }
+
+        if (string.Equals(source, "copilot.session", StringComparison.OrdinalIgnoreCase))
+        {
+            string eventType = ReadString(root, "eventType") ?? "copilot.session";
+            string? details = ReadString(root, "details");
+            string message = string.IsNullOrWhiteSpace(details)
+                ? eventType
+                : $"{eventType}: {details}";
+            return new PersistedRunEvent(
+                timestampUtc.Value,
+                "copilot-session",
+                source,
+                message,
+                SessionId: ReadString(root, "sessionId"),
+                Model: ReadString(root, "model"),
+                Details: eventType);
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? ReadTimestamp(JsonElement root)
+    {
+        string? rawTimestamp = ReadString(root, "timestampUtc") ?? ReadString(root, "timestamp");
+        if (DateTimeOffset.TryParse(rawTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTimeOffset timestampUtc))
+        {
+            return timestampUtc;
+        }
+
+        return null;
+    }
+
+    private static DateTimeOffset? ReadTimestampFromRunId(JsonElement root)
+    {
+        string? runId = ReadString(root, "runId");
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            return null;
+        }
+
+        string[] formats = ["yyyyMMdd'T'HHmmssfff", "yyyyMMdd'T'HHmmss"];
+        if (DateTimeOffset.TryParseExact(
+            runId,
+            formats,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+            out DateTimeOffset timestampUtc))
+        {
+            return timestampUtc;
+        }
+
+        return null;
     }
 
     private static string? ReadString(JsonElement root, string propertyName)

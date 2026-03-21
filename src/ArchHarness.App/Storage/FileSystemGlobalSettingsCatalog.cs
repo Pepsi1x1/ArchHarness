@@ -9,7 +9,6 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 {
-
     private readonly object _sync = new object();
     private readonly string _storageFilePath;
     private readonly AgentsOptions _agentsOptions;
@@ -28,7 +27,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     /// </summary>
     public FileSystemGlobalSettingsCatalog(string storageFilePath, AgentsOptions agentsOptions, CopilotOptions copilotOptions)
     {
-        this._storageFilePath = storageFilePath;
+        this._storageFilePath = FileSystemStorageHelper.NormalizePath(storageFilePath);
         this._agentsOptions = agentsOptions;
         this._copilotOptions = copilotOptions;
     }
@@ -38,7 +37,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     {
         lock (this._sync)
         {
-            return this.LoadSettings() ?? this.BuildDefaultSettings();
+            PersistedGlobalSettingsDocument? persisted = this.LoadPersistedDocument();
+            return persisted is null ? this.BuildDefaultSettings() : this.MapFromPersisted(persisted);
         }
     }
 
@@ -66,7 +66,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         }
     }
 
-    private PersistedGlobalSettings? LoadSettings()
+    private PersistedGlobalSettingsDocument? LoadPersistedDocument()
     {
         if (!File.Exists(this._storageFilePath))
         {
@@ -76,7 +76,7 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         try
         {
             string json = File.ReadAllText(this._storageFilePath);
-            return JsonSerializer.Deserialize<PersistedGlobalSettings>(json, JsonDefaults.WEB_INDENTED);
+            return JsonSerializer.Deserialize<PersistedGlobalSettingsDocument>(json, JsonDefaults.WEB_INDENTED);
         }
         catch (IOException)
         {
@@ -107,22 +107,72 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 
     private void SaveSettings(PersistedGlobalSettings settings)
     {
-        string? directory = Path.GetDirectoryName(this._storageFilePath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
-
-        string json = JsonSerializer.Serialize(settings, JsonDefaults.WEB_INDENTED);
-        File.WriteAllText(this._storageFilePath, json);
+        PersistedGlobalSettingsDocument persisted = MapToPersisted(settings);
+        FileSystemStorageHelper.WriteJsonFile(this._storageFilePath, persisted, JsonDefaults.WEB_INDENTED);
     }
+
+    private PersistedGlobalSettings MapFromPersisted(PersistedGlobalSettingsDocument persisted)
+        => new PersistedGlobalSettings(
+            NormalizeModel(persisted.ConversationModel, this._copilotOptions.ConversationModel),
+            NormalizeModel(persisted.OrchestrationModel, this._agentsOptions.Orchestration.Model),
+            NormalizeModel(persisted.FrontendDeveloperModel, this._agentsOptions.FrontendDeveloper.Model),
+            NormalizeModel(persisted.BackendDeveloperModel, this._agentsOptions.BackendDeveloper.Model),
+            NormalizeModel(persisted.BuildModel, this._agentsOptions.Build.Model),
+            NormalizeModel(persisted.CodingStyleModel, this._agentsOptions.CodingStyle.Model),
+            NormalizeModel(persisted.SecurityModel, this._agentsOptions.Security.Model),
+            NormalizeModel(persisted.ArchitectureModel, this._agentsOptions.Architecture.Model),
+            PermissionHandlerModes.Normalize(persisted.DefaultPermissionHandlerMode),
+            persisted.DefaultArchitectureReviewMode,
+            string.IsNullOrWhiteSpace(persisted.DefaultArchitectureReviewPrompt) ? null : persisted.DefaultArchitectureReviewPrompt.Trim(),
+            persisted.UpdatedAtUtc);
+
+    private static PersistedGlobalSettingsDocument MapToPersisted(PersistedGlobalSettings settings)
+        => new PersistedGlobalSettingsDocument
+        {
+            ConversationModel = settings.ConversationModel,
+            OrchestrationModel = settings.OrchestrationModel,
+            FrontendDeveloperModel = settings.FrontendDeveloperModel,
+            BackendDeveloperModel = settings.BackendDeveloperModel,
+            BuildModel = settings.BuildModel,
+            CodingStyleModel = settings.CodingStyleModel,
+            SecurityModel = settings.SecurityModel,
+            ArchitectureModel = settings.ArchitectureModel,
+            DefaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,
+            DefaultArchitectureReviewMode = settings.DefaultArchitectureReviewMode,
+            DefaultArchitectureReviewPrompt = settings.DefaultArchitectureReviewPrompt,
+            UpdatedAtUtc = settings.UpdatedAtUtc
+        };
 
     private static string GetDefaultStorageFilePath()
-    {
-        string appDataRoot = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        return Path.Combine(appDataRoot, "ArchHarness", "settings.json");
-    }
+        => FileSystemStorageHelper.GetAppDataFilePath("settings.json");
 
     private static string NormalizeModel(string? model, string fallback)
         => string.IsNullOrWhiteSpace(model) ? fallback : model.Trim();
+
+    private sealed class PersistedGlobalSettingsDocument
+    {
+        public string? ConversationModel { get; init; }
+
+        public string? OrchestrationModel { get; init; }
+
+        public string? FrontendDeveloperModel { get; init; }
+
+        public string? BackendDeveloperModel { get; init; }
+
+        public string? BuildModel { get; init; }
+
+        public string? CodingStyleModel { get; init; }
+
+        public string? SecurityModel { get; init; }
+
+        public string? ArchitectureModel { get; init; }
+
+        public string? DefaultPermissionHandlerMode { get; init; }
+
+        public bool DefaultArchitectureReviewMode { get; init; }
+
+        public string? DefaultArchitectureReviewPrompt { get; init; }
+
+        public DateTimeOffset UpdatedAtUtc { get; init; }
+    }
 }

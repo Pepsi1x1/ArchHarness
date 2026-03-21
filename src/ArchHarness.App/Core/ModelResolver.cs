@@ -5,35 +5,6 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.App.Core;
 
 /// <summary>
-/// Resolves the model identifier for a given agent role, applying overrides and validating against discovered Copilot models when available.
-/// </summary>
-public interface IModelResolver
-{
-    /// <summary>
-    /// Resolves the model for the specified role, applying any overrides.
-    /// </summary>
-    /// <param name="role">The agent role identifier.</param>
-    /// <param name="overrides">Optional model overrides keyed by role.</param>
-    /// <returns>The resolved model identifier.</returns>
-    string Resolve(string role, IDictionary<string, string>? overrides);
-
-    /// <summary>
-    /// Validates that the specified model is in the discovered Copilot model list when that list is available.
-    /// </summary>
-    /// <param name="model">The model identifier to validate.</param>
-    void ValidateOrThrow(string model);
-
-    /// <summary>Gets the collection of discovered model identifiers, if available.</summary>
-    IReadOnlyCollection<string> SupportedModels { get; }
-
-    /// <summary>
-    /// Validates the configured default models and any request overrides against the discovered Copilot model catalog when available.
-    /// </summary>
-    /// <param name="overrides">Optional per-role overrides to validate alongside configured defaults.</param>
-    void ValidateConfiguredModelsOrThrow(IDictionary<string, string>? overrides = null);
-}
-
-/// <summary>
 /// Default implementation of <see cref="IModelResolver"/> that resolves models from configuration and a discovered catalog.
 /// </summary>
 public sealed class ModelResolver : IModelResolver
@@ -62,7 +33,7 @@ public sealed class ModelResolver : IModelResolver
     }
 
     /// <inheritdoc />
-    public IReadOnlyCollection<string> SupportedModels
+    public IReadOnlyCollection<string> GetSupportedModels()
         => this._catalog.HasModels
             ? this._catalog.GetModels().Select(model => model.Id).ToArray()
             : Array.Empty<string>();
@@ -98,7 +69,7 @@ public sealed class ModelResolver : IModelResolver
     /// <inheritdoc />
     public void ValidateOrThrow(string model)
     {
-        IReadOnlyCollection<string> supported = this.SupportedModels;
+        IReadOnlyCollection<string> supported = this.GetSupportedModels();
         if (supported.Count == 0)
         {
             return;
@@ -115,7 +86,7 @@ public sealed class ModelResolver : IModelResolver
     /// <inheritdoc />
     public void ValidateConfiguredModelsOrThrow(IDictionary<string, string>? overrides = null)
     {
-        IReadOnlyCollection<string> supported = this.SupportedModels;
+        IReadOnlyCollection<string> supported = this.GetSupportedModels();
         if (supported.Count == 0)
         {
             return;

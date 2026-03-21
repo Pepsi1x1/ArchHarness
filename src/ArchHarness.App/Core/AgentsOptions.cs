@@ -179,22 +179,22 @@ public sealed record ReviewLoopAgentSelection(bool CodingStyleEnabled, bool Secu
 public sealed class AgentsOptions
 {
     /// <summary>Gets or sets the orchestration agent options.</summary>
-    public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
+    public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
 
     /// <summary>Gets or sets the frontend developer agent options.</summary>
     public AgentModelOptions FrontendDeveloper { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
 
     /// <summary>Gets or sets the backend developer agent options.</summary>
-    public AgentModelOptions BackendDeveloper { get; set; } = new AgentModelOptions() { Model = "gpt-5.3-codex" };
+    public AgentModelOptions BackendDeveloper { get; set; } = new AgentModelOptions() { Model = "gpt-5.4" };
 
     /// <summary>Gets or sets the build agent options.</summary>
     public AgentModelOptions Build { get; set; } = new AgentModelOptions() { Model = "gpt-4.1" };
 
     /// <summary>Gets or sets the coding style agent options.</summary>
-    public AgentModelOptions CodingStyle { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
+    public AgentModelOptions CodingStyle { get; set; } = new AgentModelOptions() { Model = "gpt-5.4" };
 
     /// <summary>Gets or sets the security agent options.</summary>
-    public AgentModelOptions Security { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
+    public AgentModelOptions Security { get; set; } = new AgentModelOptions() { Model = "gpt-5.4" };
 
     /// <summary>Gets or sets the architecture agent options.</summary>
     public AgentModelOptions Architecture { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
