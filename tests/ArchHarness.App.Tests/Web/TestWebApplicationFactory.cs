@@ -11,6 +11,7 @@ using ArchHarness.App.Storage;
 using ArchHarness.App.Tests.TestHelpers;
 using ArchHarness.Web.Services;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -101,6 +102,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<GitHubSourceControlService>();
             services.RemoveAll<IGitHubOAuthDeviceFlowService>();
             services.RemoveAll<SourceControlProviderFactory>();
+            services.AddSingleton<IStartupFilter, LoopbackRemoteAddressStartupFilter>();
 
             AgentsOptions agentsOptions = new AgentsOptions
             {

@@ -57,7 +57,7 @@ internal static class ProgramApplicationExtensions
         app.Use(async (context, next) =>
         {
             IPAddress? remoteAddress = context.Connection.RemoteIpAddress;
-            if (remoteAddress is not null && !IsLoopback(remoteAddress))
+            if (!IsAllowedRemoteAddress(remoteAddress))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 await Results.Problem(
@@ -72,6 +72,9 @@ internal static class ProgramApplicationExtensions
 
         return app;
     }
+
+    internal static bool IsAllowedRemoteAddress(IPAddress? address)
+        => address is not null && IsLoopback(address);
 
     private static bool IsLoopback(IPAddress address)
     {
