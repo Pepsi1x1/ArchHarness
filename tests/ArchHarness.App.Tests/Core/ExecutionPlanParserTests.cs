@@ -109,10 +109,10 @@ public sealed class ExecutionPlanParserTests
     }
 
     /// <summary>
-    /// Invalid agent errors should list the full supported set, including accepted aliases.
+    /// Invalid agent errors should list the supported execution agents without deprecated aliases.
     /// </summary>
     [Fact]
-    public void TryBuildExecutionPlan_InvalidAgent_ListsSupportedAliasesInError()
+    public void TryBuildExecutionPlan_InvalidAgent_ListsSupportedAgentsInError()
     {
         string workspaceRoot = CreateTempWorkspace();
         try
@@ -131,11 +131,13 @@ public sealed class ExecutionPlanParserTests
 
             Assert.False(result);
             Assert.NotNull(error);
-            Assert.Contains("secure", error, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("review", error, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("frontend-developer", error, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("backend-developer", error, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("coding-style", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("security", error, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("architecture", error, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("secure", error, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("review", error, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

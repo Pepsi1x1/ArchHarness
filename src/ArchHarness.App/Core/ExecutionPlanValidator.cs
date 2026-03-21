@@ -8,7 +8,7 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static class ExecutionPlanValidator
 {
-    private const string SUPPORTED_AGENT_MESSAGE = "FrontendDeveloper (or frontend-developer), BackendDeveloper (or backend-developer), Build, CodingStyle (or coding-style), Security (or secure), Architecture (or review)";
+    private const string SUPPORTED_AGENT_MESSAGE = "FrontendDeveloper (or frontend-developer), BackendDeveloper (or backend-developer), Build, CodingStyle (or coding-style), Security, Architecture";
 
     private static readonly HashSet<string> _allowedAgents = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -20,9 +20,7 @@ internal static class ExecutionPlanValidator
         "codingstyle",
         "coding-style",
         "security",
-        "secure",
-        "architecture",
-        "review"
+        "architecture"
     };
 
     /// <summary>
