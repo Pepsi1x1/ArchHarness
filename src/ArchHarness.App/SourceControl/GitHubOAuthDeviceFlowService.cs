@@ -43,6 +43,8 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
     /// <inheritdoc />
     public async Task<GitHubOAuthDeviceFlowStartResult> StartAsync(CancellationToken cancellationToken)
     {
+        this.PruneExpiredFlows(DateTimeOffset.UtcNow);
+
         string clientId = this.RequireClientId();
         using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, DeviceCodeEndpoint)
         {
@@ -59,13 +61,14 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         response.EnsureSuccessStatusCode();
 
         GitHubDeviceCodeResponse payload = await DeserializeRequiredAsync<GitHubDeviceCodeResponse>(response, cancellationToken).ConfigureAwait(false);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
         string flowId = Guid.NewGuid().ToString("N");
         PendingDeviceFlow flow = new PendingDeviceFlow(
             flowId,
             payload.DeviceCode,
-            DateTimeOffset.UtcNow.AddSeconds(payload.ExpiresIn),
+            now.AddSeconds(payload.ExpiresIn),
             Math.Max(1, payload.Interval),
-            DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, payload.Interval)));
+            now.AddSeconds(Math.Max(1, payload.Interval)));
         this._flows[flowId] = flow;
 
         return new GitHubOAuthDeviceFlowStartResult(
@@ -88,8 +91,11 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         if (now >= flow.ExpiresAtUtc)
         {
             this._flows.TryRemove(flowId, out _);
+            this.PruneExpiredFlows(now);
             return new GitHubOAuthDeviceFlowPollResult(ExpiredStatus, "The GitHub authorization code expired. Start the OAuth flow again.");
         }
+
+        this.PruneExpiredFlows(now, flowId);
 
         if (now < flow.NextPollAtUtc)
         {
@@ -193,6 +199,29 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
 
     private HttpClient CreateHttpClient()
         => this._httpClientFactory.CreateClient(HttpClientName);
+
+    private void PruneExpiredFlows(DateTimeOffset now, string? preservedFlowId = null)
+    {
+        int removedCount = 0;
+
+        foreach (KeyValuePair<string, PendingDeviceFlow> entry in this._flows)
+        {
+            if (string.Equals(entry.Key, preservedFlowId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (entry.Value.ExpiresAtUtc <= now && this._flows.TryRemove(entry.Key, out _))
+            {
+                removedCount++;
+            }
+        }
+
+        if (removedCount > 0)
+        {
+            this._logger.LogDebug("Pruned {RemovedCount} expired GitHub OAuth device flows.", removedCount);
+        }
+    }
 
     private static async Task<T> DeserializeRequiredAsync<T>(HttpResponseMessage response, CancellationToken cancellationToken)
         where T : class
