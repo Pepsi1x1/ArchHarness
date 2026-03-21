@@ -50,11 +50,11 @@ public sealed class WebRunEventHub : IWebRunEventHub
             {
                 this._bufferedEvents.RemoveAt(0);
             }
-        }
 
-        foreach (KeyValuePair<Guid, Channel<WebRunEvent>> subscriber in this._subscribers)
-        {
-            subscriber.Value.Writer.TryWrite(evt);
+            foreach (KeyValuePair<Guid, Channel<WebRunEvent>> subscriber in this._subscribers)
+            {
+                subscriber.Value.Writer.TryWrite(evt);
+            }
         }
     }
 
@@ -80,13 +80,14 @@ public sealed class WebRunEventHub : IWebRunEventHub
 
         lock (this._sync)
         {
+            this._subscribers[subscriberId] = channel;
+
             foreach (WebRunEvent evt in this._bufferedEvents)
             {
                 channel.Writer.TryWrite(evt);
             }
         }
 
-        this._subscribers[subscriberId] = channel;
         try
         {
             await foreach (WebRunEvent evt in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
