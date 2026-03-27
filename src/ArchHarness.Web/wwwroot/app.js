@@ -15,6 +15,8 @@ const state = {
   agentSpinningUp: {},
   eventSource: null,
   pendingInteraction: null,
+  pendingInteractionSignature: null,
+  pendingInteractionDraft: "",
   interactionPollHandle: null,
   pendingInteractionAbortController: null,
   pendingInteractionInFlight: false,
@@ -2539,11 +2541,41 @@ function connectEventStream() {
   };
 }
 
+function getPendingInteractionSignature(pending) {
+  if (!pending) {
+    return null;
+  }
+
+  return JSON.stringify({
+    kind: pending.kind || "",
+    question: pending.question || "",
+    choices: Array.isArray(pending.choices) ? pending.choices : [],
+    permissionKind: pending.permissionKind || "",
+    sessionId: pending.sessionId || "",
+    toolName: pending.toolName || ""
+  });
+}
+
+function setPendingInteraction(pending) {
+  const nextSignature = getPendingInteractionSignature(pending);
+  const changed = nextSignature !== state.pendingInteractionSignature;
+
+  state.pendingInteraction = pending;
+  if (changed) {
+    state.pendingInteractionSignature = nextSignature;
+    state.pendingInteractionDraft = "";
+  }
+
+  return changed;
+}
+
 function renderInlineInteraction() {
   const pending = state.pendingInteraction;
   if (!pending) {
     elements.inlineInteraction.classList.add("hidden");
     elements.inlineInteraction.replaceChildren();
+    state.pendingInteractionSignature = null;
+    state.pendingInteractionDraft = "";
     renderTopbar();
     return;
   }
@@ -2586,6 +2618,10 @@ function renderInlineInteraction() {
     const input = document.createElement("textarea");
     input.rows = 3;
     input.placeholder = "Type your response";
+    input.value = state.pendingInteractionDraft;
+    input.addEventListener("input", () => {
+      state.pendingInteractionDraft = input.value;
+    });
     const actions = document.createElement("div");
     actions.className = "button-row";
     actions.append(interactionAction("Submit", "primary", () => submitUserInput(input.value)));
@@ -2613,17 +2649,20 @@ async function pollPendingInteraction() {
   state.pendingInteractionInFlight = true;
   const controller = new AbortController();
   state.pendingInteractionAbortController = controller;
+  let shouldRenderInteraction = false;
 
   try {
-    state.pendingInteraction = await requestJson("/api/interactions/pending", { signal: controller.signal });
+    shouldRenderInteraction = setPendingInteraction(await requestJson("/api/interactions/pending", { signal: controller.signal }));
   } catch (error) {
     if (error?.name !== "AbortError") {
-      state.pendingInteraction = null;
+      shouldRenderInteraction = setPendingInteraction(null);
     }
   } finally {
     state.pendingInteractionAbortController = null;
     state.pendingInteractionInFlight = false;
-    renderInlineInteraction();
+    if (shouldRenderInteraction) {
+      renderInlineInteraction();
+    }
     schedulePendingInteractionPoll(state.pendingInteraction ? ACTIVE_INTERACTION_POLL_MS : IDLE_INTERACTION_POLL_MS);
   }
 }
@@ -2636,7 +2675,7 @@ async function submitUserInput(answer) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answer })
   });
-  state.pendingInteraction = null;
+  setPendingInteraction(null);
   renderInlineInteraction();
   await pollPendingInteraction();
 }
@@ -2649,7 +2688,7 @@ async function submitPermission(approved) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approved })
   });
-  state.pendingInteraction = null;
+  setPendingInteraction(null);
   renderInlineInteraction();
   await pollPendingInteraction();
 }
