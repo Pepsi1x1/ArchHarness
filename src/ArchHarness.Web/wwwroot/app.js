@@ -2260,6 +2260,7 @@ async function warmModelDiscovery() {
 async function loadProjects() {
   state.projects = await requestJson("/api/projects?maxRunsPerProject=24") || [];
   const knownProjectIds = new Set(state.projects.map(project => project.projectId));
+  const awaitingActiveRunId = state.activeRun?.isRunning && !state.activeRun?.runId;
   state.projectBranchInfoById = Object.fromEntries(
     Object.entries(state.projectBranchInfoById).filter(([projectId]) => knownProjectIds.has(projectId))
   );
@@ -2275,7 +2276,7 @@ async function loadProjects() {
     state.expandedProjectIds.add(state.activeProjectId);
   }
 
-  if (!state.activeRunId && state.projects.length > 0) {
+  if (!state.activeRunId && !awaitingActiveRunId && state.projects.length > 0) {
     state.activeRunId = state.projects[0].runs?.[0]?.runId || null;
   }
   if (state.activeRunId) {
@@ -2403,7 +2404,7 @@ async function submitRunRequest(request) {
   });
 
   state.activeRun = snapshot;
-  state.activeRunId = snapshot?.runId || state.activeRunId;
+  state.activeRunId = snapshot?.runId || null;
   elements.taskPrompt.value = "";
   saveShellState();
   renderActiveRun();
