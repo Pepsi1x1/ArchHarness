@@ -29,6 +29,7 @@ const state = {
   projectBranchRequestsInFlight: new Set(),
   selectedRunLoadToken: 0,
   branchMenuOpen: false,
+  selectedReviewLoopAgents: null,
   gitChangeReview: {
     projectId: null,
     currentBranch: null,
@@ -141,6 +142,16 @@ const WORKFLOWS = Object.freeze({
   AUTO: "auto",
   ARCHITECTURE_LOOP: "architecture-loop"
 });
+const REVIEW_LOOP_DEFAULT_SELECTION = Object.freeze({
+  codingStyleEnabled: true,
+  securityEnabled: true,
+  architectureEnabled: true
+});
+const REVIEW_LOOP_AGENT_OPTIONS = Object.freeze([
+  { key: "codingStyleEnabled", label: "Coding Style" },
+  { key: "securityEnabled", label: "Security" },
+  { key: "architectureEnabled", label: "Architecture" }
+]);
 const RUN_STATUSES = Object.freeze({
   IDLE: "idle",
   STARTING: "starting",
@@ -203,6 +214,10 @@ const elements = {
   architectureReviewPresetLabel: document.getElementById("architecture-review-preset-label"),
   architectureReviewPresetMenu: document.getElementById("architecture-review-preset-menu"),
   architectureReviewPreset: document.getElementById("architecture-review-preset"),
+  architectureReviewAgentsWrap: document.getElementById("architecture-review-agents-wrap"),
+  architectureReviewAgentsButton: document.getElementById("architecture-review-agents-button"),
+  architectureReviewAgentsLabel: document.getElementById("architecture-review-agents-label"),
+  architectureReviewAgentsMenu: document.getElementById("architecture-review-agents-menu"),
   startRun: document.getElementById("start-run"),
   cancelRun: document.getElementById("cancel-run"),
   modalBackdrop: document.getElementById("modal-backdrop"),
@@ -400,6 +415,7 @@ function saveShellState() {
     runMode: elements.runMode.value,
     permissionMode: elements.permissionMode.value,
     architectureReviewPreset: elements.architectureReviewPreset.value,
+    reviewLoopAgents: getSelectedReviewLoopAgents(),
     seenRunIds: [...state.seenRunIds]
   };
   globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -420,9 +436,65 @@ function restoreShellState() {
     setSelectValue(elements.runMode, saved.runMode);
     setSelectValue(elements.permissionMode, saved.permissionMode);
     setSelectValue(elements.architectureReviewPreset, saved.architectureReviewPreset);
+    state.selectedReviewLoopAgents = normalizeReviewLoopAgents(saved.reviewLoopAgents);
   } catch {
     globalThis.localStorage.removeItem(STORAGE_KEY);
   }
+}
+
+function normalizeReviewLoopAgents(selection) {
+  const normalized = {
+    codingStyleEnabled: !!selection?.codingStyleEnabled,
+    securityEnabled: !!selection?.securityEnabled,
+    architectureEnabled: !!selection?.architectureEnabled
+  };
+
+  if (!normalized.codingStyleEnabled && !normalized.securityEnabled && !normalized.architectureEnabled) {
+    return { ...REVIEW_LOOP_DEFAULT_SELECTION };
+  }
+
+  return normalized;
+}
+
+function getSelectedReviewLoopAgents() {
+  if (!state.selectedReviewLoopAgents) {
+    state.selectedReviewLoopAgents = normalizeReviewLoopAgents(state.bootstrap?.reviewLoopAgents);
+  }
+
+  return state.selectedReviewLoopAgents;
+}
+
+function summarizeReviewLoopAgents(selection) {
+  const selectedLabels = REVIEW_LOOP_AGENT_OPTIONS
+    .filter(option => selection[option.key])
+    .map(option => option.label);
+
+  if (selectedLabels.length === REVIEW_LOOP_AGENT_OPTIONS.length) {
+    return "All Review Agents";
+  }
+
+  if (selectedLabels.length === 0) {
+    return "No Review Agents";
+  }
+
+  return selectedLabels.join(", ");
+}
+
+function toggleReviewLoopAgentSelection(agentKey) {
+  const currentSelection = getSelectedReviewLoopAgents();
+  const selectedCount = REVIEW_LOOP_AGENT_OPTIONS.filter(option => currentSelection[option.key]).length;
+  const shouldEnable = !currentSelection[agentKey];
+
+  if (!shouldEnable && selectedCount <= 1) {
+    return;
+  }
+
+  state.selectedReviewLoopAgents = {
+    ...currentSelection,
+    [agentKey]: shouldEnable
+  };
+  saveShellState();
+  renderComposerState();
 }
 
 function clearLegacyAutofillPrompt() {
@@ -488,6 +560,43 @@ function getComposerDropdownConfigs() {
 
 function renderComposerDropdowns() {
   getComposerDropdownConfigs().forEach(renderComposerDropdown);
+  renderReviewLoopAgentDropdown();
+}
+
+function renderReviewLoopAgentDropdown() {
+  const selection = getSelectedReviewLoopAgents();
+  const isOpen = state.composerMenuOpen === "architecture-review-agents";
+  elements.architectureReviewAgentsLabel.textContent = summarizeReviewLoopAgents(selection);
+  elements.architectureReviewAgentsButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  elements.architectureReviewAgentsMenu.replaceChildren();
+
+  REVIEW_LOOP_AGENT_OPTIONS.forEach(option => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "composer-dropdown-item composer-dropdown-item-checkbox";
+    item.setAttribute("role", "menuitemcheckbox");
+    item.setAttribute("aria-checked", selection[option.key] ? "true" : "false");
+    item.classList.toggle("current", selection[option.key]);
+
+    const icon = document.createElement("span");
+    icon.className = "composer-dropdown-check";
+    icon.textContent = selection[option.key] ? "✓" : "";
+
+    const label = document.createElement("span");
+    label.className = "composer-dropdown-item-label";
+    label.textContent = option.label;
+
+    item.append(icon, label);
+    item.addEventListener("click", event => {
+      event.stopPropagation();
+      toggleReviewLoopAgentSelection(option.key);
+    });
+
+    elements.architectureReviewAgentsMenu.append(item);
+  });
+
+  elements.architectureReviewAgentsMenu.classList.toggle("hidden", !isOpen);
+  elements.architectureReviewAgentsWrap.classList.toggle("open", isOpen);
 }
 
 function renderComposerDropdown(config) {
@@ -1492,6 +1601,9 @@ function closeModal(options = {}) {
 
 function applyBootstrap(bootstrap) {
   state.bootstrap = bootstrap;
+  state.selectedReviewLoopAgents = normalizeReviewLoopAgents(
+    state.selectedReviewLoopAgents || bootstrap.reviewLoopAgents
+  );
   populateSelect(elements.permissionMode, bootstrap.permissionModes || []);
   populateSelect(elements.newProjectPermission, bootstrap.permissionModes || []);
   populateSelect(elements.settingsPermissionMode, bootstrap.permissionModes || []);
@@ -2370,6 +2482,7 @@ function collectRunRequest() {
   const architecturePrompt = architectureLoopMode
     ? buildArchitecturePrompt(prompt)
     : null;
+  const reviewLoopAgents = getSelectedReviewLoopAgents();
 
   return {
     taskPrompt: architectureLoopMode ? "" : prompt,
@@ -2381,11 +2494,7 @@ function collectRunRequest() {
     modelOverrides: null,
     buildCommand: null,
     permissionHandlerMode: elements.permissionMode.value || project.permissionHandlerMode,
-    reviewLoopAgents: state.bootstrap?.reviewLoopAgents || {
-      codingStyleEnabled: true,
-      securityEnabled: true,
-      architectureEnabled: true
-    },
+    reviewLoopAgents,
     architectureLoopMode,
     architectureLoopPrompt: architectureLoopMode ? (architecturePrompt || project.architectureReviewPrompt || null) : null
   };
@@ -4124,11 +4233,7 @@ async function startPullRequestReview() {
       modelOverrides: null,
       buildCommand: null,
       permissionHandlerMode: elements.permissionMode.value || project.permissionHandlerMode,
-      reviewLoopAgents: state.bootstrap?.reviewLoopAgents || {
-        codingStyleEnabled: true,
-        securityEnabled: true,
-        architectureEnabled: true
-      },
+      reviewLoopAgents: getSelectedReviewLoopAgents(),
       architectureLoopMode: true,
       architectureLoopPrompt: buildPullRequestArchitecturePrompt(project),
       runTitle: `PR #${getReviewPrId() || ""} architecture review`.trim()
@@ -4794,7 +4899,8 @@ function attachHandlers() {
       closeWorkspaceBranchMenu();
     }
 
-    const composerDropdownClicked = getComposerDropdownConfigs().some(config => config.wrap.contains(event.target));
+    const composerDropdownClicked = getComposerDropdownConfigs().some(config => config.wrap.contains(event.target))
+      || elements.architectureReviewAgentsWrap.contains(event.target);
     if (!composerDropdownClicked) {
       closeComposerDropdowns();
     }
@@ -4824,6 +4930,10 @@ function attachHandlers() {
   elements.architectureReviewPresetButton.addEventListener("click", event => {
     event.stopPropagation();
     toggleComposerDropdown("architecture-review-preset");
+  });
+  elements.architectureReviewAgentsButton.addEventListener("click", event => {
+    event.stopPropagation();
+    toggleComposerDropdown("architecture-review-agents");
   });
   elements.gitChangesStashButton.addEventListener("click", () => {
     void stashGitChangesAndContinue().catch(error => {

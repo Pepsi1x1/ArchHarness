@@ -2306,3 +2306,26 @@ html[data-desktop-platform="win32"] .field select option:hover {
   border: 1px solid rgba(251, 146, 60, 0.28);
   background: rgba(110, 62, 18, 0.92);
 }
+
+.composer-dropdown-item-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-dropdown-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.composer-dropdown-item-label {
+  min-width: 0;
+}
