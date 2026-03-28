@@ -204,6 +204,23 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             return Task.FromResult(this._snapshot);
         }
 
+        Task<WebRunSnapshot> IWebRunSessionManager.PauseRunAsync()
+        {
+            if (!this._snapshot.IsRunning || string.IsNullOrWhiteSpace(this._snapshot.RunId) || string.IsNullOrWhiteSpace(this._snapshot.RunDirectory))
+            {
+                throw new InvalidOperationException("The active run cannot be paused until startup completes.");
+            }
+
+            this._snapshot = this._snapshot with
+            {
+                IsRunning = false,
+                Status = RunStatuses.PAUSED,
+                CompletedAtUtc = DateTimeOffset.UtcNow,
+                FailureMessage = null
+            };
+            return Task.FromResult(this._snapshot);
+        }
+
         public async IAsyncEnumerable<WebRunEvent> ReadEventsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
             while (this._events.TryDequeue(out WebRunEvent? evt))

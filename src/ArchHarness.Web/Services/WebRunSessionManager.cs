@@ -14,6 +14,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
     private const string COPILOT_SESSION_EVENT_KIND = "copilot-session";
     private const string WEB_HOST_EVENT_SOURCE = "web-host";
     private const string COPILOT_EVENT_SOURCE = "copilot";
+    private const string PAUSE_REQUESTED_MESSAGE = "Pause requested by browser client.";
 
     private readonly IWebRunExecutionRunner _executionRunner;
     private readonly IWebRunEventHub _eventHub;
@@ -113,6 +114,31 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
         }
 
         this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Cancellation requested by browser client."));
+        await runCts.CancelAsync().ConfigureAwait(false);
+        return this._snapshotStore.GetSnapshot();
+    }
+
+    /// <inheritdoc />
+    public async Task<WebRunSnapshot> PauseRunAsync()
+    {
+        WebRunSnapshot snapshot = this._snapshotStore.GetSnapshot();
+        if (!snapshot.IsRunning)
+        {
+            return snapshot;
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.RunId) || string.IsNullOrWhiteSpace(snapshot.RunDirectory))
+        {
+            throw new InvalidOperationException("The active run cannot be paused until startup completes.");
+        }
+
+        CancellationTokenSource? runCts = this._snapshotStore.RequestPause();
+        if (runCts is null)
+        {
+            return this._snapshotStore.GetSnapshot();
+        }
+
+        this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, PAUSE_REQUESTED_MESSAGE));
         await runCts.CancelAsync().ConfigureAwait(false);
         return this._snapshotStore.GetSnapshot();
     }

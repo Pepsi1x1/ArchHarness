@@ -7,5 +7,6 @@ public static class RunTerminalPhases
 {
     public const string COMPLETED = "completed";
     public const string FAILED = "failed";
+    public const string PAUSED = "paused";
     public const string CANCELED = "canceled";
 }

@@ -309,6 +309,55 @@ public sealed class WebApiTests
     }
 
     /// <summary>
+    /// ActiveRunEndpoint — PauseReturnsPausedSnapshot
+    /// </summary>
+    [Fact]
+    public async Task ActiveRunEndpoint_PauseReturnsPausedSnapshot()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("project-pause-workspace");
+
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Pause Workspace",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        HttpResponseMessage runResponse = await client.PostAsJsonAsync("/api/runs", new
+        {
+            taskPrompt = "Pause the current run",
+            runTitle = "Pause current run",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            workflow = "auto",
+            projectName = "Pause Workspace",
+            projectId = "pause-project",
+            modelOverrides = (object?)null,
+            buildCommand = (string?)null,
+            permissionHandlerMode = "approve-all",
+            architectureLoopMode = false,
+            architectureLoopPrompt = (string?)null
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, runResponse.StatusCode);
+
+        HttpResponseMessage pauseResponse = await client.PostAsync("/api/runs/active/pause", null);
+        Assert.Equal(HttpStatusCode.OK, pauseResponse.StatusCode);
+
+        JsonDocument pauseDocument = JsonDocument.Parse(await pauseResponse.Content.ReadAsStringAsync());
+        Assert.Equal(RunStatuses.PAUSED, pauseDocument.RootElement.GetProperty("status").GetString());
+        Assert.False(pauseDocument.RootElement.GetProperty("isRunning").GetBoolean());
+        Assert.Equal("test-run-001", pauseDocument.RootElement.GetProperty("runId").GetString());
+    }
+
+    /// <summary>
     /// RunEndpoint — TransitionsNewProjectModeAfterFirstAcceptedRun
     /// </summary>
     [Fact]

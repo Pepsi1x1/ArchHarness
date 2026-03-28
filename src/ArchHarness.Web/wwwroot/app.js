@@ -157,6 +157,8 @@ const RUN_STATUSES = Object.freeze({
   STARTING: "starting",
   RESUMING: "resuming",
   RUNNING: "running",
+  PAUSING: "pausing",
+  PAUSED: "paused",
   CANCELING: "canceling",
   COMPLETED: "completed",
   CANCELED: "canceled",
@@ -219,6 +221,7 @@ const elements = {
   architectureReviewAgentsLabel: document.getElementById("architecture-review-agents-label"),
   architectureReviewAgentsMenu: document.getElementById("architecture-review-agents-menu"),
   startRun: document.getElementById("start-run"),
+  pauseRun: document.getElementById("pause-run"),
   cancelRun: document.getElementById("cancel-run"),
   modalBackdrop: document.getElementById("modal-backdrop"),
   newProjectModal: document.getElementById("new-project-modal"),
@@ -1677,6 +1680,8 @@ async function pickReviewPrFolder() {
 function renderActiveRun() {
   const activeRun = state.activeRun;
   if (!activeRun) {
+    elements.pauseRun.disabled = true;
+    elements.pauseRun.textContent = "Pause";
     elements.cancelRun.disabled = true;
     if (!state.isUnloading) {
       closeEventStream(STREAM_CONNECTION_STATES.IDLE);
@@ -1684,6 +1689,8 @@ function renderActiveRun() {
     renderTopbar();
     return;
   }
+  elements.pauseRun.disabled = !canPauseActiveRun(activeRun);
+  elements.pauseRun.textContent = activeRun.status === RUN_STATUSES.PAUSING ? "Pausing..." : "Pause";
   elements.cancelRun.disabled = !activeRun.isRunning;
 
   if (activeRun.runId && !state.activeRunId) {
@@ -1917,6 +1924,10 @@ function renderComposerState() {
   elements.resumeRun.disabled = !showResumeButton;
   elements.resumeRun.textContent = "Resume";
   renderComposerDropdowns();
+}
+
+function canPauseActiveRun(activeRun) {
+  return !!activeRun?.isRunning && !!activeRun.runId && !!activeRun.runDirectory;
 }
 
 function renderProjects() {
@@ -2529,6 +2540,34 @@ async function cancelRun() {
   });
   renderActiveRun();
   renderRunDetailsActions();
+}
+
+async function pauseRun() {
+  if (!canPauseActiveRun(state.activeRun)) {
+    return;
+  }
+
+  elements.pauseRun.disabled = true;
+  elements.pauseRun.textContent = "Pausing...";
+
+  try {
+    state.activeRun = await requestJson("/api/runs/active/pause", {
+      method: "POST"
+    });
+    if (state.activeRun?.runId) {
+      state.activeRunId = state.activeRun.runId;
+    }
+
+    saveShellState();
+    renderActiveRun();
+    renderRunDetailsActions();
+    await loadProjects();
+    await loadSelectedRunStream();
+  } catch (error) {
+    renderActiveRun();
+    renderRunDetailsActions();
+    throw error;
+  }
 }
 
 async function refreshActiveRun() {
@@ -4816,6 +4855,9 @@ function attachHandlers() {
   });
   elements.startRun.addEventListener("click", () => startRun().catch(error => {
     console.error("Run submission failed:", error);
+  }));
+  elements.pauseRun?.addEventListener("click", () => pauseRun().catch(error => {
+    console.error("Pause failed:", error);
   }));
   elements.cancelRun.addEventListener("click", () => cancelRun().catch(error => {
     console.error("Cancel failed:", error);

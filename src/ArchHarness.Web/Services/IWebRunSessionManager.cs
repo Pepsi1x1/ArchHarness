@@ -37,6 +37,12 @@ public interface IWebRunSessionManager
     Task<WebRunSnapshot> CancelRunAsync();
 
     /// <summary>
+    /// Requests a resumable pause of the active run.
+    /// </summary>
+    /// <returns>The updated run snapshot.</returns>
+    Task<WebRunSnapshot> PauseRunAsync();
+
+    /// <summary>
     /// Streams buffered and future run events to a subscriber.
     /// </summary>
     /// <param name="cancellationToken">Token that ends the subscription.</param>

@@ -9,6 +9,8 @@ public static class RunStatuses
     public const string STARTING = "starting";
     public const string RESUMING = "resuming";
     public const string RUNNING = "running";
+    public const string PAUSING = "pausing";
+    public const string PAUSED = "paused";
     public const string CANCELING = "canceling";
     public const string COMPLETED = "completed";
     public const string CANCELED = "canceled";

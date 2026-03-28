@@ -59,4 +59,30 @@ public sealed class WebRunSnapshotStoreTests
 
         store.ReleaseRun(runCts);
     }
+
+    [Fact]
+    public void UpdateStatus_DoesNotOverwritePausingWithRunning()
+    {
+        WebRunSnapshotStore store = new();
+        using CancellationTokenSource runCts = store.BeginRunSession(new WebRunSessionStart(
+            CancellationToken.None,
+            RunStatuses.STARTING,
+            new DateTimeOffset(2026, 3, 28, 10, 0, 0, TimeSpan.Zero),
+            "run-123",
+            @"C:\runs\run-123",
+            "Pause after the execution plan starts",
+            @"C:\workspace",
+            null));
+
+        CancellationTokenSource? returnedCts = store.RequestPause();
+        store.UpdateStatus(RunStatuses.RUNNING, null, null);
+
+        WebRunSnapshot snapshot = store.GetSnapshot();
+        Assert.Same(runCts, returnedCts);
+        Assert.True(snapshot.IsRunning);
+        Assert.Equal(RunStatuses.PAUSING, snapshot.Status);
+        Assert.True(store.IsPauseRequested());
+
+        store.ReleaseRun(runCts);
+    }
 }

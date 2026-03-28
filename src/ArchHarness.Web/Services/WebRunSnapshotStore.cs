@@ -35,6 +35,16 @@ public interface IWebRunSnapshotStore
     CancellationTokenSource? RequestCancellation();
 
     /// <summary>
+    /// Marks the active run as pausing and returns its cancellation source, if it can be resumed.
+    /// </summary>
+    CancellationTokenSource? RequestPause();
+
+    /// <summary>
+    /// Gets a value indicating whether the active cancellation request is a pause.
+    /// </summary>
+    bool IsPauseRequested();
+
+    /// <summary>
     /// Updates the run context once the orchestrator establishes the run directory.
     /// </summary>
     void SetRunContext(string runId, string runDirectory);
@@ -48,6 +58,11 @@ public interface IWebRunSnapshotStore
     /// Marks the run as completed.
     /// </summary>
     void CompleteRun(string status, RunArtefacts artefacts, string? failureMessage);
+
+    /// <summary>
+    /// Marks the run as paused.
+    /// </summary>
+    void PauseRun();
 
     /// <summary>
     /// Marks the run as failed, canceled, or stopped.
@@ -67,6 +82,7 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
 {
     private readonly object _sync = new();
     private CancellationTokenSource? _activeRunCts;
+    private bool _pauseRequested;
     private WebRunSnapshot _snapshot = new(false, RunStatuses.IDLE, null, null, null, null, null, null, null);
 
     /// <inheritdoc />
@@ -90,6 +106,7 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
 
             CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(start.ShutdownToken);
             this._activeRunCts = runCts;
+            this._pauseRequested = false;
             this._snapshot = new WebRunSnapshot(
                 true,
                 start.Status,
@@ -114,12 +131,45 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
                 return null;
             }
 
+            this._pauseRequested = false;
             this._snapshot = this._snapshot with
             {
                 Status = RunStatuses.CANCELING,
                 FailureMessage = null
             };
             return this._activeRunCts;
+        }
+    }
+
+    /// <inheritdoc />
+    public CancellationTokenSource? RequestPause()
+    {
+        lock (this._sync)
+        {
+            if (this._activeRunCts is null
+                || !this._snapshot.IsRunning
+                || string.IsNullOrWhiteSpace(this._snapshot.RunId)
+                || string.IsNullOrWhiteSpace(this._snapshot.RunDirectory))
+            {
+                return null;
+            }
+
+            this._pauseRequested = true;
+            this._snapshot = this._snapshot with
+            {
+                Status = RunStatuses.PAUSING,
+                FailureMessage = null
+            };
+            return this._activeRunCts;
+        }
+    }
+
+    /// <inheritdoc />
+    public bool IsPauseRequested()
+    {
+        lock (this._sync)
+        {
+            return this._pauseRequested;
         }
     }
 
@@ -162,6 +212,7 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
         DateTimeOffset completedAt = DateTimeOffset.UtcNow;
         lock (this._sync)
         {
+            this._pauseRequested = false;
             this._snapshot = this._snapshot with
             {
                 IsRunning = false,
@@ -175,11 +226,29 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
     }
 
     /// <inheritdoc />
+    public void PauseRun()
+    {
+        DateTimeOffset completedAt = DateTimeOffset.UtcNow;
+        lock (this._sync)
+        {
+            this._pauseRequested = false;
+            this._snapshot = this._snapshot with
+            {
+                IsRunning = false,
+                Status = RunStatuses.PAUSED,
+                CompletedAtUtc = completedAt,
+                FailureMessage = null
+            };
+        }
+    }
+
+    /// <inheritdoc />
     public void FailRun(string status, string failureMessage)
     {
         DateTimeOffset completedAt = DateTimeOffset.UtcNow;
         lock (this._sync)
         {
+            this._pauseRequested = false;
             this._snapshot = this._snapshot with
             {
                 IsRunning = false,
@@ -199,6 +268,8 @@ public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
             {
                 this._activeRunCts = null;
             }
+
+            this._pauseRequested = false;
         }
 
         runCts.Dispose();

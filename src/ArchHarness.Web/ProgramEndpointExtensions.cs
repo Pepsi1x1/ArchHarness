@@ -57,6 +57,7 @@ internal static class ProgramEndpointExtensions
         endpoints.MapGet("/api/runs/{runId}/state", ProgramHandlers.GetRunState);
         endpoints.MapPost("/api/runs", ProgramHandlers.StartRunAsync);
         endpoints.MapPost("/api/runs/{runId}/resume", ProgramHandlers.ResumeRunAsync);
+        endpoints.MapPost("/api/runs/active/pause", ProgramHandlers.PauseActiveRunAsync);
         endpoints.MapDelete("/api/runs/active", ProgramHandlers.CancelActiveRunAsync);
         endpoints.MapGet("/api/runs/active", ProgramHandlers.GetActiveRun);
         endpoints.MapGet(

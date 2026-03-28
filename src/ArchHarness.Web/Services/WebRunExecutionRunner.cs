@@ -29,21 +29,24 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
     private const string RUN_STATE_EVENT_KIND = "run-state";
     private const string RUNTIME_PROGRESS_EVENT_KIND = "runtime-progress";
     private const string RUN_CANCELED_MESSAGE = "Run canceled by browser client.";
+    private const string RUN_PAUSED_MESSAGE = "Run paused by browser client.";
     private const string RUN_STOPPED_MESSAGE = "Run stopped because the local web host is shutting down.";
     private const string WEB_HOST_EVENT_SOURCE = "web-host";
     private const string ORCHESTRATOR_EVENT_SOURCE = "orchestrator";
 
     private readonly IOrchestratorRuntime _runtime;
     private readonly IWebRunEventHub _eventHub;
+    private readonly IRunStateStore _runStateStore;
     private readonly IWebRunSnapshotStore _snapshotStore;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WebRunExecutionRunner"/> class.
     /// </summary>
-    public WebRunExecutionRunner(IOrchestratorRuntime runtime, IWebRunEventHub eventHub, IWebRunSnapshotStore snapshotStore)
+    public WebRunExecutionRunner(IOrchestratorRuntime runtime, IWebRunEventHub eventHub, IRunStateStore runStateStore, IWebRunSnapshotStore snapshotStore)
     {
         this._runtime = runtime;
         this._eventHub = eventHub;
+        this._runStateStore = runStateStore;
         this._snapshotStore = snapshotStore;
     }
 
@@ -59,6 +62,11 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !shutdownToken.IsCancellationRequested)
         {
+            if (await this.TryPauseRunAsync().ConfigureAwait(false))
+            {
+                return;
+            }
+
             this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
         }
@@ -91,6 +99,11 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
         }
         catch (OperationCanceledException) when (runCts.IsCancellationRequested && !shutdownToken.IsCancellationRequested)
         {
+            if (await this.TryPauseRunAsync().ConfigureAwait(false))
+            {
+                return;
+            }
+
             this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
         }
@@ -120,6 +133,41 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
 
     private static string? RedactProgressDetails(string? prompt)
         => prompt is null ? null : Redaction.RedactSecrets(prompt);
+
+    private async Task<bool> TryPauseRunAsync()
+    {
+        if (!this._snapshotStore.IsPauseRequested())
+        {
+            return false;
+        }
+
+        WebRunSnapshot snapshot = this._snapshotStore.GetSnapshot();
+        if (string.IsNullOrWhiteSpace(snapshot.RunDirectory))
+        {
+            return false;
+        }
+
+        PersistedRunState? existingState = this._runStateStore.GetState(snapshot.RunDirectory);
+        if (existingState is null)
+        {
+            return false;
+        }
+
+        await this._runStateStore.WriteStateAsync(
+            snapshot.RunDirectory,
+            existingState with
+            {
+                Status = RunStatuses.PAUSED,
+                Phase = RunTerminalPhases.PAUSED,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                FailureMessage = null
+            },
+            CancellationToken.None).ConfigureAwait(false);
+
+        this._snapshotStore.PauseRun();
+        this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_PAUSED_MESSAGE));
+        return true;
+    }
 
     private void OnRunContextEstablished(string runId, string runDirectory)
     {

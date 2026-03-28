@@ -28,8 +28,9 @@ public sealed class WebRunExecutionRunnerTests
             }
         };
         TestWebRunEventHub eventHub = new();
+        TestRunStateStore runStateStore = new();
         WebRunSnapshotStore snapshotStore = new();
-        WebRunExecutionRunner runner = new(runtime, eventHub, snapshotStore);
+        WebRunExecutionRunner runner = new(runtime, eventHub, runStateStore, snapshotStore);
         using CancellationTokenSource runCts = new();
 
         await runner.ExecuteRunAsync(CreateRequest(), runCts, CancellationToken.None);
@@ -39,6 +40,66 @@ public sealed class WebRunExecutionRunnerTests
         Assert.DoesNotContain("github_pat_", progressEvent.Details, StringComparison.Ordinal);
         Assert.DoesNotContain("abc123secret", progressEvent.Details, StringComparison.Ordinal);
         Assert.Contains("***REDACTED***", progressEvent.Details, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExecuteRunAsync_PauseRequestPersistsPausedRunState()
+    {
+        TaskCompletionSource<bool> runStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestOrchestratorRuntime runtime = new()
+        {
+            RunHandler = async (request, progress, onRunContextEstablished, cancellationToken) =>
+            {
+                onRunContextEstablished?.Invoke("run-123", @"C:\runs\run-123");
+                runStarted.TrySetResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new RunArtefacts("run-123", @"C:\runs\run-123");
+            }
+        };
+        TestWebRunEventHub eventHub = new();
+        TestRunStateStore runStateStore = new();
+        runStateStore.SetState(@"C:\runs\run-123", new PersistedRunState(
+            "run-123",
+            @"C:\runs\run-123",
+            @"C:\workspace",
+            RunStatuses.RUNNING,
+            RunPhases.EXECUTING_PLAN,
+            new DateTimeOffset(2026, 3, 28, 10, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 3, 28, 10, 1, 0, TimeSpan.Zero),
+            CreateRequest(),
+            Array.Empty<int>(),
+            0,
+            string.Empty,
+            Array.Empty<string>(),
+            new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+            new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())));
+        WebRunSnapshotStore snapshotStore = new();
+        using CancellationTokenSource runCts = snapshotStore.BeginRunSession(new WebRunSessionStart(
+            CancellationToken.None,
+            RunStatuses.STARTING,
+            new DateTimeOffset(2026, 3, 28, 10, 0, 0, TimeSpan.Zero),
+            null,
+            null,
+            "Review the architecture boundary changes",
+            @"C:\workspace",
+            null));
+        WebRunExecutionRunner runner = new(runtime, eventHub, runStateStore, snapshotStore);
+
+        Task execution = runner.ExecuteRunAsync(CreateRequest(), runCts, CancellationToken.None);
+        await runStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        CancellationTokenSource? pauseCts = snapshotStore.RequestPause();
+        Assert.Same(runCts, pauseCts);
+        await runCts.CancelAsync();
+        await execution;
+
+        PersistedRunState pausedState = Assert.IsType<PersistedRunState>(runStateStore.GetState(@"C:\runs\run-123"));
+        Assert.Equal(RunStatuses.PAUSED, pausedState.Status);
+        Assert.Equal(RunTerminalPhases.PAUSED, pausedState.Phase);
+
+        WebRunSnapshot snapshot = snapshotStore.GetSnapshot();
+        Assert.False(snapshot.IsRunning);
+        Assert.Equal(RunStatuses.PAUSED, snapshot.Status);
     }
 
     private static RunRequest CreateRequest()
@@ -96,5 +157,23 @@ public sealed class WebRunExecutionRunnerTests
         public void CompleteSubscribers()
         {
         }
+    }
+
+    private sealed class TestRunStateStore : IRunStateStore
+    {
+        private readonly ConcurrentDictionary<string, PersistedRunState> _states = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task WriteStateAsync(string runDirectory, PersistedRunState state, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            this._states[runDirectory] = state;
+            return Task.CompletedTask;
+        }
+
+        public PersistedRunState? GetState(string runDirectory)
+            => this._states.TryGetValue(runDirectory, out PersistedRunState? state) ? state : null;
+
+        public void SetState(string runDirectory, PersistedRunState state)
+            => this._states[runDirectory] = state;
     }
 }

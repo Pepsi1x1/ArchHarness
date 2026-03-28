@@ -1052,6 +1052,19 @@ internal static class ProgramHandlers
         return Results.Ok(snapshot);
     }
 
+    public static async Task<IResult> PauseActiveRunAsync(IWebRunSessionManager sessionManager)
+    {
+        try
+        {
+            WebRunSnapshot snapshot = await sessionManager.PauseRunAsync();
+            return Results.Ok(snapshot);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Conflict(new { error = ex.Message });
+        }
+    }
+
     public static IResult GetActiveRun(IWebRunSessionManager sessionManager)
         => Results.Ok(sessionManager.GetSnapshot());
 
