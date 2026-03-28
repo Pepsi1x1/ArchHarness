@@ -5,6 +5,7 @@ const state = {
   projects: [],
   activeProjectId: null,
   activeRunId: null,
+  mainPanelView: "stream",
   activeRun: null,
   artifacts: [],
   selectedRunState: null,
@@ -40,6 +41,17 @@ const state = {
     loading: false,
     diffLoadingPath: null,
     error: ""
+  },
+  branchChanges: {
+    projectId: null,
+    currentBranch: null,
+    files: [],
+    selectedPath: null,
+    diffByPath: {},
+    loading: false,
+    diffLoadingPath: null,
+    error: "",
+    requestToken: 0
   },
   composerMenuOpen: null,
   branchSwitchProjectId: null,
@@ -165,6 +177,10 @@ const RUN_STATUSES = Object.freeze({
   STOPPED: "stopped",
   FAILED: "failed"
 });
+const MAIN_PANEL_VIEWS = Object.freeze({
+  STREAM: "stream",
+  BRANCH_CHANGES: "branch-changes"
+});
 const STREAM_CONNECTION_STATES = Object.freeze({
   IDLE: RUN_STATUSES.IDLE,
   RECONNECTING: "reconnecting"
@@ -196,6 +212,17 @@ const elements = {
   workspaceBranchMenu: document.getElementById("workspace-branch-menu"),
   eventStreamState: null,
   streamSummary: null,
+  streamToolbar: document.getElementById("stream-toolbar"),
+  streamView: document.getElementById("stream-view"),
+  streamViewButton: document.getElementById("stream-view-button"),
+  branchChangesViewButton: document.getElementById("branch-changes-view-button"),
+  branchChangesView: document.getElementById("branch-changes-view"),
+  branchChangesTitle: document.getElementById("branch-changes-title"),
+  branchChangesSummary: document.getElementById("branch-changes-summary"),
+  branchChangesRefresh: document.getElementById("branch-changes-refresh"),
+  branchChangeList: document.getElementById("branch-change-list"),
+  branchDiffMeta: document.getElementById("branch-diff-meta"),
+  branchDiffPreview: document.getElementById("branch-diff-preview"),
   streamEmpty: document.getElementById("stream-empty"),
   streamSections: document.getElementById("stream-sections"),
   inlineInteraction: document.getElementById("inline-interaction"),
@@ -414,6 +441,7 @@ function saveShellState() {
   const payload = {
     activeProjectId: state.activeProjectId,
     activeRunId: state.activeRunId,
+    mainPanelView: state.mainPanelView,
     taskPrompt: elements.taskPrompt.value,
     runMode: elements.runMode.value,
     permissionMode: elements.permissionMode.value,
@@ -434,6 +462,9 @@ function restoreShellState() {
     const saved = JSON.parse(raw);
     state.activeProjectId = saved.activeProjectId || null;
     state.activeRunId = saved.activeRunId || null;
+    state.mainPanelView = saved.mainPanelView === MAIN_PANEL_VIEWS.BRANCH_CHANGES
+      ? MAIN_PANEL_VIEWS.BRANCH_CHANGES
+      : MAIN_PANEL_VIEWS.STREAM;
     state.seenRunIds = new Set(Array.isArray(saved.seenRunIds) ? saved.seenRunIds : []);
     elements.taskPrompt.value = saved.taskPrompt || "";
     setSelectValue(elements.runMode, saved.runMode);
@@ -681,6 +712,20 @@ function createEmptyGitChangeReviewState() {
     actionError: "",
     onCompleted: null,
     onClosed: null
+  };
+}
+
+function createEmptyBranchChangesState() {
+  return {
+    projectId: null,
+    currentBranch: null,
+    files: [],
+    selectedPath: null,
+    diffByPath: {},
+    loading: false,
+    diffLoadingPath: null,
+    error: "",
+    requestToken: 0
   };
 }
 
@@ -949,8 +994,8 @@ function createSideBySideDiffView(diffText) {
   return container;
 }
 
-function setGitDiffPreviewContent(view) {
-  elements.gitDiffPreview.replaceChildren(view);
+function setGitDiffPreviewContent(previewElement, view) {
+  previewElement.replaceChildren(view);
 }
 
 function toProjectBranchInfo(branchInfo) {
@@ -973,74 +1018,52 @@ function applyProjectBranchInfo(projectId, branchInfo) {
   state.projectBranchInfoById[projectId] = toProjectBranchInfo(branchInfo);
 }
 
-function applyWorkingTreeStatusToGitChangeReview(workingTreeStatus) {
-  if (!workingTreeStatus) {
+function applyWorkingTreeStatusToGitChangeState(gitChangeState, workingTreeStatus) {
+  if (!gitChangeState || !workingTreeStatus) {
     return;
   }
 
-  state.gitChangeReview.currentBranch = workingTreeStatus.currentBranch || state.gitChangeReview.currentBranch;
-  state.gitChangeReview.files = Array.isArray(workingTreeStatus.files) ? workingTreeStatus.files : [];
+  gitChangeState.currentBranch = workingTreeStatus.currentBranch || gitChangeState.currentBranch;
+  gitChangeState.files = Array.isArray(workingTreeStatus.files) ? workingTreeStatus.files : [];
 
-  const stillSelected = state.gitChangeReview.files.some(file => file.path === state.gitChangeReview.selectedPath);
+  const stillSelected = gitChangeState.files.some(file => file.path === gitChangeState.selectedPath);
   if (!stillSelected) {
-    state.gitChangeReview.selectedPath = state.gitChangeReview.files[0]?.path || null;
+    gitChangeState.selectedPath = gitChangeState.files[0]?.path || null;
   }
 
-  state.gitChangeReview.diffByPath = Object.fromEntries(
-    Object.entries(state.gitChangeReview.diffByPath).filter(([path]) => state.gitChangeReview.files.some(file => file.path === path))
+  gitChangeState.diffByPath = Object.fromEntries(
+    Object.entries(gitChangeState.diffByPath).filter(([path]) => gitChangeState.files.some(file => file.path === path))
   );
 }
 
-function renderGitChangeReview() {
-  const review = state.gitChangeReview;
-  const currentBranch = review.currentBranch || "Current branch";
-  const requiresBranchSwitch = isGitChangeReviewBranchSwitch(review.currentBranch, review.targetBranch);
-  let stashButtonLabel = "Stash changes";
-  if (review.stashInFlight) {
-    stashButtonLabel = "Stashing...";
-  } else if (requiresBranchSwitch) {
-    stashButtonLabel = `Stash and switch to ${review.targetBranch}`;
-  }
-
-  elements.gitChangesTitle.textContent = `Local changes on ${currentBranch}`;
-  elements.gitChangesSummary.textContent = getGitChangeReviewSummary(review.currentBranch, review.targetBranch);
-  elements.gitChangesActionStatus.textContent = review.actionError || (review.stashInFlight && requiresBranchSwitch ? "Creating stash and continuing the branch switch..." : "");
-  elements.gitChangesStashButton.textContent = stashButtonLabel;
-  elements.gitChangesCloseButton.textContent = requiresBranchSwitch ? "Close" : "Next";
-  elements.gitChangesStashButton.classList.toggle("hidden", !requiresBranchSwitch);
-  elements.gitChangesStashButton.disabled = review.loading
-    || review.stashInFlight
-    || !review.projectId
-    || !requiresBranchSwitch
-    || !Array.isArray(review.files)
-    || review.files.length === 0;
-  elements.gitChangeList.replaceChildren();
+function renderGitChangeBrowser(review, target, handlers) {
+  target.changeList.replaceChildren();
 
   if (review.loading && review.files.length === 0) {
-    elements.gitChangeList.className = "git-change-list empty-state";
-    elements.gitChangeList.textContent = "Loading changed files...";
-    elements.gitDiffMeta.textContent = "Loading Git diff...";
-    setGitDiffPreviewContent(createGitDiffMessageView("Loading changed files..."));
+    target.changeList.className = "git-change-list empty-state";
+    target.changeList.textContent = "Loading changed files...";
+    target.diffMeta.textContent = "Loading Git diff...";
+    setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView("Loading changed files..."));
     return;
   }
 
   if (review.error) {
-    elements.gitChangeList.className = "git-change-list empty-state";
-    elements.gitChangeList.textContent = review.error;
-    elements.gitDiffMeta.textContent = "Git diff unavailable";
-    setGitDiffPreviewContent(createGitDiffMessageView(review.error));
+    target.changeList.className = "git-change-list empty-state";
+    target.changeList.textContent = review.error;
+    target.diffMeta.textContent = "Git diff unavailable";
+    setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView(review.error));
     return;
   }
 
   if (!Array.isArray(review.files) || review.files.length === 0) {
-    elements.gitChangeList.className = "git-change-list empty-state";
-    elements.gitChangeList.textContent = "No local changes were found.";
-    elements.gitDiffMeta.textContent = "No diff to show";
-    setGitDiffPreviewContent(createGitDiffMessageView("No local changes were found."));
+    target.changeList.className = "git-change-list empty-state";
+    target.changeList.textContent = "No local changes were found.";
+    target.diffMeta.textContent = "No diff to show";
+    setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView("No local changes were found."));
     return;
   }
 
-  elements.gitChangeList.className = "git-change-list";
+  target.changeList.className = "git-change-list";
 
   review.files.forEach(file => {
     const button = document.createElement("button");
@@ -1091,43 +1114,76 @@ function renderGitChangeReview() {
         return;
       }
 
-      state.gitChangeReview.selectedPath = file.path;
-      renderGitChangeReview();
-      void ensureSelectedGitDiff();
+      handlers.onSelectPath(file.path);
     });
-    elements.gitChangeList.append(button);
+    target.changeList.append(button);
   });
 
   const selectedFile = review.files.find(file => file.path === review.selectedPath) || review.files[0];
   if (!selectedFile) {
-    elements.gitDiffMeta.textContent = "Select a changed file to view its diff.";
-    setGitDiffPreviewContent(createGitDiffMessageView("Select a changed file to view its diff."));
+    target.diffMeta.textContent = "Select a changed file to view its diff.";
+    setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView("Select a changed file to view its diff."));
     return;
   }
 
-  state.gitChangeReview.selectedPath = selectedFile.path;
+  review.selectedPath = selectedFile.path;
   const cachedDiff = review.diffByPath[selectedFile.path] || null;
-  elements.gitDiffMeta.textContent = `${selectedFile.path} • ${selectedFile.status || "Modified"}`;
+  target.diffMeta.textContent = `${selectedFile.path} • ${selectedFile.status || "Modified"}`;
   if (review.diffLoadingPath === selectedFile.path) {
-    setGitDiffPreviewContent(createGitDiffMessageView("Loading Git diff..."));
+    setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView("Loading Git diff..."));
     return;
   }
 
   if (cachedDiff?.error) {
-    setGitDiffPreviewContent(createGitDiffMessageView(cachedDiff.error));
+    setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView(cachedDiff.error));
     return;
   }
 
   if (cachedDiff?.diffText) {
-    setGitDiffPreviewContent(createSideBySideDiffView(cachedDiff.diffText));
+    setGitDiffPreviewContent(target.diffPreview, createSideBySideDiffView(cachedDiff.diffText));
     return;
   }
 
-  setGitDiffPreviewContent(createGitDiffMessageView("Select a changed file to view its diff."));
+  setGitDiffPreviewContent(target.diffPreview, createGitDiffMessageView("Select a changed file to view its diff."));
 }
 
-async function ensureSelectedGitDiff() {
+function renderGitChangeReview() {
   const review = state.gitChangeReview;
+  const currentBranch = review.currentBranch || "Current branch";
+  const requiresBranchSwitch = isGitChangeReviewBranchSwitch(review.currentBranch, review.targetBranch);
+  let stashButtonLabel = "Stash changes";
+  if (review.stashInFlight) {
+    stashButtonLabel = "Stashing...";
+  } else if (requiresBranchSwitch) {
+    stashButtonLabel = `Stash and switch to ${review.targetBranch}`;
+  }
+
+  elements.gitChangesTitle.textContent = `Local changes on ${currentBranch}`;
+  elements.gitChangesSummary.textContent = getGitChangeReviewSummary(review.currentBranch, review.targetBranch);
+  elements.gitChangesActionStatus.textContent = review.actionError || (review.stashInFlight && requiresBranchSwitch ? "Creating stash and continuing the branch switch..." : "");
+  elements.gitChangesStashButton.textContent = stashButtonLabel;
+  elements.gitChangesCloseButton.textContent = requiresBranchSwitch ? "Close" : "Next";
+  elements.gitChangesStashButton.classList.toggle("hidden", !requiresBranchSwitch);
+  elements.gitChangesStashButton.disabled = review.loading
+    || review.stashInFlight
+    || !review.projectId
+    || !requiresBranchSwitch
+    || !Array.isArray(review.files)
+    || review.files.length === 0;
+  renderGitChangeBrowser(review, {
+    changeList: elements.gitChangeList,
+    diffMeta: elements.gitDiffMeta,
+    diffPreview: elements.gitDiffPreview
+  }, {
+    onSelectPath(path) {
+      state.gitChangeReview.selectedPath = path;
+      renderGitChangeReview();
+      void ensureSelectedGitDiffFor(state.gitChangeReview, renderGitChangeReview);
+    }
+  });
+}
+
+async function ensureSelectedGitDiffFor(review, renderCallback) {
   if (!review.projectId || !review.selectedPath) {
     return;
   }
@@ -1136,21 +1192,163 @@ async function ensureSelectedGitDiff() {
     return;
   }
 
-  state.gitChangeReview.diffLoadingPath = review.selectedPath;
-  renderGitChangeReview();
+  const diffPath = review.selectedPath;
+  review.diffLoadingPath = diffPath;
+  renderCallback();
 
   try {
-    const response = await requestJson(`/api/projects/${encodeURIComponent(review.projectId)}/git/diff?path=${encodeURIComponent(review.selectedPath)}`);
-    state.gitChangeReview.diffByPath[review.selectedPath] = {
+    const response = await requestJson(`/api/projects/${encodeURIComponent(review.projectId)}/git/diff?path=${encodeURIComponent(diffPath)}`);
+    review.diffByPath[diffPath] = {
       diffText: response?.diffText || "No textual diff is available for the selected file."
     };
   } catch (error) {
-    state.gitChangeReview.diffByPath[review.selectedPath] = {
+    review.diffByPath[diffPath] = {
       error: error?.message || "Failed to load the selected Git diff."
     };
   } finally {
-    state.gitChangeReview.diffLoadingPath = null;
-    renderGitChangeReview();
+    if (review.diffLoadingPath === diffPath) {
+      review.diffLoadingPath = null;
+    }
+
+    renderCallback();
+  }
+}
+
+async function ensureSelectedGitDiff() {
+  await ensureSelectedGitDiffFor(state.gitChangeReview, renderGitChangeReview);
+}
+
+function renderBranchChangesPanel() {
+  const activeProject = getActiveProject();
+  const branchChanges = state.branchChanges;
+  const activeProjectId = activeProject?.projectId || null;
+  const activeProjectName = activeProject?.displayName || "Current project";
+  const isActiveProjectLoaded = !!activeProjectId && branchChanges.projectId === activeProjectId;
+
+  if (!activeProject) {
+    elements.branchChangesTitle.textContent = "Current Branch Changes";
+    elements.branchChangesSummary.textContent = "Select a project to inspect local branch changes.";
+    elements.branchChangesRefresh.disabled = true;
+    elements.branchChangeList.className = "git-change-list empty-state";
+    elements.branchChangeList.textContent = "Select a project to load changed files.";
+    elements.branchDiffMeta.textContent = "No project selected";
+    setGitDiffPreviewContent(elements.branchDiffPreview, createGitDiffMessageView("Select a project to view current branch changes."));
+    return;
+  }
+
+  elements.branchChangesTitle.textContent = branchChanges.currentBranch
+    ? `Changes on ${branchChanges.currentBranch}`
+    : `Current Branch Changes`;
+  if (branchChanges.loading) {
+    elements.branchChangesSummary.textContent = `Loading local changes for ${activeProjectName}...`;
+  } else if (!isActiveProjectLoaded) {
+    elements.branchChangesSummary.textContent = `Load local changes for ${activeProjectName}.`;
+  } else if (branchChanges.error) {
+    elements.branchChangesSummary.textContent = branchChanges.error;
+  } else if (branchChanges.files.length === 0) {
+    elements.branchChangesSummary.textContent = branchChanges.currentBranch
+      ? `${activeProjectName} is clean on ${branchChanges.currentBranch}.`
+      : `${activeProjectName} has no local branch changes.`;
+  } else {
+    const fileLabel = branchChanges.files.length === 1 ? "1 changed file" : `${branchChanges.files.length} changed files`;
+    elements.branchChangesSummary.textContent = branchChanges.currentBranch
+      ? `${fileLabel} on ${branchChanges.currentBranch} for ${activeProjectName}.`
+      : `${fileLabel} for ${activeProjectName}.`;
+  }
+
+  elements.branchChangesRefresh.disabled = branchChanges.loading;
+  renderGitChangeBrowser(branchChanges, {
+    changeList: elements.branchChangeList,
+    diffMeta: elements.branchDiffMeta,
+    diffPreview: elements.branchDiffPreview
+  }, {
+    onSelectPath(path) {
+      state.branchChanges.selectedPath = path;
+      renderBranchChangesPanel();
+      void ensureSelectedGitDiffFor(state.branchChanges, renderBranchChangesPanel);
+    }
+  });
+}
+
+function renderMainPanelView() {
+  const isStreamView = state.mainPanelView !== MAIN_PANEL_VIEWS.BRANCH_CHANGES;
+  elements.streamViewButton.classList.toggle("active", isStreamView);
+  elements.branchChangesViewButton.classList.toggle("active", !isStreamView);
+  elements.streamViewButton.setAttribute("aria-selected", isStreamView ? "true" : "false");
+  elements.branchChangesViewButton.setAttribute("aria-selected", isStreamView ? "false" : "true");
+  elements.streamView.classList.toggle("hidden", !isStreamView);
+  elements.streamView.hidden = !isStreamView;
+  elements.branchChangesView.classList.toggle("hidden", isStreamView);
+  elements.branchChangesView.hidden = isStreamView;
+
+  if (!isStreamView) {
+    renderBranchChangesPanel();
+  }
+}
+
+function setMainPanelView(view, options = {}) {
+  const nextView = view === MAIN_PANEL_VIEWS.BRANCH_CHANGES
+    ? MAIN_PANEL_VIEWS.BRANCH_CHANGES
+    : MAIN_PANEL_VIEWS.STREAM;
+  const changed = state.mainPanelView !== nextView;
+  state.mainPanelView = nextView;
+  if (changed || options.persist === true) {
+    saveShellState();
+  }
+
+  renderMainPanelView();
+
+  if (nextView === MAIN_PANEL_VIEWS.BRANCH_CHANGES && (changed || options.forceRefresh === true)) {
+    void loadBranchChangesForActiveProject({ force: true });
+  }
+}
+
+async function loadBranchChangesForActiveProject(options = {}) {
+  const activeProject = getActiveProject();
+  if (!activeProject) {
+    state.branchChanges = createEmptyBranchChangesState();
+    renderBranchChangesPanel();
+    return;
+  }
+
+  const force = options.force === true;
+  const projectChanged = state.branchChanges.projectId !== activeProject.projectId;
+  if (!force && !projectChanged && (state.branchChanges.loading || state.branchChanges.files.length > 0 || state.branchChanges.error)) {
+    renderBranchChangesPanel();
+    return;
+  }
+
+  const previousState = projectChanged ? createEmptyBranchChangesState() : state.branchChanges;
+  const nextToken = previousState.requestToken + 1;
+  state.branchChanges = {
+    ...previousState,
+    projectId: activeProject.projectId,
+    currentBranch: projectChanged ? null : previousState.currentBranch,
+    loading: true,
+    diffLoadingPath: null,
+    error: "",
+    requestToken: nextToken
+  };
+  renderBranchChangesPanel();
+
+  try {
+    const response = await requestJson(`/api/projects/${encodeURIComponent(activeProject.projectId)}/git/changes`);
+    if (state.branchChanges.projectId !== activeProject.projectId || state.branchChanges.requestToken !== nextToken) {
+      return;
+    }
+
+    applyWorkingTreeStatusToGitChangeState(state.branchChanges, response);
+    state.branchChanges.loading = false;
+    renderBranchChangesPanel();
+    await ensureSelectedGitDiffFor(state.branchChanges, renderBranchChangesPanel);
+  } catch (error) {
+    if (state.branchChanges.projectId !== activeProject.projectId || state.branchChanges.requestToken !== nextToken) {
+      return;
+    }
+
+    state.branchChanges.loading = false;
+    state.branchChanges.error = error?.message || "Failed to load local Git changes.";
+    renderBranchChangesPanel();
   }
 }
 
@@ -1202,7 +1400,7 @@ async function stashGitChangesAndContinue() {
     });
 
     applyProjectBranchInfo(review.projectId, response?.branchInfo);
-    applyWorkingTreeStatusToGitChangeReview(response?.workingTreeStatus);
+    applyWorkingTreeStatusToGitChangeState(state.gitChangeReview, response?.workingTreeStatus);
 
     const targetBranch = review.targetBranch;
     const projectId = review.projectId;
@@ -1211,7 +1409,7 @@ async function stashGitChangesAndContinue() {
     await handleWorkspaceBranchSelection(projectId, targetBranch, { onSucceeded: onCompleted });
   } catch (error) {
     applyProjectBranchInfo(review.projectId, error?.data?.branchInfo);
-    applyWorkingTreeStatusToGitChangeReview(error?.data?.workingTreeStatus);
+    applyWorkingTreeStatusToGitChangeState(state.gitChangeReview, error?.data?.workingTreeStatus);
     state.gitChangeReview.actionError = error?.message || "Failed to stash local changes.";
     renderGitChangeReview();
   } finally {
@@ -1715,6 +1913,7 @@ function renderTopbar() {
   renderWorkspaceBranch(activeProject);
   void ensureActiveProjectBranchInfo();
   renderComposerState();
+  renderMainPanelView();
 }
 
 function renderWorkspaceBranch(activeProject) {
@@ -2437,6 +2636,9 @@ async function loadProjects() {
   syncComposerFromProject(getActiveProject());
 
   renderProjects();
+  if (state.mainPanelView === MAIN_PANEL_VIEWS.BRANCH_CHANGES) {
+    void loadBranchChangesForActiveProject({ force: true });
+  }
   saveShellState();
 }
 
@@ -4882,6 +5084,17 @@ function attachHandlers() {
   elements.pauseRun?.addEventListener("click", () => pauseRun().catch(error => {
     console.error("Pause failed:", error);
   }));
+  elements.streamViewButton?.addEventListener("click", () => {
+    setMainPanelView(MAIN_PANEL_VIEWS.STREAM, { persist: true });
+  });
+  elements.branchChangesViewButton?.addEventListener("click", () => {
+    setMainPanelView(MAIN_PANEL_VIEWS.BRANCH_CHANGES, { persist: true, forceRefresh: true });
+  });
+  elements.branchChangesRefresh?.addEventListener("click", () => {
+    void loadBranchChangesForActiveProject({ force: true }).catch(error => {
+      console.error("Branch changes refresh failed:", error);
+    });
+  });
   elements.cancelRun.addEventListener("click", () => cancelRun().catch(error => {
     console.error("Cancel failed:", error);
   }));
@@ -5040,6 +5253,7 @@ async function init() {
   await loadProjects();
   await refreshActiveRun();
   await loadSelectedRunStream();
+  renderMainPanelView();
   renderInlineInteraction();
   connectEventStream();
   await pollPendingInteraction();

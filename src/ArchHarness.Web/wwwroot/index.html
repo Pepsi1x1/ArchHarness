@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/styles.css?v=49">
+  <link rel="stylesheet" href="/styles.css?v=50">
 </head>
 <body>
   <div class="page-noise"></div>
@@ -48,13 +48,37 @@
       </header>
 
       <section class="stream-panel">
-        <div class="stream-toolbar">
+        <div id="stream-toolbar" class="stream-toolbar">
+          <div class="stream-view-toggle" role="tablist" aria-label="Main panel view">
+            <button id="stream-view-button" class="stream-view-button active" type="button" role="tab" aria-selected="true" aria-controls="stream-view">Agent Stream</button>
+            <button id="branch-changes-view-button" class="stream-view-button" type="button" role="tab" aria-selected="false" aria-controls="branch-changes-view">Branch Changes</button>
+          </div>
         </div>
 
-        <div id="stream-empty" class="stream-empty empty-state">
-          Start a run from the composer to stream orchestrator, agent, and subagent output here.
+        <div id="stream-view" class="main-panel-view">
+          <div id="stream-empty" class="stream-empty empty-state">
+            Start a run from the composer to stream orchestrator, agent, and subagent output here.
+          </div>
+          <div id="stream-sections" class="stream-sections"></div>
         </div>
-        <div id="stream-sections" class="stream-sections"></div>
+
+        <div id="branch-changes-view" class="main-panel-view branch-changes-panel hidden" hidden>
+          <div class="branch-changes-header">
+            <div class="branch-changes-copy">
+              <h3 id="branch-changes-title">Current Branch Changes</h3>
+              <p id="branch-changes-summary" class="modal-note">Select a project to inspect local branch changes.</p>
+            </div>
+            <button id="branch-changes-refresh" class="ghost-button small-button" type="button">Refresh</button>
+          </div>
+
+          <div class="git-diff-layout branch-changes-layout">
+            <div id="branch-change-list" class="git-change-list empty-state">Select a project to load changed files.</div>
+            <section class="panel branch-diff-panel">
+              <div id="branch-diff-meta" class="artifact-summary">Select a changed file to view its diff.</div>
+              <div id="branch-diff-preview" class="git-diff-preview">Select a changed file to view its diff.</div>
+            </section>
+          </div>
+        </div>
       </section>
 
       <section class="composer-panel panel">
