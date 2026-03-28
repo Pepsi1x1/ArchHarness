@@ -2071,6 +2071,12 @@ function getOrCreateTextSegment(section) {
   return seg;
 }
 
+function createPromptSegment(section, content) {
+  const seg = { type: "prompt", content, html: "" };
+  section.segments.push(seg);
+  return seg;
+}
+
 function getOrCreateToolGroup(section) {
   const last = section.segments[section.segments.length - 1];
   if (last?.type === "tool-group") return last;
@@ -2111,6 +2117,10 @@ function buildSectionBodyHtml(section) {
   }
   return section.segments.map(seg => {
     if (seg.type === "tool-group") return renderToolGroupHtml(seg);
+    if (seg.type === "prompt") {
+      const content = seg.html || (seg.content ? `<pre>${escapeHtml(seg.content)}</pre>` : "");
+      return `<section class="stream-prompt-block"><div class="stream-prompt-label">Prompt</div>${content}</section>`;
+    }
     return seg.html || (seg.content ? `<pre>${escapeHtml(seg.content)}</pre>` : "");
   }).join("");
 }
@@ -2278,7 +2288,7 @@ async function renderStreamSectionMarkdown(agentId) {
   }
 
   const version = ++section.renderVersion;
-  const textSegments = section.segments.filter(s => s.type === "text" && s.content);
+  const textSegments = section.segments.filter(s => (s.type === "text" || s.type === "prompt") && s.content);
 
   const renderedSegments = await Promise.all(textSegments.map(async seg => {
     try {
@@ -2324,7 +2334,7 @@ function recordStreamEvent(entry, options = {}) {
   }
 
   const streamKind = readEventField(entry, "streamKind") || "assistant";
-  const title = streamKind === "tool-call" ? null : readEventField(entry, "title");
+  const title = streamKind === "tool-call" || streamKind === "prompt" ? null : readEventField(entry, "title");
   const section = ensureStreamSection(agentId, agentRole, title);
   if (section.segmentCount === 0) {
     hideAgentSpinningUp(agentRole);
@@ -2337,6 +2347,19 @@ function recordStreamEvent(entry, options = {}) {
     section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
     if (!deferRender) {
       renderStream();
+    }
+    return;
+  }
+
+  if (streamKind === "prompt") {
+    createPromptSegment(section, message);
+    section.segmentCount += 1;
+    section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
+    section.streamKind = streamKind;
+
+    if (!deferRender) {
+      renderStream();
+      scheduleStreamRender(agentId);
     }
     return;
   }

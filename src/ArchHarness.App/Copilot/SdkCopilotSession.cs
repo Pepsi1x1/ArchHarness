@@ -32,6 +32,19 @@ internal sealed class SdkCopilotSession(
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
         long lastEventTicks = startedAt.UtcTicks;
 
+        string agentId = string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId;
+        string agentRole = string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole;
+        if (!string.IsNullOrWhiteSpace(prompt))
+        {
+            sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
+                startedAt,
+                agentId,
+                agentRole,
+                Redaction.RedactSecrets(prompt),
+                ContentFormat: "text",
+                StreamKind: "prompt"));
+        }
+
         using IDisposable subscription = handle.Session.On(evt =>
         {
             lastEventType = evt.Type;
@@ -54,8 +67,8 @@ internal sealed class SdkCopilotSession(
                     completion.Append(delta.Data.DeltaContent);
                     sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
                         DateTimeOffset.UtcNow,
-                        string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId,
-                        string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole,
+                        agentId,
+                        agentRole,
                         delta.Data.DeltaContent,
                         ContentFormat: "text",
                         StreamKind: "assistant"));
@@ -78,8 +91,8 @@ internal sealed class SdkCopilotSession(
                         string message = $"{{\"name\":{escapedName},\"args\":{argsJson}}}";
                         sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
                             DateTimeOffset.UtcNow,
-                            string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId,
-                            string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole,
+                            agentId,
+                            agentRole,
                             message,
                             ContentFormat: "text",
                             StreamKind: "tool-call",
@@ -250,7 +263,11 @@ internal sealed class SdkCopilotSession(
         => evt.GetType().GetProperty("Type")?.GetValue(evt)?.ToString() ?? evt.GetType().Name;
     private static string? TryGetToolName(object? data)
     {
-        if (data is null) return null;
+        if (data is null)
+        {
+            return null;
+        }
+
         try
         {
             return data.GetType().GetProperty("ToolName")?.GetValue(data) as string;
@@ -263,7 +280,11 @@ internal sealed class SdkCopilotSession(
 
     private static string? TryGetToolArgs(object? data)
     {
-        if (data is null) return null;
+        if (data is null)
+        {
+            return null;
+        }
+
         try
         {
             object? args = data.GetType().GetProperty("Arguments")?.GetValue(data);

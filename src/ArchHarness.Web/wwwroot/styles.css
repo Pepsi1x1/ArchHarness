@@ -871,6 +871,36 @@ button {
   overflow: hidden;
 }
 
+.stream-prompt-block {
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  background: rgba(96, 165, 250, 0.08);
+  margin: 0.75rem 0 1rem;
+  overflow: hidden;
+}
+
+.stream-prompt-label {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(96, 165, 250, 0.18);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #c9ddff;
+}
+
+.stream-prompt-block pre,
+.stream-prompt-block p,
+.stream-prompt-block ul,
+.stream-prompt-block ol {
+  margin: 0;
+}
+
+.stream-prompt-block > :not(.stream-prompt-label) {
+  padding: 12px;
+}
+
 details.stream-tool-calls > summary {
   list-style: none;
 }
