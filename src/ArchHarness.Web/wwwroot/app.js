@@ -17,6 +17,7 @@ const state = {
   eventSource: null,
   pendingInteraction: null,
   pendingInteractionSignature: null,
+  dismissedPendingInteractionSignature: null,
   pendingInteractionDraft: "",
   interactionPollHandle: null,
   pendingInteractionAbortController: null,
@@ -2929,13 +2930,29 @@ function getPendingInteractionSignature(pending) {
   });
 }
 
+function dismissPendingInteraction() {
+  const signature = state.pendingInteractionSignature || getPendingInteractionSignature(state.pendingInteraction);
+  state.dismissedPendingInteractionSignature = signature;
+  state.pendingInteraction = null;
+  state.pendingInteractionSignature = null;
+  state.pendingInteractionDraft = "";
+}
+
 function setPendingInteraction(pending) {
   const nextSignature = getPendingInteractionSignature(pending);
-  const changed = nextSignature !== state.pendingInteractionSignature;
+
+  if (nextSignature && nextSignature === state.dismissedPendingInteractionSignature) {
+    pending = null;
+  } else if (!nextSignature || nextSignature !== state.dismissedPendingInteractionSignature) {
+    state.dismissedPendingInteractionSignature = null;
+  }
+
+  const normalizedSignature = getPendingInteractionSignature(pending);
+  const changed = normalizedSignature !== state.pendingInteractionSignature;
 
   state.pendingInteraction = pending;
   if (changed) {
-    state.pendingInteractionSignature = nextSignature;
+    state.pendingInteractionSignature = normalizedSignature;
     state.pendingInteractionDraft = "";
   }
 
@@ -3043,27 +3060,45 @@ async function pollPendingInteraction() {
 async function submitUserInput(answer) {
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
-  await requestJson("/api/interactions/user-input", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ answer })
-  });
-  setPendingInteraction(null);
+  const pendingSnapshot = state.pendingInteraction;
+  dismissPendingInteraction();
   renderInlineInteraction();
-  await pollPendingInteraction();
+
+  try {
+    await requestJson("/api/interactions/user-input", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer })
+    });
+    await pollPendingInteraction();
+  } catch (error) {
+    state.dismissedPendingInteractionSignature = null;
+    setPendingInteraction(pendingSnapshot);
+    renderInlineInteraction();
+    throw error;
+  }
 }
 
 async function submitPermission(approved) {
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
-  await requestJson("/api/interactions/permission", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ approved })
-  });
-  setPendingInteraction(null);
+  const pendingSnapshot = state.pendingInteraction;
+  dismissPendingInteraction();
   renderInlineInteraction();
-  await pollPendingInteraction();
+
+  try {
+    await requestJson("/api/interactions/permission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved })
+    });
+    await pollPendingInteraction();
+  } catch (error) {
+    state.dismissedPendingInteractionSignature = null;
+    setPendingInteraction(pendingSnapshot);
+    renderInlineInteraction();
+    throw error;
+  }
 }
 
 async function createProject(event) {
