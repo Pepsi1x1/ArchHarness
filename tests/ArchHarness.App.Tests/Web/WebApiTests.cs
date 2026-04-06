@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Globalization;
 using ArchHarness.App.Core;
+using ArchHarness.App.Constants;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 
@@ -309,6 +310,205 @@ public sealed class WebApiTests
     }
 
     /// <summary>
+    /// RunStateEndpoint — ExposesPlanningHandoffAvailability
+    /// </summary>
+    [Fact]
+    public async Task RunStateEndpoint_ExposesPlanningHandoffAvailability()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("project-api-planning-state-workspace");
+
+        JsonDocument createDocument = JsonDocument.Parse(await (await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Planning Workspace",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        })).Content.ReadAsStringAsync());
+        string projectId = createDocument.RootElement.GetProperty("projectId").GetString()!;
+
+        string runId = "20260315T130000000";
+        string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", runId);
+        Directory.CreateDirectory(runDirectory);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "ExecutionPlan.json"), """
+            {
+              "steps": [],
+              "iterationStrategy": { "maxIterations": 2, "reviewRequired": true },
+              "completionCriteria": []
+            }
+            """);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-state.json"), $$"""
+                {
+                    "runId": "{{runId}}",
+                    "runDirectory": "{{runDirectory.Replace("\\", "\\\\")}}",
+                    "workspaceRoot": "{{workspacePath.Replace("\\", "\\\\")}}",
+                    "status": "{{RunStatuses.COMPLETED}}",
+                    "phase": "{{RunPhases.HANDOFF_READY}}",
+                    "startedAtUtc": "2026-03-15T13:00:00Z",
+                    "updatedAtUtc": "2026-03-15T13:05:00Z",
+                    "request": {
+                        "taskPrompt": "Plan the onboarding experience",
+                        "workspacePath": "{{workspacePath.Replace("\\", "\\\\")}}",
+                        "workspaceMode": "existing-folder",
+                        "workflow": "{{WorkflowNames.PLANNING}}",
+                        "projectName": "Planning Workspace",
+                        "projectId": "{{projectId}}",
+                        "modelOverrides": null,
+                        "buildCommand": null,
+                        "permissionHandlerMode": "approve-all",
+                        "reviewLoopAgents": {
+                            "codingStyleEnabled": true,
+                            "securityEnabled": true,
+                            "architectureEnabled": true
+                        },
+                        "architectureLoopMode": false,
+                        "architectureLoopPrompt": null,
+                        "runTitle": "Plan onboarding experience",
+                        "planningSourceRunId": null
+                    },
+                    "completedStepIds": [1, 2],
+                    "reviewIteration": 0,
+                    "frontendPlan": "",
+                    "filesTouched": [],
+                    "review": { "findings": [], "requiredActions": [] },
+                    "securityReview": { "findings": [], "requiredActions": [] },
+                    "failureMessage": null,
+                    "spec": {
+                        "task": "Plan the onboarding experience",
+                        "desiredOutcome": "An approved implementation plan",
+                        "inScope": [],
+                        "outOfScope": [],
+                        "constraints": [],
+                        "assumptions": [],
+                        "acceptanceCriteria": ["Plan approved"],
+                        "likelyTouchpoints": [],
+                        "openQuestions": [],
+                        "decisionNotes": []
+                    },
+                    "approval": {
+                        "decision": "{{PlanApprovalDecisions.APPROVED}}",
+                        "decidedAtUtc": "2026-03-15T13:04:00Z",
+                        "planHash": "2",
+                        "reason": null
+                    },
+                    "handoffRunId": null
+                }
+                """);
+
+        JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
+
+        Assert.Equal(WorkflowNames.PLANNING, stateDocument.RootElement.GetProperty("workflow").GetString());
+        Assert.True(stateDocument.RootElement.GetProperty("canHandoff").GetBoolean());
+        Assert.False(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, stateDocument.RootElement.GetProperty("handoffRunId").ValueKind);
+    }
+
+    /// <summary>
+    /// PlanningHandoffEndpoint — StartsStandardRunAndUpdatesPlanningState
+    /// </summary>
+    [Fact]
+    public async Task PlanningHandoffEndpoint_StartsStandardRunAndUpdatesPlanningState()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("project-api-planning-handoff-workspace");
+
+        JsonDocument createDocument = JsonDocument.Parse(await (await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Planning Workspace",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        })).Content.ReadAsStringAsync());
+        string projectId = createDocument.RootElement.GetProperty("projectId").GetString()!;
+
+        string runId = "20260315T131000000";
+        string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", runId);
+        Directory.CreateDirectory(runDirectory);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "ExecutionPlan.json"), """
+            {
+              "steps": [
+                { "id": 1, "agent": "BackendDeveloper", "objective": "Implement the approved onboarding flow", "dependsOn": [], "languages": null }
+              ],
+              "iterationStrategy": { "maxIterations": 2, "reviewRequired": true },
+              "completionCriteria": ["Implementation started"]
+            }
+            """);
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-state.json"), $$"""
+                {
+                    "runId": "{{runId}}",
+                    "runDirectory": "{{runDirectory.Replace("\\", "\\\\")}}",
+                    "workspaceRoot": "{{workspacePath.Replace("\\", "\\\\")}}",
+                    "status": "{{RunStatuses.COMPLETED}}",
+                    "phase": "{{RunPhases.HANDOFF_READY}}",
+                    "startedAtUtc": "2026-03-15T13:10:00Z",
+                    "updatedAtUtc": "2026-03-15T13:15:00Z",
+                    "request": {
+                        "taskPrompt": "Plan the onboarding experience",
+                        "workspacePath": "{{workspacePath.Replace("\\", "\\\\")}}",
+                        "workspaceMode": "existing-folder",
+                        "workflow": "{{WorkflowNames.PLANNING}}",
+                        "projectName": "Planning Workspace",
+                        "projectId": "{{projectId}}",
+                        "modelOverrides": null,
+                        "buildCommand": null,
+                        "permissionHandlerMode": "approve-all",
+                        "reviewLoopAgents": {
+                            "codingStyleEnabled": true,
+                            "securityEnabled": true,
+                            "architectureEnabled": true
+                        },
+                        "architectureLoopMode": false,
+                        "architectureLoopPrompt": null,
+                        "runTitle": "Plan onboarding experience",
+                        "planningSourceRunId": null
+                    },
+                    "completedStepIds": [1],
+                    "reviewIteration": 0,
+                    "frontendPlan": "",
+                    "filesTouched": [],
+                    "review": { "findings": [], "requiredActions": [] },
+                    "securityReview": { "findings": [], "requiredActions": [] },
+                    "failureMessage": null,
+                    "spec": {
+                        "task": "Plan the onboarding experience",
+                        "desiredOutcome": "An approved implementation plan",
+                        "inScope": [],
+                        "outOfScope": [],
+                        "constraints": [],
+                        "assumptions": [],
+                        "acceptanceCriteria": ["Plan approved"],
+                        "likelyTouchpoints": [],
+                        "openQuestions": [],
+                        "decisionNotes": []
+                    },
+                    "approval": {
+                        "decision": "{{PlanApprovalDecisions.APPROVED}}",
+                        "decidedAtUtc": "2026-03-15T13:14:00Z",
+                        "planHash": "1",
+                        "reason": null
+                    },
+                    "handoffRunId": null
+                }
+                """);
+
+        HttpResponseMessage handoffResponse = await client.PostAsync($"/api/runs/{runId}/handoff?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
+
+        Assert.Equal(HttpStatusCode.Accepted, handoffResponse.StatusCode);
+        JsonDocument handoffDocument = JsonDocument.Parse(await handoffResponse.Content.ReadAsStringAsync());
+        Assert.Equal("test-run-001", handoffDocument.RootElement.GetProperty("runId").GetString());
+        Assert.Equal(RunStatuses.STARTING, handoffDocument.RootElement.GetProperty("status").GetString());
+
+        JsonDocument updatedState = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(runDirectory, "run-state.json")));
+        Assert.Equal("test-run-001", updatedState.RootElement.GetProperty("handoffRunId").GetString());
+    }
+
+    /// <summary>
     /// ActiveRunEndpoint — PauseReturnsPausedSnapshot
     /// </summary>
     [Fact]
@@ -418,6 +618,8 @@ public sealed class WebApiTests
 
         JsonDocument settingsDocument = JsonDocument.Parse(await client.GetStringAsync("/api/settings"));
         Assert.Equal("gpt-5-mini", settingsDocument.RootElement.GetProperty("agentModels").GetProperty("conversation").GetString());
+        Assert.Equal("gpt-5.4", settingsDocument.RootElement.GetProperty("agentModels").GetProperty("planning").GetString());
+        Assert.Equal("xhigh", settingsDocument.RootElement.GetProperty("agentReasoningEfforts").GetProperty("planning").GetString());
         Assert.False(settingsDocument.RootElement.TryGetProperty("sourceControl", out _));
 
         HttpResponseMessage updateResponse = await client.PutAsJsonAsync("/api/settings", new
@@ -426,12 +628,17 @@ public sealed class WebApiTests
             {
                 conversation = "gpt-5.4",
                 orchestration = "claude-sonnet-4.6",
+                planning = "gpt-5.4",
                 frontendDeveloper = "claude-sonnet-4.6",
                 backendDeveloper = "gpt-5.3-codex",
                 build = "gpt-4.1",
                 codingStyle = "claude-opus-4.6",
                 security = "claude-opus-4.6",
                 architecture = "claude-opus-4.6"
+            },
+            agentReasoningEfforts = new
+            {
+                planning = "high"
             },
             defaults = new
             {
@@ -445,6 +652,8 @@ public sealed class WebApiTests
 
         JsonDocument updatedSettings = JsonDocument.Parse(await updateResponse.Content.ReadAsStringAsync());
         Assert.Equal("gpt-5.4", updatedSettings.RootElement.GetProperty("agentModels").GetProperty("conversation").GetString());
+        Assert.Equal("gpt-5.4", updatedSettings.RootElement.GetProperty("agentModels").GetProperty("planning").GetString());
+        Assert.Equal("high", updatedSettings.RootElement.GetProperty("agentReasoningEfforts").GetProperty("planning").GetString());
         Assert.Equal("prompt", updatedSettings.RootElement.GetProperty("defaults").GetProperty("permissionHandlerMode").GetString());
         Assert.False(updatedSettings.RootElement.TryGetProperty("sourceControl", out _));
 
@@ -452,6 +661,10 @@ public sealed class WebApiTests
         Assert.Contains(modelsDocument.RootElement.GetProperty("models").EnumerateArray(),
             model => model.GetProperty("modelId").GetString() == "claude-opus-4.6"
                 && model.GetProperty("costBand").GetString() == "3x");
+        Assert.Contains(modelsDocument.RootElement.GetProperty("models").EnumerateArray(),
+            model => model.GetProperty("modelId").GetString() == "gpt-5.4"
+                && model.GetProperty("defaultReasoningEffort").GetString() == "medium"
+                && model.GetProperty("supportedReasoningEfforts").EnumerateArray().Select(value => value.GetString()).SequenceEqual(new[] { "low", "medium", "high", "xhigh" }));
     }
 
     /// <summary>

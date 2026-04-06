@@ -1255,9 +1255,74 @@ html[data-desktop-platform="win32"] .field select option:hover {
   margin: 0;
 }
 
-.inline-interaction {
-  gap: 10px;
+.inline-interaction.plan-approval {
+  padding: 0;
+  gap: 0;
   background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  max-height: min(70vh, 600px);
+  overflow: hidden;
+}
+
+.inline-interaction-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+
+.inline-interaction-question-list {
+  display: grid;
+  gap: 10px;
+}
+
+.inline-interaction-field {
+  display: grid;
+  gap: 8px;
+}
+
+.inline-interaction-field > span {
+  color: var(--muted-strong);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.inline-interaction-field-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.inline-interaction-field textarea {
+  width: 100%;
+}
+
+.inline-interaction-revision {
+  padding-top: 2px;
+}
+
+.inline-interaction.plan-approval > .inline-interaction-copy {
+  padding: 12px 12px 0;
+  flex-shrink: 0;
+}
+
+.plan-approval-actions {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.inline-interaction-plan pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted-strong);
 }
 
 .inline-interaction.hidden,
@@ -1268,6 +1333,11 @@ html[data-desktop-platform="win32"] .field select option:hover {
 .interaction-action.primary {
   background: rgba(20, 71, 46, 0.9);
   color: #f3fff8;
+}
+
+.interaction-action.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
 }
 
 .interaction-action.danger {

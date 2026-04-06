@@ -88,4 +88,12 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <returns>A task representing the async operation.</returns>
     public Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken)
         => this._runStore.WriteRunLogAsync(runDirectory, payload, cancellationToken);
+
+    /// <inheritdoc />
+    public Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken)
+        => this._artefactStore.WriteClarificationSpecAsync(runDirectory, spec, cancellationToken);
+
+    /// <inheritdoc />
+    public Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken)
+        => this._artefactStore.WritePlanApprovalAsync(runDirectory, approval, cancellationToken);
 }

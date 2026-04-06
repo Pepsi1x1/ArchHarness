@@ -22,4 +22,8 @@ public sealed class WebCopilotUserInputBridge : ICopilotUserInputBridge
     /// <inheritdoc />
     public Task<UserInputResponse> RequestInputAsync(UserInputRequest request)
         => this._coordinator.RequestUserInputAsync(request);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<UserInputResponse>> RequestInputsAsync(IReadOnlyList<UserInputRequest> requests)
+        => this._coordinator.RequestUserInputsAsync(requests);
 }

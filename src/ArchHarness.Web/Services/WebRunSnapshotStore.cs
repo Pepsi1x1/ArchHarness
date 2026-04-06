@@ -80,7 +80,7 @@ public interface IWebRunSnapshotStore
 /// </summary>
 public sealed class WebRunSnapshotStore : IWebRunSnapshotStore
 {
-    private readonly object _sync = new();
+    private readonly object _sync = new object();
     private CancellationTokenSource? _activeRunCts;
     private bool _pauseRequested;
     private WebRunSnapshot _snapshot = new(false, RunStatuses.IDLE, null, null, null, null, null, null, null);

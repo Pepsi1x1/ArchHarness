@@ -8,6 +8,9 @@ public sealed class AgentModelOptions
     /// <summary>Gets or sets the model identifier for this agent role.</summary>
     public string Model { get; set; } = string.Empty;
 
+    /// <summary>Gets or sets the optional reasoning effort for this agent role.</summary>
+    public string? ReasoningEffort { get; set; }
+
     /// <summary>Gets or sets the tool policy options for this agent role.</summary>
     public AgentToolOptions Tools { get; set; } = new AgentToolOptions();
 
@@ -181,6 +184,9 @@ public sealed class AgentsOptions
     /// <summary>Gets or sets the orchestration agent options.</summary>
     public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
 
+    /// <summary>Gets or sets the planning agent options.</summary>
+    public AgentModelOptions Planning { get; set; } = new AgentModelOptions() { Model = "gpt-5.4", ReasoningEffort = "xhigh" };
+
     /// <summary>Gets or sets the frontend developer agent options.</summary>
     public AgentModelOptions FrontendDeveloper { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
 
@@ -209,6 +215,7 @@ public sealed class AgentsOptions
         string normalizedRole = role.ToLowerInvariant();
         return normalizedRole switch
         {
+            "planning" => this.Planning,
             "frontend-developer" => this.FrontendDeveloper,
             "backend-developer" => this.BackendDeveloper,
             "build" => this.Build,

@@ -39,8 +39,9 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
             request = request with { BuildCommand = initialBuildSelection.Command };
         }
 
+        OrchestratedRunContext runContext = new OrchestratedRunContext(adapter, request, null, initialBuildSelection);
         return await this._runProcessor.ExecuteAsync(
-            new OrchestratedRunContext(adapter, request, null, initialBuildSelection),
+            runContext,
             progress,
             onRunContextEstablished,
             cancellationToken).ConfigureAwait(false);
@@ -59,8 +60,9 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
         IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create(resumeWorkspaceMode, runState.WorkspaceRoot);
         await adapter.InitializeAsync(null, resumeWorkspaceMode == "existing-git", cancellationToken).ConfigureAwait(false);
 
+        OrchestratedRunContext resumeContext = new OrchestratedRunContext(adapter, runState.Request, runState, null);
         return await this._runProcessor.ExecuteAsync(
-            new OrchestratedRunContext(adapter, runState.Request, runState, null),
+            resumeContext,
             progress,
             onRunContextEstablished,
             cancellationToken).ConfigureAwait(false);

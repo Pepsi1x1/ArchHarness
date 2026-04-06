@@ -15,6 +15,8 @@ public interface IRunCompletionValidator
         ArchitectureReview review,
         SecurityReview securityReview,
         IDictionary<string, string>? modelOverrides,
+        ClarificationSpec? spec,
+        BuildOutcome? buildOutcome,
         CancellationToken cancellationToken);
 }
 
@@ -39,9 +41,11 @@ public sealed class RunCompletionValidator : IRunCompletionValidator
         ArchitectureReview review,
         SecurityReview securityReview,
         IDictionary<string, string>? modelOverrides,
+        ClarificationSpec? spec,
+        BuildOutcome? buildOutcome,
         CancellationToken cancellationToken)
         => this._orchestrationAgent.ValidateCompletionAsync(
-            new CompletionValidationRequest(plan, review, securityReview, modelOverrides),
+            new CompletionValidationRequest(plan, review, securityReview, modelOverrides, spec, buildOutcome),
             this._orchestrationAgent.Id,
             this._orchestrationAgent.Role,
             cancellationToken);

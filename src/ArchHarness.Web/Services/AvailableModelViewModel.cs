@@ -8,4 +8,6 @@ public sealed record AvailableModelViewModel(
     string DisplayName,
     string CostBand,
     bool Discovered,
-    bool ConfiguredFallback);
+    bool ConfiguredFallback,
+    IReadOnlyList<string>? SupportedReasoningEfforts,
+    string? DefaultReasoningEffort);

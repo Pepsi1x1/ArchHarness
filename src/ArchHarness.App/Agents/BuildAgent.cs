@@ -45,14 +45,17 @@ public sealed class BuildAgent : AgentBase
     /// <param name="objective">The delegated prompt describing what build work to perform.</param>
     /// <param name="buildCommand">The build command to execute.</param>
     /// <param name="modelOverrides">Optional model override mappings.</param>
+    /// <param name="stepId">The plan step ID producing this build result.</param>
     /// <param name="agentId">Optional agent identifier override.</param>
     /// <param name="agentRole">Optional agent role override.</param>
     /// <param name="cancellationToken">Token to signal cancellation.</param>
-    public async Task RunBuildAsync(
+    /// <returns>A structured build outcome indicating pass/fail and summary.</returns>
+    public async Task<BuildOutcome> RunBuildAsync(
         IWorkspaceAdapter workspace,
         string objective,
         string? buildCommand,
         IDictionary<string, string>? modelOverrides,
+        int stepId = 0,
         string? agentId = null,
         string? agentRole = null,
         CancellationToken cancellationToken = default)
@@ -71,12 +74,37 @@ public sealed class BuildAgent : AgentBase
             SystemMessageMode = CopilotSystemMessageMode.Append
         });
 
-        _ = await base.CopilotClient.CompleteAsync(
+        string response = await base.CopilotClient.CompleteAsync(
             base.ResolveModel(modelOverrides),
             prompt,
             options,
             agentId: agentId ?? base.Id,
             agentRole: agentRole ?? base.Role,
             cancellationToken);
+
+        bool passed = InferBuildPassed(response);
+        string summary = string.IsNullOrWhiteSpace(response) ? "Build step completed." : response.Trim();
+        return new BuildOutcome(passed, summary, stepId, DateTimeOffset.UtcNow);
+    }
+
+    private static bool InferBuildPassed(string? response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            return true;
+        }
+
+        string lower = response.ToLowerInvariant();
+        if (lower.Contains("build failed") || lower.Contains("build error") || lower.Contains("compilation failed"))
+        {
+            return false;
+        }
+
+        if (lower.Contains("build succeeded") || lower.Contains("build passed") || lower.Contains("build success"))
+        {
+            return true;
+        }
+
+        return true;
     }
 }

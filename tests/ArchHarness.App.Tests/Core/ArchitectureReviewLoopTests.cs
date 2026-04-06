@@ -138,6 +138,9 @@ public sealed class ArchitectureReviewLoopTests
         public IReadOnlyCollection<string> GetSupportedModels()
             => Array.Empty<string>();
 
+        public string? ResolveReasoningEffort(string role)
+            => null;
+
         public string Resolve(string role, IDictionary<string, string>? overrides)
             => "gpt-5.4";
 

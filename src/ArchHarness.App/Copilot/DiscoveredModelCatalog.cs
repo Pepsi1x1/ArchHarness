@@ -8,7 +8,14 @@ namespace ArchHarness.App.Copilot;
 /// <param name="Id">The stable model identifier.</param>
 /// <param name="DisplayName">The model display name reported by the SDK, when available.</param>
 /// <param name="BillingMultiplier">The billing multiplier reported by the SDK, when available.</param>
-public sealed record DiscoveredModel(string Id, double? BillingMultiplier, string? DisplayName = null);
+/// <param name="SupportedReasoningEfforts">The reasoning effort levels supported by the model, when available.</param>
+/// <param name="DefaultReasoningEffort">The model's default reasoning effort, when available.</param>
+public sealed record DiscoveredModel(
+    string Id,
+    double? BillingMultiplier,
+    string? DisplayName = null,
+    IReadOnlyList<string>? SupportedReasoningEfforts = null,
+    string? DefaultReasoningEffort = null);
 
 /// <summary>
 /// Provides discovery and runtime replacement of supported model identifiers.

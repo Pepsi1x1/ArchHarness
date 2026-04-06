@@ -16,6 +16,7 @@ namespace ArchHarness.App.Core;
 /// <param name="ArchitectureLoopPrompt">Optional supplementary prompt applied during architecture loop iterations.</param>
 /// <param name="ProjectId">Optional stable project identifier associated with the run workspace.</param>
 /// <param name="RunTitle">Optional human-friendly title for the run.</param>
+/// <param name="PlanningSourceRunId">Optional planning run identifier whose approved artifacts seed execution without replanning.</param>
 public sealed record RunRequest(
     string TaskPrompt,
     string WorkspacePath,
@@ -29,7 +30,8 @@ public sealed record RunRequest(
     bool ArchitectureLoopMode = false,
     string? ArchitectureLoopPrompt = null,
     string? ProjectId = null,
-    string? RunTitle = null
+    string? RunTitle = null,
+    string? PlanningSourceRunId = null
 );
 
 /// <summary>
@@ -159,11 +161,15 @@ public sealed record StyleEnforcementRequest(
 /// <param name="Review">The final architecture review result.</param>
 /// <param name="SecurityReview">The final security review result.</param>
 /// <param name="ModelOverrides">Optional per-agent model override mappings.</param>
+/// <param name="Spec">The approved clarification spec, if any.</param>
+/// <param name="BuildOutcome">The last known build outcome, if any.</param>
 public sealed record CompletionValidationRequest(
     ExecutionPlan Plan,
     ArchitectureReview Review,
     SecurityReview SecurityReview,
-    IDictionary<string, string>? ModelOverrides);
+    IDictionary<string, string>? ModelOverrides,
+    ClarificationSpec? Spec = null,
+    BuildOutcome? BuildOutcome = null);
 
 /// <summary>
 /// Request payload for the architecture review remediation loop.
@@ -229,3 +235,117 @@ public sealed record AgentStreamDeltaEvent(
     string ContentFormat = "text",
     string StreamKind = "assistant",
     string? Title = null);
+
+/// <summary>
+/// Captures a single answered clarification question produced during planning.
+/// </summary>
+/// <param name="Question">The question asked during clarification.</param>
+/// <param name="Answer">The user-supplied answer.</param>
+public sealed record ClarificationAnswer(string Question, string Answer);
+
+/// <summary>
+/// Captures the structured clarification/spec artifact for a run, modeled after the OMX spec idea.
+/// This becomes the authoritative contract for plan generation and completion validation.
+/// </summary>
+/// <param name="Task">The refined task statement.</param>
+/// <param name="DesiredOutcome">What success looks like.</param>
+/// <param name="InScope">Items explicitly in scope.</param>
+/// <param name="OutOfScope">Items explicitly excluded.</param>
+/// <param name="Constraints">Technical or process constraints.</param>
+/// <param name="Assumptions">Assumptions made during clarification.</param>
+/// <param name="AcceptanceCriteria">Evaluable acceptance criteria that drive completion validation.</param>
+/// <param name="LikelyTouchpoints">Files or areas likely to be modified.</param>
+/// <param name="OpenQuestions">Unresolved questions, if any.</param>
+/// <param name="DecisionNotes">Key decisions made during clarification.</param>
+public sealed record ClarificationSpec(
+    string Task,
+    string DesiredOutcome,
+    IReadOnlyList<string> InScope,
+    IReadOnlyList<string> OutOfScope,
+    IReadOnlyList<string> Constraints,
+    IReadOnlyList<string> Assumptions,
+    IReadOnlyList<string> AcceptanceCriteria,
+    IReadOnlyList<string> LikelyTouchpoints,
+    IReadOnlyList<string> OpenQuestions,
+    IReadOnlyList<string> DecisionNotes);
+
+/// <summary>
+/// Records the user's approval decision for a generated plan.
+/// </summary>
+/// <param name="Decision">The approval decision: Approve, Regenerate, or Cancel.</param>
+/// <param name="DecidedAtUtc">When the decision was made.</param>
+/// <param name="PlanHash">An opaque hash identifying the plan version that was approved.</param>
+/// <param name="Reason">Optional user-provided reason, especially for Regenerate or Cancel.</param>
+public sealed record PlanApproval(
+    string Decision,
+    DateTimeOffset DecidedAtUtc,
+    string PlanHash,
+    string? Reason = null);
+
+/// <summary>
+/// Well-known plan approval decision values.
+/// </summary>
+public static class PlanApprovalDecisions
+{
+    /// <summary>The decision value indicating the plan was approved.</summary>
+    public const string APPROVED = "approved";
+
+    /// <summary>The decision value indicating the plan should be regenerated.</summary>
+    public const string REGENERATE = "regenerate";
+
+    /// <summary>The decision value indicating the plan was canceled.</summary>
+    public const string CANCELED = "canceled";
+}
+
+/// <summary>
+/// The structured outcome of a build step execution.
+/// </summary>
+/// <param name="Passed">Whether the build succeeded.</param>
+/// <param name="Summary">A concise human-readable summary of the build result.</param>
+/// <param name="StepId">The plan step ID that produced this build result.</param>
+/// <param name="TimestampUtc">When the build completed.</param>
+public sealed record BuildOutcome(
+    bool Passed,
+    string Summary,
+    int StepId,
+    DateTimeOffset TimestampUtc);
+
+/// <summary>
+/// Immutable outcome of executing a single plan step.
+/// Replaces shared mutable state mutation in step dispatch.
+/// </summary>
+/// <param name="StepId">The step that produced this outcome.</param>
+/// <param name="Agent">The agent role that executed the step.</param>
+/// <param name="FilesTouchedDelta">Files created or modified by this step.</param>
+/// <param name="FrontendPlanDelta">Frontend plan fragment from this step, if any.</param>
+/// <param name="Review">Architecture review produced by this step, if any.</param>
+/// <param name="SecurityReview">Security review produced by this step, if any.</param>
+/// <param name="BuildOutcome">Structured build outcome from this step, if any.</param>
+public sealed record StepOutcome(
+    int StepId,
+    string Agent,
+    IReadOnlyList<string> FilesTouchedDelta,
+    string? FrontendPlanDelta = null,
+    ArchitectureReview? Review = null,
+    SecurityReview? SecurityReview = null,
+    BuildOutcome? BuildOutcome = null);
+
+/// <summary>
+/// Result of structured completion validation with per-criterion evidence.
+/// </summary>
+/// <param name="Passed">Whether all criteria were met.</param>
+/// <param name="CriterionResults">Per-criterion evaluation results.</param>
+public sealed record CompletionValidationResult(
+    bool Passed,
+    IReadOnlyList<CriterionResult> CriterionResults);
+
+/// <summary>
+/// The evaluation result of a single completion criterion.
+/// </summary>
+/// <param name="Criterion">The criterion text.</param>
+/// <param name="Passed">Whether this criterion was met.</param>
+/// <param name="Evidence">Evidence or explanation for the pass/fail determination.</param>
+public sealed record CriterionResult(
+    string Criterion,
+    bool Passed,
+    string Evidence);

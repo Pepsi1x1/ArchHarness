@@ -19,6 +19,7 @@ public sealed class ModelMetadataProviderTests : IDisposable
         discovered.ReplaceModels(new[]
         {
             new DiscoveredModel("gpt-5-mini", 0.25, "GPT-5 Mini"),
+            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4", new[] { "low", "medium", "high", "xhigh" }, "medium"),
             new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6")
         });
 
@@ -27,17 +28,19 @@ public sealed class ModelMetadataProviderTests : IDisposable
             new AgentsOptions(),
             new CopilotOptions());
         settingsCatalog.UpdateSettings(new UpdatePersistedGlobalSettings(
-            "gpt-5-mini",
-            "claude-sonnet-4.6",
-            "claude-sonnet-4.6",
-            "gpt-5.4",
-            "gpt-4.1",
-            "gpt-5.4",
-            "gpt-5.4",
-            "claude-opus-4.6",
-            "approve-all",
-            false,
-            null));
+            ConversationModel: "gpt-5-mini",
+            OrchestrationModel: "claude-sonnet-4.6",
+            PlanningModel: "gpt-5.4",
+            PlanningReasoningEffort: "xhigh",
+            FrontendDeveloperModel: "claude-sonnet-4.6",
+            BackendDeveloperModel: "gpt-5.4",
+            BuildModel: "gpt-4.1",
+            CodingStyleModel: "gpt-5.4",
+            SecurityModel: "gpt-5.4",
+            ArchitectureModel: "claude-opus-4.6",
+            DefaultPermissionHandlerMode: "approve-all",
+            DefaultArchitectureReviewMode: false,
+            DefaultArchitectureReviewPrompt: null));
 
         ModelMetadataProvider provider = new ModelMetadataProvider(discovered, settingsCatalog);
 
@@ -46,6 +49,10 @@ public sealed class ModelMetadataProviderTests : IDisposable
         Assert.Contains(models, model => model.ModelId == "claude-opus-4.6" && model.DisplayName == "Claude Opus 4.6" && model.CostBand == "3x" && model.Discovered);
         Assert.Contains(models, model => model.ModelId == "claude-sonnet-4.6" && model.CostBand == string.Empty && model.ConfiguredFallback);
         Assert.Contains(models, model => model.ModelId == "gpt-5-mini" && model.DisplayName == "GPT-5 Mini" && model.CostBand == "0.25x");
+        Assert.Contains(models, model => model.ModelId == "gpt-5.4"
+            && model.DefaultReasoningEffort == "medium"
+            && model.SupportedReasoningEfforts is not null
+            && model.SupportedReasoningEfforts.SequenceEqual(new[] { "low", "medium", "high", "xhigh" }));
     }
 
     public void Dispose()

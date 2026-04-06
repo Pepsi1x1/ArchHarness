@@ -17,6 +17,11 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
     private const string FAILURE_CODE_INVALID_REQUEST = "invalid-request";
     private const string FAILURE_CODE_NO_CHANGES = "no-changes";
     private const string FAILURE_CODE_STASH_FAILED = "stash-failed";
+    private const string FAILURE_CODE_BRANCH_ALREADY_EXISTS = "branch-already-exists";
+    private const string FAILURE_CODE_BRANCH_CREATE_FAILED = "branch-create-failed";
+    private const string FAILURE_CODE_COMMIT_FAILED = "commit-failed";
+    private const string FAILURE_CODE_MERGE_CONFLICT = "merge-conflict";
+    private const string FAILURE_CODE_MERGE_FAILED = "merge-failed";
     private const string NOT_GIT_REPOSITORY_MESSAGE = "The selected project is not a Git repository.";
 
     /// <inheritdoc />
@@ -398,6 +403,121 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
             GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
             GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
             return new GitStashChangesResult(false, FAILURE_CODE_STASH_FAILED, "Git could not create the stash because the repository files are not currently accessible.", branchInfo, workingTreeStatus);
+        }
+    }
+
+    /// <inheritdoc />
+    public GitBranchCreateResult CreateBranch(string workspacePath, string branchName)
+    {
+        if (string.IsNullOrWhiteSpace(branchName))
+        {
+            return new GitBranchCreateResult(false, FAILURE_CODE_INVALID_REQUEST, "Branch name must not be empty.", null);
+        }
+
+        try
+        {
+            using Repository repository = OpenRepository(workspacePath);
+            if (repository.Branches[branchName] is not null)
+            {
+                return new GitBranchCreateResult(false, FAILURE_CODE_BRANCH_ALREADY_EXISTS, $"Branch '{branchName}' already exists.", branchName);
+            }
+
+            Branch created = repository.CreateBranch(branchName);
+            return new GitBranchCreateResult(true, null, null, created.FriendlyName);
+        }
+        catch (RepositoryNotFoundException)
+        {
+            return new GitBranchCreateResult(false, FAILURE_CODE_NOT_GIT_REPOSITORY, NOT_GIT_REPOSITORY_MESSAGE, null);
+        }
+        catch (LibGit2SharpException ex)
+        {
+            return new GitBranchCreateResult(false, FAILURE_CODE_BRANCH_CREATE_FAILED, ex.Message, null);
+        }
+    }
+
+    /// <inheritdoc />
+    public GitCommitResult StageAndCommit(string workspacePath, IReadOnlyList<string> relativePaths, string message)
+    {
+        if (relativePaths is null || relativePaths.Count == 0)
+        {
+            return new GitCommitResult(false, FAILURE_CODE_NO_CHANGES, "No files provided to stage.", null);
+        }
+
+        try
+        {
+            using Repository repository = OpenRepository(workspacePath);
+
+            foreach (string relativePath in relativePaths)
+            {
+                string normalized = NormalizeRepositoryPath(relativePath);
+                Commands.Stage(repository, normalized);
+            }
+
+            RepositoryStatus status = repository.RetrieveStatus(new StatusOptions { IncludeUnaltered = false });
+            if (!status.Any(entry => IsStaged(entry.State)))
+            {
+                return new GitCommitResult(false, FAILURE_CODE_NO_CHANGES, "No changes were staged after adding the specified files.", null);
+            }
+
+            Signature signature = BuildStashSignature(repository);
+            Commit commit = repository.Commit(message, signature, signature);
+            return new GitCommitResult(true, null, null, commit.Sha);
+        }
+        catch (RepositoryNotFoundException)
+        {
+            return new GitCommitResult(false, FAILURE_CODE_NOT_GIT_REPOSITORY, NOT_GIT_REPOSITORY_MESSAGE, null);
+        }
+        catch (LibGit2SharpException ex)
+        {
+            return new GitCommitResult(false, FAILURE_CODE_COMMIT_FAILED, ex.Message, null);
+        }
+    }
+
+    /// <inheritdoc />
+    public GitMergeResult MergeBranch(string workspacePath, string sourceBranch)
+    {
+        if (string.IsNullOrWhiteSpace(sourceBranch))
+        {
+            return new GitMergeResult(false, FAILURE_CODE_INVALID_REQUEST, "Source branch name must not be empty.", null);
+        }
+
+        try
+        {
+            using Repository repository = OpenRepository(workspacePath);
+            Branch? branch = repository.Branches[sourceBranch];
+            if (branch is null)
+            {
+                return new GitMergeResult(false, FAILURE_CODE_BRANCH_NOT_FOUND, $"Branch '{sourceBranch}' was not found.", null);
+            }
+
+            Signature signature = BuildStashSignature(repository);
+            MergeResult result = repository.Merge(branch, signature, new MergeOptions
+            {
+                FailOnConflict = true
+            });
+
+            if (result.Status == MergeStatus.Conflicts)
+            {
+                List<string> conflicting = repository.Index.Conflicts
+                    .Select(conflict => conflict.Ancestor?.Path ?? conflict.Ours?.Path ?? conflict.Theirs?.Path ?? "unknown")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                return new GitMergeResult(false, FAILURE_CODE_MERGE_CONFLICT, "Merge produced conflicts.", conflicting);
+            }
+
+            return new GitMergeResult(true, null, null, null);
+        }
+        catch (RepositoryNotFoundException)
+        {
+            return new GitMergeResult(false, FAILURE_CODE_NOT_GIT_REPOSITORY, NOT_GIT_REPOSITORY_MESSAGE, null);
+        }
+        catch (CheckoutConflictException ex)
+        {
+            return new GitMergeResult(false, FAILURE_CODE_MERGE_CONFLICT, ex.Message, null);
+        }
+        catch (LibGit2SharpException ex)
+        {
+            return new GitMergeResult(false, FAILURE_CODE_MERGE_FAILED, ex.Message, null);
         }
     }
 

@@ -8,7 +8,7 @@ public sealed class WebRunSnapshotStoreTests
     [Fact]
     public void UpdateStatus_DoesNotOverwriteCancelingWithRunning()
     {
-        WebRunSnapshotStore store = new();
+        WebRunSnapshotStore store = new WebRunSnapshotStore();
         using CancellationTokenSource runCts = store.BeginRunSession(new WebRunSessionStart(
             CancellationToken.None,
             RunStatuses.STARTING,
@@ -34,7 +34,7 @@ public sealed class WebRunSnapshotStoreTests
     [Fact]
     public void UpdateStatus_DoesNotReopenCompletedRun()
     {
-        WebRunSnapshotStore store = new();
+        WebRunSnapshotStore store = new WebRunSnapshotStore();
         using CancellationTokenSource runCts = store.BeginRunSession(new WebRunSessionStart(
             CancellationToken.None,
             RunStatuses.STARTING,
@@ -63,7 +63,7 @@ public sealed class WebRunSnapshotStoreTests
     [Fact]
     public void UpdateStatus_DoesNotOverwritePausingWithRunning()
     {
-        WebRunSnapshotStore store = new();
+        WebRunSnapshotStore store = new WebRunSnapshotStore();
         using CancellationTokenSource runCts = store.BeginRunSession(new WebRunSessionStart(
             CancellationToken.None,
             RunStatuses.STARTING,

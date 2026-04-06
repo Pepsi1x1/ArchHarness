@@ -23,6 +23,9 @@ public sealed class CopilotCompletionOptions
     /// <summary>Gets or sets how the system message is applied.</summary>
     public CopilotSystemMessageMode SystemMessageMode { get; init; } = CopilotSystemMessageMode.Append;
 
+    /// <summary>Gets or sets the optional reasoning effort to use for compatible models.</summary>
+    public string? ReasoningEffort { get; init; }
+
     /// <summary>Gets or sets the list of tools explicitly available for this request.</summary>
     public IReadOnlyList<string>? AvailableTools { get; init; }
 

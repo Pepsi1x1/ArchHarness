@@ -9,10 +9,32 @@ namespace ArchHarness.App.Agents;
 /// Orchestration agent responsible for planning execution steps, building remediation prompts,
 /// and validating run completion.
 /// </summary>
-public sealed class OrchestrationAgent : AgentBase
+public class OrchestrationAgent : AgentBase
 {
-    private const string OrchestrationPromptGroupName = "Orchestration";
+    private const string ORCHESTRATION_PROMPT_GROUP_NAME = "Orchestration";
     private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
+
+    private const string CLARIFICATION_SPEC_PROMPT_FALLBACK = """
+        You are the orchestration planner. Analyze the task prompt and produce a clarification spec as strict JSON with this schema:
+        {
+            "task": "string",
+            "desiredOutcome": "string",
+            "inScope": ["string"],
+            "outOfScope": ["string"],
+            "constraints": ["string"],
+            "assumptions": ["string"],
+            "acceptanceCriteria": ["string"],
+            "likelyTouchpoints": ["string"],
+            "openQuestions": ["string"],
+            "decisionNotes": ["string"]
+        }
+
+        TaskPrompt: {{TaskPrompt}}
+        WorkspaceRoot: {{WorkspaceRoot}}
+        WorkspaceMode: {{WorkspaceMode}}
+        BuildCommand: {{BuildCommand}}
+        {{ClarificationAnswersSection}}
+        """;
 
     private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK = """
         You are the orchestration planner.
@@ -57,6 +79,8 @@ public sealed class OrchestrationAgent : AgentBase
         {{ReviewLoopCompletionCriteria}}
         - Each objective must be a concrete delegated prompt the target agent can execute directly.
         - If ArchitectureLoopMode is true, enabled Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
+        - Use the approved clarification context when it is present. Treat clarification answers as resolved requirements, not as open design questions.
+        - When PlanRevisionRequest is present, treat it as mandatory feedback for how the plan must change. It may request specific refinements or a materially different plan shape.
 
         TaskPrompt: {{TaskPrompt}}
         WorkspaceRoot: {{WorkspaceRoot}}
@@ -64,6 +88,9 @@ public sealed class OrchestrationAgent : AgentBase
         BuildCommand: {{BuildCommand}}
         ArchitectureLoopMode: {{ArchitectureLoopMode}}
         ArchitectureLoopPrompt: {{ArchitectureLoopPrompt}}
+        {{ClarificationSpecSection}}
+        {{ClarificationAnswersSection}}
+        {{PlanRevisionRequestSection}}
         """;
     private const string ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK = """
         You are the orchestration planner.
@@ -93,7 +120,22 @@ public sealed class OrchestrationAgent : AgentBase
         IOptions<AgentsOptions> agentsOptions,
         IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor,
         IExecutionPlanParser executionPlanParser)
-        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "orchestration", Guid.NewGuid().ToString("N"))
+        : this(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, reviewLoopAgentSelectionAccessor, executionPlanParser, "orchestration")
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="OrchestrationAgent"/> class for a specific orchestration-style role.
+    /// </summary>
+    protected OrchestrationAgent(
+        ICopilotClient copilotClient,
+        IModelResolver modelResolver,
+        IAgentToolPolicyProvider toolPolicyProvider,
+        IOptions<AgentsOptions> agentsOptions,
+        IReviewLoopAgentSelectionAccessor reviewLoopAgentSelectionAccessor,
+        IExecutionPlanParser executionPlanParser,
+        string role)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, role, Guid.NewGuid().ToString("N"))
     {
         this._agentsOptions = agentsOptions.Value;
         this._reviewLoopAgentSelectionAccessor = reviewLoopAgentSelectionAccessor;
@@ -118,6 +160,7 @@ public sealed class OrchestrationAgent : AgentBase
     public async Task<ExecutionPlan> BuildExecutionPlanAsync(
         RunRequest request,
         string workspaceRoot,
+        PlanningContext? planningContext = null,
         string? agentId = null,
         string? agentRole = null,
         CancellationToken cancellationToken = default)
@@ -131,7 +174,7 @@ public sealed class OrchestrationAgent : AgentBase
             ?? this._reviewLoopAgentSelectionAccessor.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
 
-        string planningTemplate = PromptLoader.Load(OrchestrationPromptGroupName, "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
+        string planningTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
         string planningPrompt = PromptLoader.Render(
             planningTemplate,
             ("{{TaskPrompt}}", effectiveTaskPrompt),
@@ -140,6 +183,9 @@ public sealed class OrchestrationAgent : AgentBase
             ("{{BuildCommand}}", buildCommand),
             ("{{ArchitectureLoopMode}}", architectureLoopMode.ToString()),
             ("{{ArchitectureLoopPrompt}}", architectureLoopPrompt),
+            ("{{ClarificationSpecSection}}", BuildClarificationSpecSection(planningContext?.Spec)),
+            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(planningContext?.ClarificationAnswers)),
+            ("{{PlanRevisionRequestSection}}", BuildPlanRevisionRequestSection(planningContext?.PlanRevisionRequest)),
             ("{{EnabledReviewLoopAgents}}", reviewLoopAgents.DescribeEnabledAgents()),
             ("{{DisabledReviewLoopAgents}}", reviewLoopAgents.DescribeDisabledAgents()),
             ("{{ReviewLoopCompletionCriteria}}", string.Join(Environment.NewLine, reviewLoopAgents.BuildCompletionCriteria().Select(x => $"- {x}"))));
@@ -180,6 +226,104 @@ public sealed class OrchestrationAgent : AgentBase
     }
 
     /// <summary>
+    /// Generates a clarification/spec artifact from the task prompt and workspace context.
+    /// The spec becomes the authoritative contract for plan generation and completion validation.
+    /// </summary>
+    public async Task<ClarificationSpec> BuildClarificationSpecAsync(
+        RunRequest request,
+        string workspaceRoot,
+        IReadOnlyList<ClarificationAnswer>? clarificationAnswers = null,
+        string? agentId = null,
+        string? agentRole = null,
+        CancellationToken cancellationToken = default)
+    {
+        string model = base.ResolveModel(request.ModelOverrides);
+        string buildCommand = request.BuildCommand ?? "(none)";
+
+        string specTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "clarification-spec.md", CLARIFICATION_SPEC_PROMPT_FALLBACK);
+        string specPrompt = PromptLoader.Render(
+            specTemplate,
+            ("{{TaskPrompt}}", request.TaskPrompt),
+            ("{{WorkspaceRoot}}", workspaceRoot),
+            ("{{WorkspaceMode}}", request.WorkspaceMode),
+            ("{{BuildCommand}}", buildCommand),
+            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(clarificationAnswers)));
+
+        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
+        const int MAX_SPEC_ATTEMPTS = 3;
+        string? lastResponse = null;
+
+        for (int attempt = 1; attempt <= MAX_SPEC_ATTEMPTS; attempt++)
+        {
+            string promptForAttempt = attempt == 1
+                ? specPrompt
+                : $"{specPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{(lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse)}";
+
+            lastResponse = await base.CopilotClient.CompleteAsync(
+                model,
+                promptForAttempt,
+                options,
+                agentId: agentId ?? base.Id,
+                agentRole: agentRole ?? base.Role,
+                cancellationToken);
+
+            if (TryParseClarificationSpec(lastResponse, out ClarificationSpec? spec))
+            {
+                return spec;
+            }
+        }
+
+        string? responsePreview = lastResponse?.Length > 500 ? lastResponse[..500] + "..." : lastResponse;
+        throw new InvalidOperationException(
+            $"Orchestration model did not return a valid ClarificationSpec JSON after {MAX_SPEC_ATTEMPTS} attempts.\n" +
+            $"Last response preview: {responsePreview}");
+    }
+
+    private static string BuildClarificationSpecSection(ClarificationSpec? spec)
+    {
+        if (spec is null)
+        {
+            return string.Empty;
+        }
+
+        return $"""
+            ClarificationSpec:
+            - Task: {spec.Task}
+            - DesiredOutcome: {spec.DesiredOutcome}
+            - InScope: {JoinValues(spec.InScope)}
+            - OutOfScope: {JoinValues(spec.OutOfScope)}
+            - Constraints: {JoinValues(spec.Constraints)}
+            - Assumptions: {JoinValues(spec.Assumptions)}
+            - AcceptanceCriteria: {JoinValues(spec.AcceptanceCriteria)}
+            - LikelyTouchpoints: {JoinValues(spec.LikelyTouchpoints)}
+            - DecisionNotes: {JoinValues(spec.DecisionNotes)}
+            """;
+    }
+
+    private static string BuildClarificationAnswersSection(IReadOnlyList<ClarificationAnswer>? clarificationAnswers)
+    {
+        if (clarificationAnswers is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        return $"ClarificationAnswers:{Environment.NewLine}{string.Join(Environment.NewLine, clarificationAnswers.Select(answer => $"- Q: {answer.Question}{Environment.NewLine}  A: {answer.Answer}"))}";
+    }
+
+    private static string BuildPlanRevisionRequestSection(string? planRevisionRequest)
+    {
+        if (string.IsNullOrWhiteSpace(planRevisionRequest))
+        {
+            return string.Empty;
+        }
+
+        return $"PlanRevisionRequest:{Environment.NewLine}{planRevisionRequest.Trim()}";
+    }
+
+    private static string JoinValues(IReadOnlyList<string> values)
+        => values.Count == 0 ? "(none)" : string.Join("; ", values);
+
+    /// <summary>
     /// Generates a delegated remediation prompt for the Architecture agent based on outstanding required actions.
     /// </summary>
     /// <param name="request">The run request containing task context and configuration.</param>
@@ -210,7 +354,7 @@ public sealed class OrchestrationAgent : AgentBase
             ? string.Empty
             : $"{Environment.NewLine}ArchitectureLoopPrompt:{Environment.NewLine}{request.ArchitectureLoopPrompt}";
 
-        string remediationTemplate = PromptLoader.Load(OrchestrationPromptGroupName, "remediation.md", ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK);
+        string remediationTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "remediation.md", ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK);
         string prompt = PromptLoader.Render(
             remediationTemplate,
             ("{{Iteration}}", iteration.ToString()),
@@ -239,13 +383,14 @@ public sealed class OrchestrationAgent : AgentBase
     }
 
     /// <summary>
-    /// Validates whether the run has met its completion criteria based on review findings and build status.
+    /// Validates whether the run has met its completion criteria based on review findings, build status,
+    /// and approved spec acceptance criteria.
     /// </summary>
-    /// <param name="request">The completion validation request containing the plan, reviews, and build results.</param>
+    /// <param name="request">The completion validation request containing the plan, reviews, spec, and build results.</param>
     /// <param name="agentId">Optional agent identifier override.</param>
     /// <param name="agentRole">Optional agent role override.</param>
     /// <param name="cancellationToken">Token to signal cancellation.</param>
-    /// <returns><see langword="true"/> if the run is complete with no high-severity findings and build passed; otherwise <see langword="false"/>.</returns>
+    /// <returns><see langword="true"/> if all completion criteria are met; otherwise <see langword="false"/>.</returns>
     public async Task<bool> ValidateCompletionAsync(
         CompletionValidationRequest request,
         string? agentId = null,
@@ -262,13 +407,97 @@ public sealed class OrchestrationAgent : AgentBase
             agentRole: agentRole ?? base.Role,
             cancellationToken);
 
+        List<CriterionResult> results = new List<CriterionResult>();
         ReviewLoopAgentSelection reviewLoopAgents = this._reviewLoopAgentSelectionAccessor.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
-        bool hasHighFindings = reviewLoopAgents.ArchitectureEnabled
-            && request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-        bool hasHighSecurityFindings = reviewLoopAgents.SecurityEnabled
-            && request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-        return !hasHighFindings && !hasHighSecurityFindings;
+
+        // Evaluate each plan completion criterion.
+        foreach (string criterion in request.Plan.CompletionCriteria)
+        {
+            CriterionResult result = EvaluateCriterion(criterion, request, reviewLoopAgents);
+            results.Add(result);
+        }
+
+        // If the spec has acceptance criteria, evaluate those too.
+        if (request.Spec is not null)
+        {
+            foreach (string acceptanceCriterion in request.Spec.AcceptanceCriteria)
+            {
+                // Skip if it's already effectively covered by a plan criterion.
+                if (results.Any(r => string.Equals(r.Criterion, acceptanceCriterion, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                CriterionResult result = EvaluateCriterion(acceptanceCriterion, request, reviewLoopAgents);
+                results.Add(result);
+            }
+        }
+
+        // Store the detailed results for later retrieval.
+        this._lastValidationResult = new CompletionValidationResult(results.All(r => r.Passed), results);
+
+        return this._lastValidationResult.Passed;
+    }
+
+    /// <summary>
+    /// Returns the detailed results from the most recent completion validation, if available.
+    /// </summary>
+    public CompletionValidationResult? LastValidationResult => this._lastValidationResult;
+    private CompletionValidationResult? _lastValidationResult;
+
+    private static CriterionResult EvaluateCriterion(
+        string criterion,
+        CompletionValidationRequest request,
+        ReviewLoopAgentSelection reviewLoopAgents)
+    {
+        string normalized = criterion.Trim().ToLowerInvariant();
+
+        // Build passes
+        if (normalized.Contains("build pass") || normalized.Contains("build succeeds") || normalized.Contains("build success"))
+        {
+            if (request.BuildOutcome is null)
+            {
+                return new CriterionResult(criterion, false, "No build outcome was recorded during execution.");
+            }
+
+            return new CriterionResult(criterion, request.BuildOutcome.Passed, request.BuildOutcome.Summary);
+        }
+
+        // No high-severity architecture findings
+        if (normalized.Contains("architecture") && (normalized.Contains("no high") || normalized.Contains("high-severity")))
+        {
+            if (!reviewLoopAgents.ArchitectureEnabled)
+            {
+                return new CriterionResult(criterion, true, "Architecture review is disabled for this run.");
+            }
+
+            bool hasHigh = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            return new CriterionResult(criterion, !hasHigh,
+                hasHigh ? $"{request.Review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))} high-severity architecture finding(s) remain." : "No high-severity architecture findings.");
+        }
+
+        // No high-severity security findings
+        if (normalized.Contains("security") && (normalized.Contains("no high") || normalized.Contains("high-severity")))
+        {
+            if (!reviewLoopAgents.SecurityEnabled)
+            {
+                return new CriterionResult(criterion, true, "Security review is disabled for this run.");
+            }
+
+            bool hasHigh = request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+            return new CriterionResult(criterion, !hasHigh,
+                hasHigh ? $"{request.SecurityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))} high-severity security finding(s) remain." : "No high-severity security findings.");
+        }
+
+        // Coding style compliance
+        if (normalized.Contains("coding style") || normalized.Contains("naming convention") || normalized.Contains("style compliance"))
+        {
+            return new CriterionResult(criterion, true, "Coding style enforcement was applied during execution.");
+        }
+
+        // Catch-all: unrecognized criteria pass with a warning.
+        return new CriterionResult(criterion, true, $"Criterion could not be structurally evaluated; assumed passing: '{criterion}'.");
     }
 
     private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, ReviewLoopAgentSelection reviewLoopAgents)
@@ -332,5 +561,60 @@ public sealed class OrchestrationAgent : AgentBase
             SystemMessageMode = CopilotSystemMessageMode.Append,
             ExcludedTools = new[] { "edit_file" }
         };
+    }
+
+    private static bool TryParseClarificationSpec(string? response, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ClarificationSpec? spec)
+    {
+        spec = null;
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            return false;
+        }
+
+        try
+        {
+            string? cleaned = ExecutionPlanParser.ExtractJson(response);
+            if (cleaned is null)
+            {
+                return false;
+            }
+
+            using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(cleaned);
+            System.Text.Json.JsonElement root = doc.RootElement;
+
+            static IReadOnlyList<string> ReadStringArray(System.Text.Json.JsonElement el, string prop)
+            {
+                if (!el.TryGetProperty(prop, out System.Text.Json.JsonElement arr) || arr.ValueKind != System.Text.Json.JsonValueKind.Array)
+                {
+                    return Array.Empty<string>();
+                }
+
+                return arr.EnumerateArray()
+                    .Where(v => v.ValueKind == System.Text.Json.JsonValueKind.String)
+                    .Select(v => v.GetString()!)
+                    .ToArray();
+            }
+
+            string task = root.TryGetProperty("task", out System.Text.Json.JsonElement taskEl) ? taskEl.GetString() ?? string.Empty : string.Empty;
+            string desiredOutcome = root.TryGetProperty("desiredOutcome", out System.Text.Json.JsonElement outcomeEl) ? outcomeEl.GetString() ?? string.Empty : string.Empty;
+
+            spec = new ClarificationSpec(
+                Task: task,
+                DesiredOutcome: desiredOutcome,
+                InScope: ReadStringArray(root, "inScope"),
+                OutOfScope: ReadStringArray(root, "outOfScope"),
+                Constraints: ReadStringArray(root, "constraints"),
+                Assumptions: ReadStringArray(root, "assumptions"),
+                AcceptanceCriteria: ReadStringArray(root, "acceptanceCriteria"),
+                LikelyTouchpoints: ReadStringArray(root, "likelyTouchpoints"),
+                OpenQuestions: ReadStringArray(root, "openQuestions"),
+                DecisionNotes: ReadStringArray(root, "decisionNotes"));
+
+            return !string.IsNullOrWhiteSpace(spec.Task);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

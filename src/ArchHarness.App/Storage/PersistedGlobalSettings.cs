@@ -6,6 +6,8 @@ namespace ArchHarness.App.Storage;
 public sealed record PersistedGlobalSettings(
     string ConversationModel,
     string OrchestrationModel,
+    string PlanningModel,
+    string? PlanningReasoningEffort,
     string FrontendDeveloperModel,
     string BackendDeveloperModel,
     string BuildModel,

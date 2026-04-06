@@ -13,7 +13,7 @@ public sealed class WebRunExecutionRunnerTests
     {
         const string SensitivePrompt = "Use github_pat_abcdefghijklmnopqrstuvwxyz123456 and Bearer abc123secret";
 
-        TestOrchestratorRuntime runtime = new()
+        TestOrchestratorRuntime runtime = new TestOrchestratorRuntime()
         {
             RunHandler = (request, progress, onRunContextEstablished, cancellationToken) =>
             {
@@ -27,11 +27,11 @@ public sealed class WebRunExecutionRunnerTests
                 return Task.FromResult(new RunArtefacts("run-123", @"C:\runs\run-123"));
             }
         };
-        TestWebRunEventHub eventHub = new();
-        TestRunStateStore runStateStore = new();
-        WebRunSnapshotStore snapshotStore = new();
+        TestWebRunEventHub eventHub = new TestWebRunEventHub();
+        TestRunStateStore runStateStore = new TestRunStateStore();
+        WebRunSnapshotStore snapshotStore = new WebRunSnapshotStore();
         WebRunExecutionRunner runner = new(runtime, eventHub, runStateStore, snapshotStore);
-        using CancellationTokenSource runCts = new();
+        using CancellationTokenSource runCts = new CancellationTokenSource();
 
         await runner.ExecuteRunAsync(CreateRequest(), runCts, CancellationToken.None);
 
@@ -46,7 +46,7 @@ public sealed class WebRunExecutionRunnerTests
     public async Task ExecuteRunAsync_PauseRequestPersistsPausedRunState()
     {
         TaskCompletionSource<bool> runStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TestOrchestratorRuntime runtime = new()
+        TestOrchestratorRuntime runtime = new TestOrchestratorRuntime()
         {
             RunHandler = async (request, progress, onRunContextEstablished, cancellationToken) =>
             {
@@ -56,8 +56,8 @@ public sealed class WebRunExecutionRunnerTests
                 return new RunArtefacts("run-123", @"C:\runs\run-123");
             }
         };
-        TestWebRunEventHub eventHub = new();
-        TestRunStateStore runStateStore = new();
+        TestWebRunEventHub eventHub = new TestWebRunEventHub();
+        TestRunStateStore runStateStore = new TestRunStateStore();
         runStateStore.SetState(@"C:\runs\run-123", new PersistedRunState(
             "run-123",
             @"C:\runs\run-123",
@@ -73,7 +73,7 @@ public sealed class WebRunExecutionRunnerTests
             Array.Empty<string>(),
             new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
             new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())));
-        WebRunSnapshotStore snapshotStore = new();
+        WebRunSnapshotStore snapshotStore = new WebRunSnapshotStore();
         using CancellationTokenSource runCts = snapshotStore.BeginRunSession(new WebRunSessionStart(
             CancellationToken.None,
             RunStatuses.STARTING,
@@ -134,7 +134,7 @@ public sealed class WebRunExecutionRunnerTests
 
     private sealed class TestWebRunEventHub : IWebRunEventHub
     {
-        public ConcurrentQueue<WebRunEvent> Events { get; } = new();
+        public ConcurrentQueue<WebRunEvent> Events { get; } = new ConcurrentQueue<WebRunEvent>();
 
         public TaskCompletionSource<WebRunEvent> RuntimeProgressEventReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 

@@ -1,4 +1,6 @@
-const { dialog, ipcMain } = require("electron");
+const { dialog, ipcMain, powerSaveBlocker } = require("electron");
+
+let activePowerSaveBlockerId = null;
 
 const MAX_DIALOG_TITLE_LENGTH = 120;
 
@@ -20,6 +22,17 @@ function sanitizePickFolderOptions(options) {
  * without modifying existing handler code.
  */
 const handlers = [
+  {
+    channel: "archharness:set-keep-awake",
+    handler: () => (_, enabled) => {
+      if (enabled && activePowerSaveBlockerId === null) {
+        activePowerSaveBlockerId = powerSaveBlocker.start("prevent-display-sleep");
+      } else if (!enabled && activePowerSaveBlockerId !== null) {
+        powerSaveBlocker.stop(activePowerSaveBlockerId);
+        activePowerSaveBlockerId = null;
+      }
+    }
+  },
   {
     channel: "archharness:pick-folder",
     handler: (windowProvider) => async (_, options) => {

@@ -1,5 +1,6 @@
 using ArchHarness.App;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using ArchHarness.Web.Services;
 using System.Net;
 
@@ -35,6 +36,7 @@ internal static class ProgramBuilderExtensions
         services.AddSingleton<WebInteractionCoordinator>();
         services.AddSingleton<ICopilotUserInputBridge, WebCopilotUserInputBridge>();
         services.AddSingleton<ICopilotPermissionPromptHandler, WebPermissionPromptHandler>();
+        services.AddSingleton<IPlanApprovalBridge, WebPlanApprovalBridge>();
         services.AddSingleton<IWebRunEventHub, WebRunEventHub>();
         services.AddSingleton<IWebRunSnapshotStore, WebRunSnapshotStore>();
         services.AddSingleton<IWebRunExecutionRunner, WebRunExecutionRunner>();

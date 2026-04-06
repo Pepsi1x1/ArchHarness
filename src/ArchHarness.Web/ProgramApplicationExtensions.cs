@@ -5,7 +5,7 @@ namespace ArchHarness.Web;
 
 internal static class ProgramApplicationExtensions
 {
-    private const string ContentSecurityPolicy = "default-src 'self'; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'; script-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
+    private const string CONTENT_SECURITY_POLICY = "default-src 'self'; style-src 'self' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self'; script-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'";
 
     public static WebApplication UseArchHarnessExceptionHandling(this WebApplication app)
     {
@@ -45,7 +45,7 @@ internal static class ProgramApplicationExtensions
             context.Response.Headers["X-Frame-Options"] = "DENY";
             context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
             context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
-            context.Response.Headers["Content-Security-Policy"] = ContentSecurityPolicy;
+            context.Response.Headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY;
             await next();
         });
 

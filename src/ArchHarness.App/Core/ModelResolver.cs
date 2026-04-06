@@ -9,7 +9,10 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class ModelResolver : IModelResolver
 {
+    private const string PLANNING_ROLE = "planning";
+
     private readonly string _cliPath;
+    private readonly AgentsOptions _agentOptions;
     private readonly IDiscoveredModelCatalog _catalog;
     private readonly IGlobalSettingsCatalog _settingsCatalog;
 
@@ -25,6 +28,7 @@ public sealed class ModelResolver : IModelResolver
         IDiscoveredModelCatalog catalog,
         IGlobalSettingsCatalog settingsCatalog)
     {
+        this._agentOptions = agentOptions.Value;
         this._cliPath = string.IsNullOrWhiteSpace(copilotOptions.Value.CliPath)
             ? "copilot"
             : copilotOptions.Value.CliPath;
@@ -51,6 +55,7 @@ public sealed class ModelResolver : IModelResolver
 
         string model = role.ToLowerInvariant() switch
         {
+            PLANNING_ROLE => settings.PlanningModel,
             "orchestration" => settings.OrchestrationModel,
             "frontend-developer" => settings.FrontendDeveloperModel,
             "backend-developer" => settings.BackendDeveloperModel,
@@ -64,6 +69,17 @@ public sealed class ModelResolver : IModelResolver
 
         this.ValidateOrThrow(model);
         return model;
+    }
+
+    /// <inheritdoc />
+    public string? ResolveReasoningEffort(string role)
+    {
+        PersistedGlobalSettings settings = this._settingsCatalog.GetSettings();
+        return role.ToLowerInvariant() switch
+        {
+            PLANNING_ROLE => NormalizeReasoningEffort(settings.PlanningReasoningEffort),
+            _ => NormalizeReasoningEffort(this._agentOptions.ForRole(role).ReasoningEffort)
+        };
     }
 
     /// <inheritdoc />
@@ -117,12 +133,13 @@ public sealed class ModelResolver : IModelResolver
     private IEnumerable<(string Label, string Model)> GetConfiguredModels(IDictionary<string, string>? overrides)
     {
         PersistedGlobalSettings settings = this._settingsCatalog.GetSettings();
-        foreach (string role in new[] { "conversation", "orchestration", "frontend-developer", "backend-developer", "build", "coding-style", "security", "architecture" })
+        foreach (string role in new[] { "conversation", "orchestration", PLANNING_ROLE, "frontend-developer", "backend-developer", "build", "coding-style", "security", "architecture" })
         {
             yield return (role, role switch
             {
                 "conversation" => settings.ConversationModel,
                 "orchestration" => settings.OrchestrationModel,
+                PLANNING_ROLE => settings.PlanningModel,
                 "frontend-developer" => settings.FrontendDeveloperModel,
                 "backend-developer" => settings.BackendDeveloperModel,
                 "build" => settings.BuildModel,
@@ -142,5 +159,15 @@ public sealed class ModelResolver : IModelResolver
         {
             yield return ($"override:{overridePair.Key}", overridePair.Value);
         }
+    }
+
+    private static string? NormalizeReasoningEffort(string? reasoningEffort)
+    {
+        if (string.IsNullOrWhiteSpace(reasoningEffort))
+        {
+            return null;
+        }
+
+        return reasoningEffort.Trim().ToLowerInvariant();
     }
 }

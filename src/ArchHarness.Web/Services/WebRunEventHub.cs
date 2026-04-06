@@ -36,9 +36,9 @@ public sealed class WebRunEventHub : IWebRunEventHub
 {
     private const int MAX_BUFFERED_EVENTS = 256;
 
-    private readonly object _sync = new();
-    private readonly List<WebRunEvent> _bufferedEvents = new();
-    private readonly ConcurrentDictionary<Guid, Channel<WebRunEvent>> _subscribers = new();
+    private readonly object _sync = new object();
+    private readonly List<WebRunEvent> _bufferedEvents = new List<WebRunEvent>();
+    private readonly ConcurrentDictionary<Guid, Channel<WebRunEvent>> _subscribers = new ConcurrentDictionary<Guid, Channel<WebRunEvent>>();
 
     /// <inheritdoc />
     public void Publish(WebRunEvent evt)

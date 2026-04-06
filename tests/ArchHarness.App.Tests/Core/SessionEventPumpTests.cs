@@ -116,5 +116,11 @@ public sealed class SessionEventPumpTests
             AppendedEvents.Add(evt);
             return Task.CompletedTask;
         }
+
+        public Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken)
+            => Task.CompletedTask;
     }
 }

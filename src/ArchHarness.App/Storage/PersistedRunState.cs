@@ -20,7 +20,12 @@ public sealed record PersistedRunState(
     string[] FilesTouched,
     ArchitectureReview Review,
     SecurityReview SecurityReview,
-    string? FailureMessage = null)
+    string? FailureMessage = null,
+    ClarificationSpec? Spec = null,
+    PlanApproval? Approval = null,
+    BuildOutcome? LastBuildOutcome = null,
+    ClarificationAnswer[]? ClarificationAnswers = null,
+    string? HandoffRunId = null)
 {
     public bool CanResume
         => !string.Equals(this.Status, RunStatuses.COMPLETED, StringComparison.OrdinalIgnoreCase)

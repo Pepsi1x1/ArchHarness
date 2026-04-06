@@ -27,7 +27,7 @@ public static partial class Redaction
         return output;
     }
 
-    [GeneratedRegex(@"(?i)(""(?:password|secret|token|api[_-]?key|connectionstring|client[_-]?secret|taskprompt|architecturereviewprompt|defaultarchitecturereviewprompt)""\s*:\s*"")[^""]*("")")]
+    [GeneratedRegex(@"(?i)(""(?:password|secret|token|api[_-]?key|connectionstring|client[_-]?secret)""\s*:\s*"")[^""]*("")")]
     private static partial Regex JsonSecretValueRegex();
 
     [GeneratedRegex(@"(?i)(password|secret|token|api[_-]?key|connectionstring|client[_-]?secret)\s*=\s*[^\s,;]+")]

@@ -55,6 +55,16 @@ public interface IArtefactStore
     /// <param name="evt">The event object to serialize and append.</param>
     /// <param name="cancellationToken">Token to signal cancellation.</param>
     Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the clarification spec as both JSON and Markdown to the run directory.
+    /// </summary>
+    Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the plan approval decision to the run directory as JSON.
+    /// </summary>
+    Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -91,6 +101,17 @@ public sealed class ArtefactStore : IArtefactStore
         => WriteRedactedJsonAsync(runDirectory, "BuildResult.json", payload, cancellationToken);
 
     /// <inheritdoc />
+    public async Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken)
+    {
+        await WriteRedactedJsonAsync(runDirectory, "ClarificationSpec.json", spec, cancellationToken).ConfigureAwait(false);
+        await WriteRedactedTextAsync(runDirectory, "ClarificationSpec.md", RenderSpecMarkdown(spec), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken)
+        => WriteRedactedJsonAsync(runDirectory, "PlanApproval.json", approval, cancellationToken);
+
+    /// <inheritdoc />
     public async Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
     {
         string line = Redaction.RedactSecrets(JsonSerializer.Serialize(evt));
@@ -118,5 +139,45 @@ public sealed class ArtefactStore : IArtefactStore
         string filePath = Path.Combine(Path.GetFullPath(runDirectory), fileName);
         string redacted = Redaction.RedactSecrets(content);
         return File.WriteAllTextAsync(filePath, redacted, cancellationToken);
+    }
+
+    private static string RenderSpecMarkdown(ClarificationSpec spec)
+    {
+        static string RenderList(IReadOnlyList<string> items)
+            => items.Count == 0 ? "(none)" : string.Join(Environment.NewLine, items.Select(i => $"- {i}"));
+
+        return $"""
+            # Clarification Spec
+
+            ## Task
+            {spec.Task}
+
+            ## Desired Outcome
+            {spec.DesiredOutcome}
+
+            ## In Scope
+            {RenderList(spec.InScope)}
+
+            ## Out of Scope
+            {RenderList(spec.OutOfScope)}
+
+            ## Constraints
+            {RenderList(spec.Constraints)}
+
+            ## Assumptions
+            {RenderList(spec.Assumptions)}
+
+            ## Acceptance Criteria
+            {RenderList(spec.AcceptanceCriteria)}
+
+            ## Likely Touchpoints
+            {RenderList(spec.LikelyTouchpoints)}
+
+            ## Open Questions
+            {RenderList(spec.OpenQuestions)}
+
+            ## Decision Notes
+            {RenderList(spec.DecisionNotes)}
+            """;
     }
 }

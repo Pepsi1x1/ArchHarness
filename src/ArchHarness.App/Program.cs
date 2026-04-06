@@ -60,6 +60,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<RuntimeStateAccessors>();
         services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
         services.AddSingleton<OrchestrationAgent>();
+        services.AddSingleton<PlanningAgent>();
         services.AddSingleton<FrontendDeveloperAgent>();
         services.AddSingleton<BackendDeveloperAgent>();
         services.AddSingleton<BuildAgent>();

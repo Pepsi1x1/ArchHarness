@@ -224,6 +224,11 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             };
         }
 
+        if (!string.IsNullOrWhiteSpace(requestOptions?.ReasoningEffort))
+        {
+            config.ReasoningEffort = requestOptions.ReasoningEffort;
+        }
+
         IReadOnlyList<string>? availableTools = requestOptions?.AvailableTools is { Count: > 0 }
             ? requestOptions.AvailableTools
             : this._options.AvailableTools;
@@ -257,6 +262,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
                 Hooks = this.CreateSessionHooks(),
                 Model = model,
                 Streaming = this._options.StreamingResponses,
+                ReasoningEffort = config.ReasoningEffort,
                 SystemMessage = config.SystemMessage,
                 AvailableTools = config.AvailableTools,
                 ExcludedTools = config.ExcludedTools,
@@ -286,9 +292,10 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     {
         string systemMessage = options?.SystemMessage ?? string.Empty;
         CopilotSystemMessageMode mode = options?.SystemMessageMode ?? CopilotSystemMessageMode.Append;
+        string reasoningEffort = options?.ReasoningEffort ?? string.Empty;
         string available = NormalizeToolList(options?.AvailableTools);
         string excluded = NormalizeToolList(options?.ExcludedTools);
-        return new SessionCacheKey(model, systemMessage, mode, available, excluded, workspaceRoot, permissionHandlerMode, runId ?? string.Empty);
+        return new SessionCacheKey(model, systemMessage, mode, reasoningEffort, available, excluded, workspaceRoot, permissionHandlerMode, runId ?? string.Empty);
     }
 
     private static string? BuildStableSessionId(SessionCacheKey key)
@@ -298,7 +305,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             return null;
         }
 
-        string rawKey = string.Join("|", key.Model, key.SystemMessageMode, key.SystemMessage, key.AvailableTools, key.ExcludedTools, key.PermissionHandlerMode, key.WorkspaceRoot);
+        string rawKey = string.Join("|", key.Model, key.SystemMessageMode, key.SystemMessage, key.ReasoningEffort, key.AvailableTools, key.ExcludedTools, key.PermissionHandlerMode, key.WorkspaceRoot);
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(rawKey));
         string suffix = Convert.ToHexString(hash[..8]).ToLowerInvariant();
         return $"archharness-{key.RunId}-{suffix}";
@@ -339,6 +346,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         string Model,
         string SystemMessage,
         CopilotSystemMessageMode SystemMessageMode,
+        string ReasoningEffort,
         string AvailableTools,
         string ExcludedTools,
         string WorkspaceRoot,

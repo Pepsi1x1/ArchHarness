@@ -14,22 +14,28 @@ namespace ArchHarness.App.SourceControl;
 /// </summary>
 public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
 {
-    private const string DeviceCodeEndpoint = "https://github.com/login/device/code";
-    private const string AccessTokenEndpoint = "https://github.com/login/oauth/access_token";
-    private const string UserEndpoint = "https://api.github.com/user";
-    private const string DeviceGrantType = "urn:ietf:params:oauth:grant-type:device_code";
-    private const string PendingStatus = "pending";
-    private const string AuthorizedStatus = "authorized";
-    private const string DeniedStatus = "denied";
-    private const string ExpiredStatus = "expired";
-    private const string ErrorStatus = "error";
-    private const string HttpClientName = "GitHubOAuthDeviceFlowService";
+    private const string DEVICE_CODE_ENDPOINT = "https://github.com/login/device/code";
+    private const string ACCESS_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token";
+    private const string USER_ENDPOINT = "https://api.github.com/user";
+    private const string DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
+    private const string PENDING_STATUS = "pending";
+    private const string AUTHORIZED_STATUS = "authorized";
+    private const string DENIED_STATUS = "denied";
+    private const string EXPIRED_STATUS = "expired";
+    private const string ERROR_STATUS = "error";
+    private const string HTTP_CLIENT_NAME = "GitHubOAuthDeviceFlowService";
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<GitHubOAuthDeviceFlowService> _logger;
     private readonly GitHubOAuthOptions _options;
-    private readonly ConcurrentDictionary<string, PendingDeviceFlow> _flows = new();
+    private readonly ConcurrentDictionary<string, PendingDeviceFlow> _flows = new ConcurrentDictionary<string, PendingDeviceFlow>();
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GitHubOAuthDeviceFlowService"/> class.
+    /// </summary>
+    /// <param name="httpClientFactory">The HTTP client factory used to create named clients.</param>
+    /// <param name="options">The GitHub OAuth configuration options.</param>
+    /// <param name="logger">The logger for diagnostic output.</param>
     public GitHubOAuthDeviceFlowService(IHttpClientFactory httpClientFactory, IOptions<GitHubOAuthOptions> options, ILogger<GitHubOAuthDeviceFlowService> logger)
     {
         this._httpClientFactory = httpClientFactory;
@@ -46,7 +52,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         this.PruneExpiredFlows(DateTimeOffset.UtcNow);
 
         string clientId = this.RequireClientId();
-        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, DeviceCodeEndpoint)
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, DEVICE_CODE_ENDPOINT)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string?>
             {
@@ -92,7 +98,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         {
             this._flows.TryRemove(flowId, out _);
             this.PruneExpiredFlows(now);
-            return new GitHubOAuthDeviceFlowPollResult(ExpiredStatus, "The GitHub authorization code expired. Start the OAuth flow again.");
+            return new GitHubOAuthDeviceFlowPollResult(EXPIRED_STATUS, "The GitHub authorization code expired. Start the OAuth flow again.");
         }
 
         this.PruneExpiredFlows(now, flowId);
@@ -102,13 +108,13 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
             return PendingResult(flow, "Waiting for GitHub authorization to complete.");
         }
 
-        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, AccessTokenEndpoint)
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, ACCESS_TOKEN_ENDPOINT)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string?>
             {
                 ["client_id"] = this.RequireClientId(),
                 ["device_code"] = flow.DeviceCode,
-                ["grant_type"] = DeviceGrantType
+                ["grant_type"] = DEVICE_GRANT_TYPE
             })
         };
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -123,7 +129,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
             string login = await this.GetAuthenticatedLoginAsync(payload.AccessToken, cancellationToken).ConfigureAwait(false);
             this._flows.TryRemove(flowId, out _);
             return new GitHubOAuthDeviceFlowPollResult(
-                AuthorizedStatus,
+                AUTHORIZED_STATUS,
                 $"Connected to GitHub as {login}.",
                 payload.AccessToken,
                 GitHubAuthenticationMode.OAuthDeviceFlow,
@@ -154,23 +160,23 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
         if (string.Equals(payload.Error, "expired_token", StringComparison.OrdinalIgnoreCase))
         {
             this._flows.TryRemove(flowId, out _);
-            return new GitHubOAuthDeviceFlowPollResult(ExpiredStatus, "The GitHub authorization code expired. Start the OAuth flow again.");
+            return new GitHubOAuthDeviceFlowPollResult(EXPIRED_STATUS, "The GitHub authorization code expired. Start the OAuth flow again.");
         }
 
         if (string.Equals(payload.Error, "access_denied", StringComparison.OrdinalIgnoreCase))
         {
             this._flows.TryRemove(flowId, out _);
-            return new GitHubOAuthDeviceFlowPollResult(DeniedStatus, "GitHub authorization was canceled.");
+            return new GitHubOAuthDeviceFlowPollResult(DENIED_STATUS, "GitHub authorization was canceled.");
         }
 
         this._flows.TryRemove(flowId, out _);
         this._logger.LogWarning("GitHub OAuth device flow {FlowId} failed with error '{Error}'.", flowId, payload.Error);
-        return new GitHubOAuthDeviceFlowPollResult(ErrorStatus, payload.ErrorDescription ?? payload.Error ?? "GitHub OAuth authorization failed.");
+        return new GitHubOAuthDeviceFlowPollResult(ERROR_STATUS, payload.ErrorDescription ?? payload.Error ?? "GitHub OAuth authorization failed.");
     }
 
     private async Task<string> GetAuthenticatedLoginAsync(string accessToken, CancellationToken cancellationToken)
     {
-        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, UserEndpoint);
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, USER_ENDPOINT);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
         request.Headers.UserAgent.ParseAdd("ArchHarness/1.0");
@@ -198,7 +204,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
     }
 
     private HttpClient CreateHttpClient()
-        => this._httpClientFactory.CreateClient(HttpClientName);
+        => this._httpClientFactory.CreateClient(HTTP_CLIENT_NAME);
 
     private void PruneExpiredFlows(DateTimeOffset now, string? preservedFlowId = null)
     {
@@ -233,7 +239,7 @@ public sealed class GitHubOAuthDeviceFlowService : IGitHubOAuthDeviceFlowService
 
     private static GitHubOAuthDeviceFlowPollResult PendingResult(PendingDeviceFlow flow, string message)
         => new GitHubOAuthDeviceFlowPollResult(
-            PendingStatus,
+            PENDING_STATUS,
             message,
             null,
             GitHubAuthenticationMode.None,

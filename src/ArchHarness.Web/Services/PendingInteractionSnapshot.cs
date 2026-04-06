@@ -9,4 +9,7 @@ public sealed record PendingInteractionSnapshot(
     IReadOnlyList<string> Choices,
     string? PermissionKind,
     string? SessionId,
-    string? ToolName);
+    string? ToolName,
+    string? SpecMarkdown = null,
+    string? PlanSummary = null,
+    IReadOnlyList<string>? Questions = null);
