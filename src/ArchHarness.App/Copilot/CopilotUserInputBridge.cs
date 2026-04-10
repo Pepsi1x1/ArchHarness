@@ -76,6 +76,13 @@ public interface ICopilotUserInputBridge
     /// <param name="request">The user input request.</param>
     /// <returns>The user input response.</returns>
     Task<UserInputResponse> RequestInputAsync(UserInputRequest request);
+
+    /// <summary>
+    /// Requests multiple user inputs for a single interaction round and returns the responses in order.
+    /// </summary>
+    /// <param name="requests">The ordered user input requests.</param>
+    /// <returns>The ordered user input responses.</returns>
+    Task<IReadOnlyList<UserInputResponse>> RequestInputsAsync(IReadOnlyList<UserInputRequest> requests);
 }
 
 /// <summary>
@@ -152,6 +159,25 @@ public sealed class ConsoleCopilotUserInputBridge : ICopilotUserInputBridge
             this._state.Clear();
             this._gate.Release();
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<UserInputResponse>> RequestInputsAsync(IReadOnlyList<UserInputRequest> requests)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+
+        if (requests.Count == 0)
+        {
+            return Array.Empty<UserInputResponse>();
+        }
+
+        List<UserInputResponse> responses = new List<UserInputResponse>(requests.Count);
+        foreach (UserInputRequest request in requests)
+        {
+            responses.Add(await this.RequestInputAsync(request).ConfigureAwait(false));
+        }
+
+        return responses;
     }
 
     private static void WriteLineAt(int row, string text, int width, ConsoleColor color)

@@ -50,6 +50,7 @@ public sealed class ModelMetadataProvider : IModelMetadataProvider
         PersistedGlobalSettings settings = this._settingsCatalog.GetSettings();
         yield return settings.ConversationModel;
         yield return settings.OrchestrationModel;
+        yield return settings.PlanningModel;
         yield return settings.FrontendDeveloperModel;
         yield return settings.BackendDeveloperModel;
         yield return settings.BuildModel;
@@ -68,7 +69,14 @@ public sealed class ModelMetadataProvider : IModelMetadataProvider
             ? FormatCostBand(billingMultiplier)
             : string.Empty;
 
-        return new AvailableModelViewModel(modelId, displayName, costBand, discovered, configuredFallback);
+        return new AvailableModelViewModel(
+            modelId,
+            displayName,
+            costBand,
+            discovered,
+            configuredFallback,
+            discoveredModel?.SupportedReasoningEfforts,
+            discoveredModel?.DefaultReasoningEffort);
     }
 
     private static string FormatCostBand(double multiplier)

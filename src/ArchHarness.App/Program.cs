@@ -50,6 +50,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<CopilotSessionFactory.CopilotSessionContext>();
         services.AddSingleton<ICopilotClient, CopilotClient>();
         services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStream>();
+        services.AddSingleton<ICopilotSdkEventStream, CopilotSdkEventStream>();
         services.AddSingleton<IAgentStreamEventStream, AgentStreamEventStream>();
         services.AddSingleton<IAgentToolPolicyProvider, AgentToolPolicyProvider>();
         services.AddSingleton<IRunContextAccessor, RunContextAccessor>();
@@ -59,7 +60,10 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IAgentExecutionContextAccessor, AgentExecutionContextAccessor>();
         services.AddSingleton<RuntimeStateAccessors>();
         services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
+        services.AddSingleton<IShellCommandExecutor, ShellCommandExecutor>();
+        services.AddSingleton<IVerificationCommandRunner, VerificationCommandRunner>();
         services.AddSingleton<OrchestrationAgent>();
+        services.AddSingleton<PlanningAgent>();
         services.AddSingleton<FrontendDeveloperAgent>();
         services.AddSingleton<BackendDeveloperAgent>();
         services.AddSingleton<BuildAgent>();
@@ -72,6 +76,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<RunSessionContext>();
         services.AddSingleton<OrchestratorRuntime.RunPhaseDependencies>();
         services.AddSingleton<IRunCompletionValidator, RunCompletionValidator>();
+        services.AddSingleton<IRunVerificationWorkflow, RunVerificationWorkflow>();
         services.AddSingleton<IRunAgentModelUsageBuilder, RunAgentModelUsageBuilder>();
         services.AddSingleton<OrchestratorRunServices>();
         services.AddSingleton<IOrchestratedRunProcessor, OrchestratedRunProcessor>();

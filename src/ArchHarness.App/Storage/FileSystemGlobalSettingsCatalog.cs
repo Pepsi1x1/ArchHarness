@@ -50,6 +50,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             PersistedGlobalSettings settings = new PersistedGlobalSettings(
                 NormalizeModel(update.ConversationModel, this._copilotOptions.ConversationModel),
                 NormalizeModel(update.OrchestrationModel, this._agentsOptions.Orchestration.Model),
+                NormalizeModel(update.PlanningModel, this._agentsOptions.Planning.Model),
+                NormalizeReasoningEffort(update.PlanningReasoningEffort),
                 NormalizeModel(update.FrontendDeveloperModel, this._agentsOptions.FrontendDeveloper.Model),
                 NormalizeModel(update.BackendDeveloperModel, this._agentsOptions.BackendDeveloper.Model),
                 NormalizeModel(update.BuildModel, this._agentsOptions.Build.Model),
@@ -92,6 +94,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         => new PersistedGlobalSettings(
             NormalizeModel(this._copilotOptions.ConversationModel, "gpt-5-mini"),
             NormalizeModel(this._agentsOptions.Orchestration.Model, "claude-sonnet-4.6"),
+            NormalizeModel(this._agentsOptions.Planning.Model, "gpt-5.4"),
+            NormalizeReasoningEffort(this._agentsOptions.Planning.ReasoningEffort),
             NormalizeModel(this._agentsOptions.FrontendDeveloper.Model, "claude-sonnet-4.6"),
             NormalizeModel(this._agentsOptions.BackendDeveloper.Model, "gpt-5.3-codex"),
             NormalizeModel(this._agentsOptions.Build.Model, "gpt-4.1"),
@@ -115,6 +119,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         => new PersistedGlobalSettings(
             NormalizeModel(persisted.ConversationModel, this._copilotOptions.ConversationModel),
             NormalizeModel(persisted.OrchestrationModel, this._agentsOptions.Orchestration.Model),
+            NormalizeModel(persisted.PlanningModel, this._agentsOptions.Planning.Model),
+            NormalizeReasoningEffort(persisted.PlanningReasoningEffort),
             NormalizeModel(persisted.FrontendDeveloperModel, this._agentsOptions.FrontendDeveloper.Model),
             NormalizeModel(persisted.BackendDeveloperModel, this._agentsOptions.BackendDeveloper.Model),
             NormalizeModel(persisted.BuildModel, this._agentsOptions.Build.Model),
@@ -131,6 +137,8 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         {
             ConversationModel = settings.ConversationModel,
             OrchestrationModel = settings.OrchestrationModel,
+            PlanningModel = settings.PlanningModel,
+            PlanningReasoningEffort = settings.PlanningReasoningEffort,
             FrontendDeveloperModel = settings.FrontendDeveloperModel,
             BackendDeveloperModel = settings.BackendDeveloperModel,
             BuildModel = settings.BuildModel,
@@ -149,11 +157,28 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
     private static string NormalizeModel(string? model, string fallback)
         => string.IsNullOrWhiteSpace(model) ? fallback : model.Trim();
 
+    private static string? NormalizeReasoningEffort(string? reasoningEffort)
+    {
+        if (string.IsNullOrWhiteSpace(reasoningEffort))
+        {
+            return null;
+        }
+
+        string normalized = reasoningEffort.Trim().ToLowerInvariant();
+        return normalized is "low" or "medium" or "high" or "xhigh"
+            ? normalized
+            : null;
+    }
+
     private sealed class PersistedGlobalSettingsDocument
     {
         public string? ConversationModel { get; init; }
 
         public string? OrchestrationModel { get; init; }
+
+        public string? PlanningModel { get; init; }
+
+        public string? PlanningReasoningEffort { get; init; }
 
         public string? FrontendDeveloperModel { get; init; }
 

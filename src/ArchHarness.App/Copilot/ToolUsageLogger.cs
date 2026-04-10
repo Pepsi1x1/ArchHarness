@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text;
+using System.Runtime.CompilerServices;
 using ArchHarness.App.Core;
 using ArchHarness.App.Storage;
 using GitHub.Copilot.SDK;
@@ -94,7 +95,7 @@ public sealed class ToolUsageLogger : IToolUsageLogger
             DeniedByName: null,
             DeniedByArgs: null,
             ToolArgs: null,
-            RawInput: SafeSerialize(input)));
+            RawInput: SafeSerializePostToolUseInput(input)));
 
     private async Task WriteAsync(ToolUsageEvent toolEvent)
     {
@@ -213,6 +214,171 @@ public sealed class ToolUsageLogger : IToolUsageLogger
         {
             string json = JsonSerializer.Serialize(input);
             return Redaction.RedactSecrets(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? SafeSerializePostToolUseInput(PostToolUseHookInput input)
+    {
+        try
+        {
+            Dictionary<string, object?> snapshot = new Dictionary<string, object?>
+            {
+                ["timestamp"] = input.Timestamp,
+                ["cwd"] = input.Cwd,
+                ["toolName"] = input.ToolName,
+                ["toolArgs"] = SnapshotValue(input.ToolArgs, depth: 0, new HashSet<object>(ReferenceEqualityComparer.Instance))
+            };
+
+            object? toolResult = input.ToolResult;
+            if (toolResult is not null)
+            {
+                snapshot["toolResult"] = SnapshotValue(toolResult, depth: 0, new HashSet<object>(ReferenceEqualityComparer.Instance));
+            }
+
+            object? error = TryReadProperty(input, "Error");
+            if (error is not null)
+            {
+                snapshot["error"] = SnapshotValue(error, depth: 0, new HashSet<object>(ReferenceEqualityComparer.Instance));
+            }
+
+            return SafeSerialize(snapshot) ?? BuildFallbackJson(snapshot);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static object? SnapshotValue(object? value, int depth, HashSet<object> visited)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        Type type = value.GetType();
+        if (value is string
+            || value is bool
+            || value is char
+            || value is byte
+            || value is sbyte
+            || value is short
+            || value is ushort
+            || value is int
+            || value is uint
+            || value is long
+            || value is ulong
+            || value is float
+            || value is double
+            || value is decimal
+            || value is Guid
+            || value is DateTime
+            || value is DateTimeOffset
+            || value is TimeSpan)
+        {
+            return value;
+        }
+
+        if (value is JsonElement jsonElement)
+        {
+            return jsonElement.Clone();
+        }
+
+        if (depth >= 3)
+        {
+            return value.ToString();
+        }
+
+        if (!type.IsValueType && !visited.Add(value))
+        {
+            return "(cycle)";
+        }
+
+        try
+        {
+            if (value is System.Collections.IDictionary dictionary)
+            {
+                Dictionary<string, object?> snapshot = new Dictionary<string, object?>();
+                foreach (System.Collections.DictionaryEntry entry in dictionary)
+                {
+                    string key = entry.Key?.ToString() ?? string.Empty;
+                    snapshot[key] = SnapshotValue(entry.Value, depth + 1, visited);
+                }
+
+                return snapshot;
+            }
+
+            if (value is System.Collections.IEnumerable enumerable && value is not string)
+            {
+                List<object?> items = new List<object?>();
+                int count = 0;
+                foreach (object? item in enumerable)
+                {
+                    if (count++ >= 32)
+                    {
+                        items.Add("(truncated)");
+                        break;
+                    }
+
+                    items.Add(SnapshotValue(item, depth + 1, visited));
+                }
+
+                return items;
+            }
+
+            Dictionary<string, object?> objectSnapshot = new Dictionary<string, object?>();
+            foreach (System.Reflection.PropertyInfo property in type.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+            {
+                if (property.GetIndexParameters().Length > 0 || !property.CanRead)
+                {
+                    continue;
+                }
+
+                object? propertyValue;
+                try
+                {
+                    propertyValue = property.GetValue(value);
+                }
+                catch (Exception ex)
+                {
+                    propertyValue = $"(unavailable: {ex.GetType().Name})";
+                }
+
+                objectSnapshot[property.Name] = SnapshotValue(propertyValue, depth + 1, visited);
+            }
+
+            return objectSnapshot.Count == 0 ? value.ToString() : objectSnapshot;
+        }
+        finally
+        {
+            if (!type.IsValueType)
+            {
+                visited.Remove(value);
+            }
+        }
+    }
+
+    private static object? TryReadProperty(object instance, string propertyName)
+    {
+        try
+        {
+            return instance.GetType().GetProperty(propertyName)?.GetValue(instance);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? BuildFallbackJson(Dictionary<string, object?> snapshot)
+    {
+        try
+        {
+            return JsonSerializer.Serialize(snapshot.ToDictionary(pair => pair.Key, pair => pair.Value?.ToString()));
         }
         catch
         {

@@ -34,6 +34,21 @@ public interface IGitRepositoryInfoService
     /// Creates a stash entry for the current working tree.
     /// </summary>
     GitStashChangesResult StashWorkingTreeChanges(string workspacePath, string? message);
+
+    /// <summary>
+    /// Creates a new local branch from the current HEAD without checking it out.
+    /// </summary>
+    GitBranchCreateResult CreateBranch(string workspacePath, string branchName);
+
+    /// <summary>
+    /// Stages the specified files and creates a commit on the current branch.
+    /// </summary>
+    GitCommitResult StageAndCommit(string workspacePath, IReadOnlyList<string> relativePaths, string message);
+
+    /// <summary>
+    /// Merges the specified branch into the current branch. Fails on conflicts rather than auto-resolving.
+    /// </summary>
+    GitMergeResult MergeBranch(string workspacePath, string sourceBranch);
 }
 
 /// <summary>
@@ -107,3 +122,30 @@ public sealed record GitWorkingTreeDiffResult(bool IsGitRepository, bool HasDiff
 /// <param name="BranchInfo">Current branch information after the stash attempt.</param>
 /// <param name="WorkingTreeStatus">Working tree status after the stash attempt.</param>
 public sealed record GitStashChangesResult(bool Succeeded, string? FailureCode, string? ErrorMessage, GitRepositoryBranchInfo BranchInfo, GitWorkingTreeStatus WorkingTreeStatus);
+
+/// <summary>
+/// Describes the outcome of a branch creation request.
+/// </summary>
+/// <param name="Succeeded">Whether the branch was created successfully.</param>
+/// <param name="FailureCode">Machine-readable failure code when creation fails.</param>
+/// <param name="ErrorMessage">Human-readable error when creation fails.</param>
+/// <param name="BranchName">The name of the branch that was created.</param>
+public sealed record GitBranchCreateResult(bool Succeeded, string? FailureCode, string? ErrorMessage, string? BranchName);
+
+/// <summary>
+/// Describes the outcome of a stage-and-commit request.
+/// </summary>
+/// <param name="Succeeded">Whether the commit was created successfully.</param>
+/// <param name="FailureCode">Machine-readable failure code when commit fails.</param>
+/// <param name="ErrorMessage">Human-readable error when commit fails.</param>
+/// <param name="CommitSha">The SHA of the created commit, when successful.</param>
+public sealed record GitCommitResult(bool Succeeded, string? FailureCode, string? ErrorMessage, string? CommitSha);
+
+/// <summary>
+/// Describes the outcome of a merge request.
+/// </summary>
+/// <param name="Succeeded">Whether the merge completed without conflicts.</param>
+/// <param name="FailureCode">Machine-readable failure code when merge fails.</param>
+/// <param name="ErrorMessage">Human-readable error when merge fails.</param>
+/// <param name="ConflictingFiles">Files that conflicted during the merge, if any.</param>
+public sealed record GitMergeResult(bool Succeeded, string? FailureCode, string? ErrorMessage, IReadOnlyList<string>? ConflictingFiles);

@@ -67,17 +67,20 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
                 return;
             }
 
+            await this.TryWriteTerminalRunStateAsync(null, RunStatuses.CANCELED, RunTerminalPhases.CANCELED, RUN_CANCELED_MESSAGE).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
         }
         catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
         {
+            await this.TryWriteTerminalRunStateAsync(null, RunStatuses.STOPPED, RunTerminalPhases.STOPPED, RUN_STOPPED_MESSAGE).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.STOPPED, RUN_STOPPED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE));
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"[WebRunExecutionRunner] Run failed: {ex}");
+            await this.TryWriteTerminalRunStateAsync(null, RunStatuses.FAILED, RunTerminalPhases.FAILED, ex.Message).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.FAILED, INTERNAL_ERROR_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
         }
@@ -104,17 +107,20 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
                 return;
             }
 
+            await this.TryWriteTerminalRunStateAsync(runState.RunDirectory, RunStatuses.CANCELED, RunTerminalPhases.CANCELED, RUN_CANCELED_MESSAGE).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
         }
         catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
         {
+            await this.TryWriteTerminalRunStateAsync(runState.RunDirectory, RunStatuses.STOPPED, RunTerminalPhases.STOPPED, RUN_STOPPED_MESSAGE).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.STOPPED, RUN_STOPPED_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE));
         }
         catch (Exception ex)
         {
             await Console.Error.WriteLineAsync($"[WebRunExecutionRunner] Resume failed: {ex}");
+            await this.TryWriteTerminalRunStateAsync(runState.RunDirectory, RunStatuses.FAILED, RunTerminalPhases.FAILED, ex.Message).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.FAILED, INTERNAL_ERROR_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
         }
@@ -173,5 +179,36 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
     {
         this._snapshotStore.SetRunContext(runId, runDirectory);
         this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {runId} started.", Details: runDirectory));
+    }
+
+    private async Task TryWriteTerminalRunStateAsync(string? fallbackRunDirectory, string status, string phase, string failureMessage)
+    {
+        string? runDirectory = this._snapshotStore.GetSnapshot().RunDirectory;
+        if (string.IsNullOrWhiteSpace(runDirectory))
+        {
+            runDirectory = fallbackRunDirectory;
+        }
+
+        if (string.IsNullOrWhiteSpace(runDirectory))
+        {
+            return;
+        }
+
+        PersistedRunState? existingState = this._runStateStore.GetState(runDirectory);
+        if (existingState is null)
+        {
+            return;
+        }
+
+        await this._runStateStore.WriteStateAsync(
+            runDirectory,
+            existingState with
+            {
+                Status = status,
+                Phase = phase,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                FailureMessage = failureMessage
+            },
+            CancellationToken.None).ConfigureAwait(false);
     }
 }

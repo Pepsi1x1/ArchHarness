@@ -58,20 +58,52 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
         while (pendingSteps.Count > 0)
         {
-            ExecutionPlanStep step = await this.ResolveNextStepAsync(pendingSteps, completedStepIds, context.RunDirectory, context.RunId, cancellationToken).ConfigureAwait(false);
-            await this.ExecuteStepAsync(step, adapter, request, context, state, progress, cancellationToken).ConfigureAwait(false);
-
-            completedStepIds.Add(step.Id);
-            pendingSteps.Remove(step.Id);
-            await this._artefactStore.AppendEventAsync(context.RunDirectory, new
+            List<ExecutionPlanStep> batch = ResolveDependencyReadyBatch(pendingSteps, completedStepIds);
+            if (batch.Count == 0)
             {
-                runId = context.RunId,
-                source = step.Agent,
-                status = RunEventStatuses.COMPLETED,
-                stepId = step.Id,
-                objective = step.Objective,
-                message = $"Step {step.Id} completed"
-            }, cancellationToken).ConfigureAwait(false);
+                ExecutionPlanStep fallbackStep = pendingSteps.Values.OrderBy(candidate => candidate.Id).First();
+                await this._artefactStore.AppendEventAsync(context.RunDirectory, new
+                {
+                    runId = context.RunId,
+                    source = WellKnownSources.ORCHESTRATOR,
+                    message = $"Dependency deadlock detected; force-executing step {fallbackStep.Id}."
+                }, cancellationToken).ConfigureAwait(false);
+                batch = new List<ExecutionPlanStep> { fallbackStep };
+            }
+
+            IReadOnlyList<StepOutcome> batchOutcomes;
+            if (batch.Count == 1)
+            {
+                StepOutcome outcome = await this.ExecuteStepAsync(batch[0], adapter, request, context, state, progress, cancellationToken).ConfigureAwait(false);
+                batchOutcomes = new[] { outcome };
+            }
+            else
+            {
+                Task<StepOutcome>[] batchTasks = batch.Select(step =>
+                    this.ExecuteStepAsync(step, adapter, request, context, state, progress, cancellationToken))
+                    .ToArray();
+                batchOutcomes = await Task.WhenAll(batchTasks).ConfigureAwait(false);
+            }
+
+            foreach (StepOutcome outcome in batchOutcomes)
+            {
+                MergeOutcome(state, outcome);
+                if (outcome.BuildOutcome is not null)
+                {
+                    await this._artefactStore.WriteBuildResultAsync(context.RunDirectory, outcome.BuildOutcome, cancellationToken).ConfigureAwait(false);
+                }
+
+                completedStepIds.Add(outcome.StepId);
+                pendingSteps.Remove(outcome.StepId);
+                await this._artefactStore.AppendEventAsync(context.RunDirectory, new
+                {
+                    runId = context.RunId,
+                    source = outcome.Agent,
+                    status = RunEventStatuses.COMPLETED,
+                    stepId = outcome.StepId,
+                    message = $"Step {outcome.StepId} completed"
+                }, cancellationToken).ConfigureAwait(false);
+            }
 
             await this._stateStore.WriteRunStateAsync(
                 adapter.RootPath,
@@ -86,7 +118,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 cancellationToken).ConfigureAwait(false);
         }
 
-        return new StepExecutionResult(state.FrontendPlan, state.FilesTouched, state.Review, state.SecurityReview);
+        return new StepExecutionResult(state.FrontendPlan, state.FilesTouched, state.Review, state.SecurityReview, state.LastBuildOutcome);
     }
 
     internal static string BuildDelegatedPrompt(string objective, RunRequest request)
@@ -103,33 +135,17 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             ? ArchitectureLoopHelpers.EnumerateWorkspaceFiles(adapter.RootPath, languageScope)
             : filesTouched;
 
-    private async Task<ExecutionPlanStep> ResolveNextStepAsync(
+    internal static List<ExecutionPlanStep> ResolveDependencyReadyBatch(
         IReadOnlyDictionary<int, ExecutionPlanStep> pendingSteps,
-        ISet<int> completedStepIds,
-        string runDirectory,
-        string runId,
-        CancellationToken cancellationToken)
+        ISet<int> completedStepIds)
     {
-        ExecutionPlanStep? step = pendingSteps.Values
+        return pendingSteps.Values
+            .Where(candidate => DependenciesSatisfied(candidate, completedStepIds, pendingSteps))
             .OrderBy(candidate => candidate.Id)
-            .FirstOrDefault(candidate => DependenciesSatisfied(candidate, completedStepIds, pendingSteps));
-
-        if (step is not null)
-        {
-            return step;
-        }
-
-        ExecutionPlanStep fallbackStep = pendingSteps.Values.OrderBy(candidate => candidate.Id).First();
-        await this._artefactStore.AppendEventAsync(runDirectory, new
-        {
-            runId,
-            source = WellKnownSources.ORCHESTRATOR,
-            message = $"Dependency deadlock detected; force-executing step {fallbackStep.Id}."
-        }, cancellationToken).ConfigureAwait(false);
-        return fallbackStep;
+            .ToList();
     }
 
-    private async Task ExecuteStepAsync(
+    private async Task<StepOutcome> ExecuteStepAsync(
         ExecutionPlanStep step,
         IWorkspaceAdapter adapter,
         RunRequest request,
@@ -145,7 +161,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         this._stateAccessors.AgentExecutionContext.SetCurrent(this._stepDispatcher.ResolveAgentExecutionContext(step.Agent));
         try
         {
-            await this._stepDispatcher.ExecuteAsync(step, adapter, request, state, cancellationToken).ConfigureAwait(false);
+            return await this._stepDispatcher.ExecuteAsync(step, adapter, request, state.FilesTouched, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
         {
@@ -162,6 +178,37 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         finally
         {
             this._stateAccessors.AgentExecutionContext.SetCurrent(previousAgentContext);
+        }
+    }
+
+    internal static void MergeOutcome(ExecutionState state, StepOutcome outcome)
+    {
+        if (outcome.FilesTouchedDelta.Count > 0)
+        {
+            state.FilesTouched = state.FilesTouched
+                .Concat(outcome.FilesTouchedDelta)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        if (outcome.FrontendPlanDelta is not null)
+        {
+            state.FrontendPlan = outcome.FrontendPlanDelta;
+        }
+
+        if (outcome.Review is not null)
+        {
+            state.Review = outcome.Review;
+        }
+
+        if (outcome.SecurityReview is not null)
+        {
+            state.SecurityReview = outcome.SecurityReview;
+        }
+
+        if (outcome.BuildOutcome is not null)
+        {
+            state.LastBuildOutcome = outcome.BuildOutcome;
         }
     }
 
@@ -200,7 +247,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         string FrontendPlan,
         IReadOnlyList<string> FilesTouched,
         ArchitectureReview Review,
-        SecurityReview SecurityReview);
+        SecurityReview SecurityReview,
+        BuildOutcome? LastBuildOutcome = null);
 
     /// <summary>
     /// Mutable aggregate of data produced while steps execute.
@@ -218,5 +266,8 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
         /// <summary>Gets or sets the security review.</summary>
         public SecurityReview SecurityReview { get; set; } = new(Array.Empty<SecurityFinding>(), Array.Empty<string>());
+
+        /// <summary>Gets or sets the last known build outcome.</summary>
+        public BuildOutcome? LastBuildOutcome { get; set; }
     }
 }

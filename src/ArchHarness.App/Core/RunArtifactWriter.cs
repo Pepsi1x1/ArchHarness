@@ -70,6 +70,16 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
         => this._artefactStore.WriteBuildResultAsync(runDirectory, payload, cancellationToken);
 
     /// <summary>
+    /// Persists the completion validation result to the run directory.
+    /// </summary>
+    /// <param name="runDirectory">The run artefact directory.</param>
+    /// <param name="validation">The validation result to persist.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task representing the async operation.</returns>
+    public Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken)
+        => this._artefactStore.WriteCompletionValidationAsync(runDirectory, validation, cancellationToken);
+
+    /// <summary>
     /// Persists the final summary to the run directory.
     /// </summary>
     /// <param name="runDirectory">The run artefact directory.</param>
@@ -88,4 +98,12 @@ public sealed class RunArtifactWriter : IRunArtifactWriter
     /// <returns>A task representing the async operation.</returns>
     public Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken)
         => this._runStore.WriteRunLogAsync(runDirectory, payload, cancellationToken);
+
+    /// <inheritdoc />
+    public Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken)
+        => this._artefactStore.WriteClarificationSpecAsync(runDirectory, spec, cancellationToken);
+
+    /// <inheritdoc />
+    public Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken)
+        => this._artefactStore.WritePlanApprovalAsync(runDirectory, approval, cancellationToken);
 }

@@ -13,6 +13,7 @@ public static class RunStatuses
     public const string PAUSED = "paused";
     public const string CANCELING = "canceling";
     public const string COMPLETED = "completed";
+    public const string INCOMPLETE = "incomplete";
     public const string CANCELED = "canceled";
     public const string STOPPED = "stopped";
     public const string FAILED = "failed";

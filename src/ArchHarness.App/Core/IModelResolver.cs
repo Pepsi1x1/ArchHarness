@@ -14,6 +14,13 @@ public interface IModelResolver
     string Resolve(string role, IDictionary<string, string>? overrides);
 
     /// <summary>
+    /// Resolves the reasoning effort for the specified role.
+    /// </summary>
+    /// <param name="role">The agent role identifier.</param>
+    /// <returns>The configured reasoning effort, or null when none is configured.</returns>
+    string? ResolveReasoningEffort(string role);
+
+    /// <summary>
     /// Validates that the specified model is in the discovered Copilot model list when that list is available.
     /// </summary>
     /// <param name="model">The model identifier to validate.</param>

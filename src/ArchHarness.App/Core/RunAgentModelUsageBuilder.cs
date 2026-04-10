@@ -19,6 +19,7 @@ public sealed class RunAgentModelUsageBuilder : IRunAgentModelUsageBuilder
     private static readonly string[] _roles = new[]
     {
         "orchestration",
+        "planning",
         "frontend-developer",
         "backend-developer",
         "build",

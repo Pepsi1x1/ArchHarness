@@ -13,12 +13,18 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
         => TryResolveExecutable(commandName) is not null;
 
     /// <inheritdoc />
-    public async Task<LocalCommandResult> RunAsync(string commandName, IReadOnlyList<string> arguments, string? standardInput = null)
+    public async Task<LocalCommandResult> RunAsync(
+        string commandName,
+        IReadOnlyList<string> arguments,
+        string? standardInput = null,
+        string? workingDirectory = null,
+        CancellationToken cancellationToken = default)
     {
         string executablePath = TryResolveExecutable(commandName)
             ?? throw new Win32Exception($"Command '{commandName}' was not found on PATH.");
 
         bool redirectStandardInput = standardInput is not null;
+        string validatedWorkingDirectory = ResolveWorkingDirectory(workingDirectory);
 
         ProcessStartInfo info = new ProcessStartInfo(executablePath)
         {
@@ -26,7 +32,8 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            WorkingDirectory = validatedWorkingDirectory
         };
 
         foreach (string argument in arguments)
@@ -42,14 +49,28 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
 
         if (redirectStandardInput)
         {
-            await process.StandardInput.WriteAsync(standardInput).ConfigureAwait(false);
+            await process.StandardInput.WriteAsync(standardInput.AsMemory(), cancellationToken).ConfigureAwait(false);
             process.StandardInput.Close();
         }
 
-        Task waitForExitTask = process.WaitForExitAsync();
+        Task waitForExitTask = process.WaitForExitAsync(cancellationToken);
         await Task.WhenAll(stdoutTask, stderrTask, waitForExitTask).ConfigureAwait(false);
 
         return new LocalCommandResult(process.ExitCode, await stdoutTask.ConfigureAwait(false), await stderrTask.ConfigureAwait(false));
+    }
+
+    private static string ResolveWorkingDirectory(string? workingDirectory)
+    {
+        string resolved = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : Path.GetFullPath(workingDirectory);
+
+        if (!Directory.Exists(resolved))
+        {
+            throw new DirectoryNotFoundException($"Working directory '{resolved}' does not exist.");
+        }
+
+        return resolved;
     }
 
     private static string? TryResolveExecutable(string commandName)

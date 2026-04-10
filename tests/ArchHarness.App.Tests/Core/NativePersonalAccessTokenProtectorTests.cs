@@ -12,7 +12,7 @@ public sealed class NativePersonalAccessTokenProtectorTests
     {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.SetAvailability("security", true);
-        commandRunner.OnRunAsync = (command, arguments, standardInput) =>
+        commandRunner.OnRunAsync = (command, arguments, standardInput, _, _) =>
         {
             Assert.Equal("security", command);
             if (arguments[0] == "add-generic-password")
@@ -55,7 +55,7 @@ public sealed class NativePersonalAccessTokenProtectorTests
     {
         FakeCommandRunner commandRunner = new FakeCommandRunner();
         commandRunner.SetAvailability("secret-tool", true);
-        commandRunner.OnRunAsync = (command, arguments, standardInput) =>
+        commandRunner.OnRunAsync = (command, arguments, standardInput, _, _) =>
         {
             Assert.Equal("secret-tool", command);
             if (arguments[0] == "store")
@@ -108,15 +108,20 @@ public sealed class NativePersonalAccessTokenProtectorTests
 
         public Dictionary<string, string> StoredSecrets { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        public Func<string, IReadOnlyList<string>, string?, Task<LocalCommandResult>>? OnRunAsync { get; set; }
+        public Func<string, IReadOnlyList<string>, string?, string?, CancellationToken, Task<LocalCommandResult>>? OnRunAsync { get; set; }
 
         public string? LastSecretId { get; set; }
 
         public bool IsCommandAvailable(string commandName)
             => this._availability.TryGetValue(commandName, out bool available) && available;
 
-        public Task<LocalCommandResult> RunAsync(string commandName, IReadOnlyList<string> arguments, string? standardInput = null)
-            => this.OnRunAsync?.Invoke(commandName, arguments, standardInput)
+        public Task<LocalCommandResult> RunAsync(
+            string commandName,
+            IReadOnlyList<string> arguments,
+            string? standardInput = null,
+            string? workingDirectory = null,
+            CancellationToken cancellationToken = default)
+            => this.OnRunAsync?.Invoke(commandName, arguments, standardInput, workingDirectory, cancellationToken)
                 ?? Task.FromResult(new LocalCommandResult(0, string.Empty, string.Empty));
 
         public void SetAvailability(string commandName, bool available)

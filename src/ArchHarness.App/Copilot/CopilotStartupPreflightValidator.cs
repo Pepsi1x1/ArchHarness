@@ -229,7 +229,12 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
                         return null;
                     }
 
-                    return new DiscoveredModel(id, model.Billing?.Multiplier, model.Name);
+                    return new DiscoveredModel(
+                        id,
+                        model.Billing?.Multiplier,
+                        model.Name,
+                        model.SupportedReasoningEfforts?.ToArray(),
+                        model.DefaultReasoningEffort);
                 })
                 .OfType<DiscoveredModel>()
                 .ToArray();

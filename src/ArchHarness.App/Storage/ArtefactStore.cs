@@ -49,12 +49,38 @@ public interface IArtefactStore
     Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Writes the completion validation result to the run directory as JSON and Markdown.
+    /// </summary>
+    /// <param name="runDirectory">The run output directory.</param>
+    /// <param name="validation">The validation result to persist.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Appends an event as a JSONL line to the run events log.
     /// </summary>
     /// <param name="runDirectory">The run output directory.</param>
     /// <param name="evt">The event object to serialize and append.</param>
     /// <param name="cancellationToken">Token to signal cancellation.</param>
     Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Appends a raw SDK event as a JSONL line to the dedicated SDK event log.
+    /// </summary>
+    /// <param name="runDirectory">The run output directory.</param>
+    /// <param name="evt">The raw SDK event object to serialize and append.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the clarification spec as both JSON and Markdown to the run directory.
+    /// </summary>
+    Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Writes the plan approval decision to the run directory as JSON.
+    /// </summary>
+    Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -62,6 +88,8 @@ public interface IArtefactStore
 /// </summary>
 public sealed class ArtefactStore : IArtefactStore
 {
+    private const string NONE_LABEL = "(none)";
+
     /// <inheritdoc />
     public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
     {
@@ -91,10 +119,35 @@ public sealed class ArtefactStore : IArtefactStore
         => WriteRedactedJsonAsync(runDirectory, "BuildResult.json", payload, cancellationToken);
 
     /// <inheritdoc />
+    public async Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken)
+    {
+        await WriteRedactedJsonAsync(runDirectory, "CompletionValidation.json", validation, cancellationToken).ConfigureAwait(false);
+        await WriteRedactedTextAsync(runDirectory, "CompletionValidation.md", RenderCompletionValidationMarkdown(validation), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken)
+    {
+        await WriteRedactedJsonAsync(runDirectory, "ClarificationSpec.json", spec, cancellationToken).ConfigureAwait(false);
+        await WriteRedactedTextAsync(runDirectory, "ClarificationSpec.md", RenderSpecMarkdown(spec), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken)
+        => WriteRedactedJsonAsync(runDirectory, "PlanApproval.json", approval, cancellationToken);
+
+    /// <inheritdoc />
     public async Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+        => await AppendJsonLineAsync(runDirectory, "events.jsonl", evt, cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+        => await AppendJsonLineAsync(runDirectory, "copilot-sdk-events.jsonl", evt, cancellationToken).ConfigureAwait(false);
+
+    private static async Task AppendJsonLineAsync(string runDirectory, string fileName, object evt, CancellationToken cancellationToken)
     {
         string line = Redaction.RedactSecrets(JsonSerializer.Serialize(evt));
-        string eventsPath = Path.Combine(runDirectory, "events.jsonl");
+        string eventsPath = Path.Combine(runDirectory, fileName);
         await using FileStream stream = new FileStream(
             eventsPath,
             FileMode.Append,
@@ -118,5 +171,103 @@ public sealed class ArtefactStore : IArtefactStore
         string filePath = Path.Combine(Path.GetFullPath(runDirectory), fileName);
         string redacted = Redaction.RedactSecrets(content);
         return File.WriteAllTextAsync(filePath, redacted, cancellationToken);
+    }
+
+    private static string RenderSpecMarkdown(ClarificationSpec spec)
+    {
+        static string RenderList(IReadOnlyList<string> items)
+            => items.Count == 0 ? NONE_LABEL : string.Join(Environment.NewLine, items.Select(i => $"- {i}"));
+
+        static string RenderVerificationCommands(IReadOnlyList<VerificationCommand>? commands)
+            => commands is not { Count: > 0 }
+                ? NONE_LABEL
+                : string.Join(Environment.NewLine, commands.Select(command =>
+                    $"- {command.Name}: `{command.Command}` ({command.EvidenceType}, criterion: {command.Criterion ?? command.Name}, required: {command.Required})"));
+
+        return $"""
+            # Clarification Spec
+
+            ## Task
+            {spec.Task}
+
+            ## Desired Outcome
+            {spec.DesiredOutcome}
+
+            ## In Scope
+            {RenderList(spec.InScope)}
+
+            ## Out of Scope
+            {RenderList(spec.OutOfScope)}
+
+            ## Constraints
+            {RenderList(spec.Constraints)}
+
+            ## Assumptions
+            {RenderList(spec.Assumptions)}
+
+            ## Acceptance Criteria
+            {RenderList(spec.AcceptanceCriteria)}
+
+            ## Likely Touchpoints
+            {RenderList(spec.LikelyTouchpoints)}
+
+            ## Open Questions
+            {RenderList(spec.OpenQuestions)}
+
+            ## Decision Notes
+            {RenderList(spec.DecisionNotes)}
+
+            ## Verification Commands
+            {RenderVerificationCommands(spec.VerificationCommands)}
+            """;
+    }
+
+    private static string RenderCompletionValidationMarkdown(CompletionValidationResult validation)
+    {
+        string assessment = RenderImplementationAssessment(validation.Assessment);
+        string criteria = validation.CriterionResults.Count == 0
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, validation.CriterionResults.Select(result => $"- [{(result.Passed ? "PASS" : "FAIL")}] {result.Criterion}{Environment.NewLine}  Evidence: {result.Evidence}"));
+        string evidence = validation.Evidence is not { Count: > 0 }
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, validation.Evidence.Select(item =>
+                $"- [{(item.Passed ? "PASS" : "FAIL")}] {item.Name} ({item.Type}){Environment.NewLine}  Command: {item.Command}{Environment.NewLine}  ExitCode: {item.ExitCode}{Environment.NewLine}  Criterion: {item.Criterion ?? item.Name}{Environment.NewLine}  Summary: {item.Summary}"));
+        string attempts = validation.Attempts is not { Count: > 0 }
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, validation.Attempts.Select(attempt =>
+                $"- Attempt {attempt.AttemptNumber}: {(attempt.Passed ? "PASS" : "FAIL")} at {attempt.TimestampUtc:O}{Environment.NewLine}  Summary: {attempt.Summary}{Environment.NewLine}  RemediationPrompt: {attempt.RemediationPrompt ?? "(none)"}"));
+
+        return $"""
+            # Completion Validation
+
+            - Passed: {validation.Passed}
+            - Summary: {validation.Summary}
+            - Confidence: {validation.Confidence}
+
+            ## Implementation Assessment
+            {assessment}
+
+            ## Criteria
+            {criteria}
+
+            ## Evidence
+            {evidence}
+
+            ## Attempts
+            {attempts}
+            """;
+    }
+
+    private static string RenderImplementationAssessment(ImplementationAssessment? assessment)
+    {
+        if (assessment is null)
+        {
+            return NONE_LABEL;
+        }
+
+        string evidence = assessment.Evidence.Count == 0 ? NONE_LABEL : string.Join("; ", assessment.Evidence);
+        string gaps = assessment.Gaps.Count == 0 ? NONE_LABEL : string.Join("; ", assessment.Gaps);
+        string risks = assessment.Risks.Count == 0 ? NONE_LABEL : string.Join("; ", assessment.Risks);
+        return $"- Verdict: {assessment.Verdict}{Environment.NewLine}- MateriallyImplemented: {assessment.MateriallyImplemented}{Environment.NewLine}- Summary: {assessment.Summary}{Environment.NewLine}- Evidence: {evidence}{Environment.NewLine}- Gaps: {gaps}{Environment.NewLine}- Risks: {risks}";
     }
 }

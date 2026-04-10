@@ -20,6 +20,7 @@ public sealed record PlanExecutionResult(
 public sealed class PlanExecutor : IPlanExecutor
 {
     private readonly OrchestrationAgent _orchestrationAgent;
+    private readonly PlanningAgent _planningAgent;
     private readonly IAgentStepExecutor _agentStepExecutor;
     private readonly IRunEventLogger _eventLogger;
     private readonly IRunArtifactWriter _artifactWriter;
@@ -33,14 +34,64 @@ public sealed class PlanExecutor : IPlanExecutor
     /// <param name="artifactWriter">Writer for run artifacts.</param>
     public PlanExecutor(
         OrchestrationAgent orchestrationAgent,
+        PlanningAgent planningAgent,
         IAgentStepExecutor agentStepExecutor,
         IRunEventLogger eventLogger,
         IRunArtifactWriter artifactWriter)
     {
         this._orchestrationAgent = orchestrationAgent;
+        this._planningAgent = planningAgent;
         this._agentStepExecutor = agentStepExecutor;
         this._eventLogger = eventLogger;
         this._artifactWriter = artifactWriter;
+    }
+
+    /// <summary>
+    /// Builds the execution plan without executing it, so approval can occur before dispatch.
+    /// </summary>
+    public async Task<ExecutionPlan> BuildPlanAsync(
+        RunRequest request,
+        IWorkspaceAdapter adapter,
+        string runId,
+        string runDirectory,
+        PlanningContext? planningContext,
+        CancellationToken cancellationToken)
+    {
+        OrchestrationAgent planningAgent = ResolvePlanningAgent(request.Workflow);
+        ExecutionPlan plan = await planningAgent.BuildExecutionPlanAsync(
+            request,
+            adapter.RootPath,
+            planningContext,
+            planningAgent.Id,
+            planningAgent.Role,
+            cancellationToken);
+
+        await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Execution plan built" }, cancellationToken);
+        await this._artifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
+
+        return plan;
+    }
+
+    /// <summary>
+    /// Executes an already-built (and approved) plan.
+    /// </summary>
+    public async Task<PlanExecutionResult> ExecuteApprovedPlanAsync(
+        ExecutionPlan plan,
+        RunRequest request,
+        IWorkspaceAdapter adapter,
+        StepExecutionContext context,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        AgentStepExecutor.StepExecutionResult stepResult = await this._agentStepExecutor.ExecuteAsync(
+            plan,
+            adapter,
+            request,
+            context,
+            progress,
+            cancellationToken);
+
+        return new PlanExecutionResult(plan, stepResult);
     }
 
     /// <summary>
@@ -64,6 +115,7 @@ public sealed class PlanExecutor : IPlanExecutor
         ExecutionPlan plan = await this._orchestrationAgent.BuildExecutionPlanAsync(
             request,
             adapter.RootPath,
+            null,
             this._orchestrationAgent.Id,
             this._orchestrationAgent.Role,
             cancellationToken);
@@ -103,4 +155,9 @@ public sealed class PlanExecutor : IPlanExecutor
 
         return new PlanExecutionResult(plan, stepResult);
     }
+
+    private OrchestrationAgent ResolvePlanningAgent(string workflow)
+        => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase)
+            ? this._planningAgent
+            : this._orchestrationAgent;
 }

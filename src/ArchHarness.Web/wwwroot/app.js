@@ -19,6 +19,8 @@ const state = {
   pendingInteractionSignature: null,
   dismissedPendingInteractionSignature: null,
   pendingInteractionDraft: "",
+  pendingInteractionDrafts: {},
+  pendingPlanRevisionDraft: "",
   interactionPollHandle: null,
   pendingInteractionAbortController: null,
   pendingInteractionInFlight: false,
@@ -93,6 +95,14 @@ let reviewPrState = {
 };
 
 const desktopBridge = globalThis.archHarnessDesktop || null;
+let keepAwakeActive = false;
+
+function syncKeepAwake(running) {
+  if (!desktopBridge?.setKeepAwake) return;
+  if (running === keepAwakeActive) return;
+  keepAwakeActive = running;
+  desktopBridge.setKeepAwake(running);
+}
 
 function setDesktopInset(name, value) {
   document.documentElement.style.setProperty(name, `${Math.max(0, Math.ceil(value))}px`);
@@ -153,6 +163,7 @@ const GITHUB_AUTH_MODE_PAT = 1;
 const GITHUB_AUTH_MODE_OAUTH = 2;
 const WORKFLOWS = Object.freeze({
   AUTO: "auto",
+  PLANNING: "planning",
   ARCHITECTURE_LOOP: "architecture-loop"
 });
 const REVIEW_LOOP_DEFAULT_SELECTION = Object.freeze({
@@ -193,6 +204,7 @@ const LEGACY_AUTOFILL_PROMPTS = new Set([
 const ROLE_LABELS = {
   conversation: "Conversation",
   orchestration: "Orchestration",
+  planning: "Planning",
   frontendDeveloper: "Frontend Developer",
   backendDeveloper: "Backend Developer",
   build: "Build",
@@ -251,6 +263,7 @@ const elements = {
   startRun: document.getElementById("start-run"),
   pauseRun: document.getElementById("pause-run"),
   cancelRun: document.getElementById("cancel-run"),
+  implementRun: document.getElementById("implement-run-button"),
   modalBackdrop: document.getElementById("modal-backdrop"),
   newProjectModal: document.getElementById("new-project-modal"),
   newProjectForm: document.getElementById("new-project-form"),
@@ -324,6 +337,11 @@ async function requestJson(url, options) {
   const response = await fetch(url, options);
   if (response.status === 204) {
     return null;
+  }
+
+  if (response.status === 202) {
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
   }
 
   if (!response.ok) {
@@ -1677,22 +1695,26 @@ function isArchitectureModeEnabled() {
   return elements.runMode.value === "architecture-review";
 }
 
+function isPlanningModeEnabled() {
+  return elements.runMode.value === "planning";
+}
+
 function getPromptPlaceholder() {
+  if (isPlanningModeEnabled()) {
+    return "Describe the work to plan before implementation.";
+  }
+
   return isArchitectureModeEnabled()
     ? "Describe the architecture concern or boundary you want reviewed."
     : "Describe the change or review you want ArchHarness to run.";
 }
 
-function buildArchitecturePrompt(prompt) {
-  if (!prompt) {
-    return null;
-  }
-
+function buildArchitecturePrompt() {
   if (elements.architectureReviewPreset.value === "full-review") {
-    return `Run a full workspace architecture review. Focus area: ${prompt}`;
+    return "Run a full workspace architecture review.";
   }
 
-  return prompt;
+  return null;
 }
 
 function buildPullRequestArchitecturePrompt(project) {
@@ -1885,6 +1907,7 @@ function renderActiveRun() {
     if (!state.isUnloading) {
       closeEventStream(STREAM_CONNECTION_STATES.IDLE);
     }
+    syncKeepAwake(false);
     renderTopbar();
     return;
   }
@@ -1904,6 +1927,7 @@ function renderActiveRun() {
     closeEventStream(STREAM_CONNECTION_STATES.IDLE);
   }
 
+  syncKeepAwake(!!activeRun.isRunning);
   renderTopbar();
 }
 
@@ -2117,12 +2141,20 @@ function renderComposerState() {
     && !!selectedRun
     && !state.activeRun?.isRunning
     && !!state.selectedRunState?.canResume;
+  const showImplementButton = !!activeProject
+    && !!selectedRun
+    && !state.activeRun?.isRunning
+    && !!state.selectedRunState?.canHandoff;
   elements.architectureReviewChip.classList.toggle("hidden", !architectureMode);
   elements.taskPrompt.placeholder = getPromptPlaceholder();
   elements.startRun.disabled = !activeProject || !elements.taskPrompt.value.trim();
+  elements.startRun.textContent = isPlanningModeEnabled() ? "Plan" : "Send";
   elements.resumeRun.classList.toggle("hidden", !showResumeButton);
   elements.resumeRun.disabled = !showResumeButton;
   elements.resumeRun.textContent = "Resume";
+  elements.implementRun.classList.toggle("hidden", !showImplementButton);
+  elements.implementRun.disabled = !showImplementButton;
+  elements.implementRun.textContent = "Start Implementation";
   renderComposerDropdowns();
 }
 
@@ -2425,6 +2457,8 @@ function agentDisplayName(source) {
     "Architecture": "Architecture",
     "orchestration": "Orchestration",
     "Orchestration": "Orchestration",
+    "planning": "Planning",
+    "Planning": "Planning",
     "build": "Build",
     "Build": "Build"
   };
@@ -2670,7 +2704,7 @@ function renderSettingsForm() {
 
   elements.settingsGrid.replaceChildren();
   Object.entries(ROLE_LABELS).forEach(([key, label]) => {
-    const wrapper = document.createElement("label");
+    const wrapper = document.createElement("div");
     wrapper.className = "field settings-field";
     const title = document.createElement("span");
     title.textContent = label;
@@ -2688,8 +2722,67 @@ function renderSettingsForm() {
 
     setSelectValue(select, state.settings.agentModels[key]);
     wrapper.append(title, select);
+
+    if (key === "planning") {
+      const reasoningTitle = document.createElement("span");
+      reasoningTitle.textContent = "Planning Reasoning";
+
+      const reasoningSelect = document.createElement("select");
+      reasoningSelect.id = "settings-reasoning-planning";
+      populatePlanningReasoningSelect(
+        reasoningSelect,
+        select.value,
+        state.settings.agentReasoningEfforts?.planning || "");
+
+      select.addEventListener("change", () => {
+        populatePlanningReasoningSelect(reasoningSelect, select.value, reasoningSelect.value || "");
+      });
+
+      wrapper.append(reasoningTitle, reasoningSelect);
+    }
+
     elements.settingsGrid.append(wrapper);
   });
+}
+
+function getModelMetadata(modelId) {
+  return state.models.find(model => model.modelId === modelId) || null;
+}
+
+function populatePlanningReasoningSelect(select, modelId, selectedValue) {
+  select.replaceChildren();
+
+  const model = getModelMetadata(modelId);
+  let supportedReasoningEfforts = [];
+  if (Array.isArray(model?.supportedReasoningEfforts)) {
+    supportedReasoningEfforts = model.supportedReasoningEfforts;
+  }
+  let defaultLabel = "Reasoning not supported";
+  if (model?.defaultReasoningEffort) {
+    defaultLabel = `Model default (${model.defaultReasoningEffort})`;
+  } else if (supportedReasoningEfforts.length > 0) {
+    defaultLabel = "Model default";
+  }
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = defaultLabel;
+  select.append(defaultOption);
+
+  supportedReasoningEfforts.forEach(reasoningEffort => {
+    const option = document.createElement("option");
+    option.value = reasoningEffort;
+    option.textContent = reasoningEffort.toUpperCase();
+    select.append(option);
+  });
+
+  select.disabled = supportedReasoningEfforts.length === 0;
+  if (select.disabled) {
+    select.value = "";
+    return;
+  }
+
+  setSelectValue(select, supportedReasoningEfforts.includes(selectedValue) ? selectedValue : "");
 }
 
 function collectSettingsPayload() {
@@ -2698,8 +2791,15 @@ function collectSettingsPayload() {
     agentModels[key] = document.getElementById(`settings-model-${key}`).value;
   });
 
+  const planningReasoningSelect = document.getElementById("settings-reasoning-planning");
+
   return {
     agentModels,
+    agentReasoningEfforts: {
+      planning: planningReasoningSelect && !planningReasoningSelect.disabled
+        ? planningReasoningSelect.value || null
+        : null
+    },
     defaults: {
       permissionHandlerMode: elements.settingsPermissionMode.value,
       architectureReviewMode: elements.settingsArchitectureMode.checked,
@@ -2714,18 +2814,30 @@ function collectRunRequest() {
     throw new Error("Select a project before starting a run.");
   }
 
+  const planningMode = isPlanningModeEnabled();
   const architectureLoopMode = isArchitectureModeEnabled();
   const prompt = elements.taskPrompt.value.trim();
-  const architecturePrompt = architectureLoopMode
-    ? buildArchitecturePrompt(prompt)
-    : null;
   const reviewLoopAgents = getSelectedReviewLoopAgents();
+  let architecturePrompt = null;
+  let workflow = WORKFLOWS.AUTO;
+  let architectureLoopPrompt = null;
+
+  if (architectureLoopMode) {
+    architecturePrompt = buildArchitecturePrompt();
+    architectureLoopPrompt = architecturePrompt || project.architectureReviewPrompt || null;
+  }
+
+  if (planningMode) {
+    workflow = WORKFLOWS.PLANNING;
+  } else if (architectureLoopMode) {
+    workflow = WORKFLOWS.ARCHITECTURE_LOOP;
+  }
 
   return {
-    taskPrompt: architectureLoopMode ? "" : prompt,
+    taskPrompt: prompt,
     workspacePath: project.workspacePath,
     workspaceMode: project.workspaceMode,
-    workflow: architectureLoopMode ? WORKFLOWS.ARCHITECTURE_LOOP : WORKFLOWS.AUTO,
+    workflow,
     projectName: project.displayName,
     projectId: project.projectId,
     modelOverrides: null,
@@ -2733,7 +2845,7 @@ function collectRunRequest() {
     permissionHandlerMode: elements.permissionMode.value || project.permissionHandlerMode,
     reviewLoopAgents,
     architectureLoopMode,
-    architectureLoopPrompt: architectureLoopMode ? (architecturePrompt || project.architectureReviewPrompt || null) : null
+    architectureLoopPrompt
   };
 }
 
@@ -2758,6 +2870,7 @@ async function submitRunRequest(request) {
   renderActiveRun();
   connectEventStream();
   await loadProjects();
+  await syncSelectedRunStateToCurrentSelection();
 }
 
 async function cancelRun() {
@@ -2818,6 +2931,11 @@ function getSelectedProjectAndRun() {
   return { project, run };
 }
 
+async function syncSelectedRunStateToCurrentSelection() {
+  const { project, run } = getSelectedProjectAndRun();
+  await loadSelectedRunState(project, run);
+}
+
 function renderRunDetailsActions() {
   renderComposerState();
 }
@@ -2860,8 +2978,35 @@ async function resumeSelectedRun() {
     renderActiveRun();
     connectEventStream();
     await loadProjects();
+    await syncSelectedRunStateToCurrentSelection();
   } catch (error) {
     console.error("Resume failed:", error);
+    renderComposerState();
+  }
+}
+
+async function startImplementationFromPlanningRun() {
+  const { project, run } = getSelectedProjectAndRun();
+  if (!project || !run) {
+    return;
+  }
+
+  elements.implementRun.disabled = true;
+  elements.implementRun.textContent = "Starting...";
+
+  try {
+    state.activeRun = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/handoff?workspacePath=${encodeURIComponent(project.workspacePath)}`, {
+      method: "POST"
+    });
+    state.activeRunId = state.activeRun?.runId || null;
+    setSelectValue(elements.runMode, "standard");
+    saveShellState();
+    renderActiveRun();
+    connectEventStream();
+    await loadProjects();
+    await syncSelectedRunStateToCurrentSelection();
+  } catch (error) {
+    console.error("Implementation handoff failed:", error);
     renderComposerState();
   }
 }
@@ -2892,9 +3037,11 @@ function connectEventStream() {
     if (!snapshot?.isRunning) {
       closeEventStream(STREAM_CONNECTION_STATES.IDLE);
       await loadProjects();
+      await syncSelectedRunStateToCurrentSelection();
     } else if (!sidebarRefreshed && snapshot?.runId) {
       sidebarRefreshed = true;
       await loadProjects();
+      await syncSelectedRunStateToCurrentSelection();
     }
   };
 
@@ -2924,9 +3071,12 @@ function getPendingInteractionSignature(pending) {
     kind: pending.kind || "",
     question: pending.question || "",
     choices: Array.isArray(pending.choices) ? pending.choices : [],
+    questions: Array.isArray(pending.questions) ? pending.questions : [],
     permissionKind: pending.permissionKind || "",
     sessionId: pending.sessionId || "",
-    toolName: pending.toolName || ""
+    toolName: pending.toolName || "",
+    specMarkdown: pending.specMarkdown || "",
+    planSummary: pending.planSummary || ""
   });
 }
 
@@ -2936,6 +3086,8 @@ function dismissPendingInteraction() {
   state.pendingInteraction = null;
   state.pendingInteractionSignature = null;
   state.pendingInteractionDraft = "";
+  state.pendingInteractionDrafts = {};
+  state.pendingPlanRevisionDraft = "";
 }
 
 function setPendingInteraction(pending) {
@@ -2954,6 +3106,8 @@ function setPendingInteraction(pending) {
   if (changed) {
     state.pendingInteractionSignature = normalizedSignature;
     state.pendingInteractionDraft = "";
+    state.pendingInteractionDrafts = {};
+    state.pendingPlanRevisionDraft = "";
   }
 
   return changed;
@@ -2966,23 +3120,37 @@ function renderInlineInteraction() {
     elements.inlineInteraction.replaceChildren();
     state.pendingInteractionSignature = null;
     state.pendingInteractionDraft = "";
+    state.pendingInteractionDrafts = {};
+    state.pendingPlanRevisionDraft = "";
     renderTopbar();
     return;
   }
 
   elements.inlineInteraction.classList.remove("hidden");
   elements.inlineInteraction.replaceChildren();
+  elements.inlineInteraction.classList.toggle("plan-approval", pending.kind === "plan-approval");
+  const hasQuestionBatch = pending.kind === "user-input"
+    && Array.isArray(pending.questions)
+    && pending.questions.length > 0;
 
   const label = document.createElement("div");
   label.className = "inline-interaction-copy";
   const labelTitle = document.createElement("strong");
-  labelTitle.textContent = pending.kind === "permission" ? "Permission" : "Input";
+  const isPlanningQuestion = pending.kind === "user-input"
+    && (state.selectedRunState?.workflow === WORKFLOWS.PLANNING || isPlanningModeEnabled());
+  labelTitle.textContent = pending.kind === "permission"
+    ? "Permission"
+    : pending.kind === "plan-approval"
+      ? "Plan Approval"
+      : isPlanningQuestion
+        ? hasQuestionBatch ? "Planning Questions" : "Planning Question"
+        : hasQuestionBatch ? "Questions" : "Input";
   const labelQuestion = document.createElement("p");
   labelQuestion.textContent = pending.question || "";
   label.append(labelTitle, labelQuestion);
   elements.inlineInteraction.append(label);
 
-  if (pending.choices?.length) {
+  if (pending.choices?.length && pending.kind !== "plan-approval" && !hasQuestionBatch) {
     const row = document.createElement("div");
     row.className = "choice-row";
     pending.choices.forEach(choice => {
@@ -3004,6 +3172,76 @@ function renderInlineInteraction() {
       interactionAction("Deny", "danger", () => submitPermission(false))
     );
     elements.inlineInteraction.append(actions);
+  } else if (pending.kind === "plan-approval") {
+    const scroll = document.createElement("div");
+    scroll.className = "inline-interaction-scroll";
+    if (pending.specMarkdown) {
+      const specSection = document.createElement("div");
+      specSection.className = "inline-interaction-spec";
+      specSection.innerHTML = pending.specMarkdown;
+      scroll.append(specSection);
+    }
+    if (pending.planSummary) {
+      const planSection = document.createElement("div");
+      planSection.className = "inline-interaction-plan";
+      const planPre = document.createElement("pre");
+      planPre.textContent = pending.planSummary;
+      planSection.append(planPre);
+      scroll.append(planSection);
+    }
+    const revisionField = document.createElement("label");
+    revisionField.className = "inline-interaction-field inline-interaction-revision";
+    const revisionTitle = document.createElement("span");
+    revisionTitle.textContent = "Revision request";
+    const revisionCopy = document.createElement("p");
+    revisionCopy.className = "inline-interaction-field-copy";
+    revisionCopy.textContent = "Describe specific changes or request a materially different plan.";
+    const revisionInput = document.createElement("textarea");
+    revisionInput.rows = 4;
+    revisionInput.placeholder = "Examples: split backend and frontend work, add migration steps, or reduce scope to API only.";
+    revisionInput.value = state.pendingPlanRevisionDraft;
+    revisionInput.addEventListener("input", () => {
+      state.pendingPlanRevisionDraft = revisionInput.value;
+    });
+    revisionField.append(revisionTitle, revisionCopy, revisionInput);
+    scroll.append(revisionField);
+    elements.inlineInteraction.append(scroll);
+    const actions = document.createElement("div");
+    actions.className = "button-row plan-approval-actions";
+    actions.append(
+      interactionAction("Approve", "primary", () => submitPlanApproval("approved", null)),
+      interactionAction("Revise Plan", "secondary", () => submitPlanApproval("regenerate", state.pendingPlanRevisionDraft.trim() || null)),
+      interactionAction("Cancel", "danger", () => submitPlanApproval("canceled"))
+    );
+    elements.inlineInteraction.append(actions);
+  } else if (hasQuestionBatch) {
+    const questionList = document.createElement("div");
+    questionList.className = "inline-interaction-question-list";
+    pending.questions.forEach((question, index) => {
+      const field = document.createElement("label");
+      field.className = "inline-interaction-field";
+      const title = document.createElement("span");
+      title.textContent = `Question ${index + 1}`;
+      const copy = document.createElement("p");
+      copy.className = "inline-interaction-field-copy";
+      copy.textContent = question;
+      const input = document.createElement("textarea");
+      input.rows = 3;
+      input.placeholder = "Type your response";
+      const draftKey = String(index);
+      input.value = state.pendingInteractionDrafts[draftKey] || "";
+      input.addEventListener("input", () => {
+        state.pendingInteractionDrafts[draftKey] = input.value;
+      });
+      field.append(title, copy, input);
+      questionList.append(field);
+    });
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+    actions.append(interactionAction("Submit", "primary", () => submitUserInputs(
+      pending.questions.map((_, index) => state.pendingInteractionDrafts[String(index)] || "")
+    )));
+    elements.inlineInteraction.append(questionList, actions);
   } else {
     const input = document.createElement("textarea");
     input.rows = 3;
@@ -3061,6 +3299,9 @@ async function submitUserInput(answer) {
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
   const pendingSnapshot = state.pendingInteraction;
+  const pendingInteractionDraft = state.pendingInteractionDraft;
+  const pendingInteractionDrafts = { ...state.pendingInteractionDrafts };
+  const pendingPlanRevisionDraft = state.pendingPlanRevisionDraft;
   dismissPendingInteraction();
   renderInlineInteraction();
 
@@ -3074,6 +3315,37 @@ async function submitUserInput(answer) {
   } catch (error) {
     state.dismissedPendingInteractionSignature = null;
     setPendingInteraction(pendingSnapshot);
+    state.pendingInteractionDraft = pendingInteractionDraft;
+    state.pendingInteractionDrafts = pendingInteractionDrafts;
+    state.pendingPlanRevisionDraft = pendingPlanRevisionDraft;
+    renderInlineInteraction();
+    throw error;
+  }
+}
+
+async function submitUserInputs(answers) {
+  clearPendingInteractionPoll();
+  abortPendingInteractionPoll();
+  const pendingSnapshot = state.pendingInteraction;
+  const pendingInteractionDraft = state.pendingInteractionDraft;
+  const pendingInteractionDrafts = { ...state.pendingInteractionDrafts };
+  const pendingPlanRevisionDraft = state.pendingPlanRevisionDraft;
+  dismissPendingInteraction();
+  renderInlineInteraction();
+
+  try {
+    await requestJson("/api/interactions/user-input", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers })
+    });
+    await pollPendingInteraction();
+  } catch (error) {
+    state.dismissedPendingInteractionSignature = null;
+    setPendingInteraction(pendingSnapshot);
+    state.pendingInteractionDraft = pendingInteractionDraft;
+    state.pendingInteractionDrafts = pendingInteractionDrafts;
+    state.pendingPlanRevisionDraft = pendingPlanRevisionDraft;
     renderInlineInteraction();
     throw error;
   }
@@ -3096,6 +3368,34 @@ async function submitPermission(approved) {
   } catch (error) {
     state.dismissedPendingInteractionSignature = null;
     setPendingInteraction(pendingSnapshot);
+    renderInlineInteraction();
+    throw error;
+  }
+}
+
+async function submitPlanApproval(decision, reason) {
+  clearPendingInteractionPoll();
+  abortPendingInteractionPoll();
+  const pendingSnapshot = state.pendingInteraction;
+  const pendingInteractionDraft = state.pendingInteractionDraft;
+  const pendingInteractionDrafts = { ...state.pendingInteractionDrafts };
+  const pendingPlanRevisionDraft = state.pendingPlanRevisionDraft;
+  dismissPendingInteraction();
+  renderInlineInteraction();
+
+  try {
+    await requestJson("/api/interactions/plan-approval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision, reason: reason || null })
+    });
+    await pollPendingInteraction();
+  } catch (error) {
+    state.dismissedPendingInteractionSignature = null;
+    setPendingInteraction(pendingSnapshot);
+    state.pendingInteractionDraft = pendingInteractionDraft;
+    state.pendingInteractionDrafts = pendingInteractionDrafts;
+    state.pendingPlanRevisionDraft = pendingPlanRevisionDraft;
     renderInlineInteraction();
     throw error;
   }
@@ -5135,6 +5435,10 @@ function attachHandlers() {
   }));
   elements.resumeRun?.addEventListener("click", () => resumeSelectedRun().catch(error => {
     console.error("Resume failed:", error);
+    renderRunDetailsActions();
+  }));
+  elements.implementRun?.addEventListener("click", () => startImplementationFromPlanningRun().catch(error => {
+    console.error("Implementation handoff failed:", error);
     renderRunDetailsActions();
   }));
   elements.taskPrompt.addEventListener("input", () => {

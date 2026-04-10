@@ -1,8 +1,10 @@
 using System.Text.Json;
+using ArchHarness.App.Agents;
 using ArchHarness.App.Constants;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
+using GitHub.Copilot.SDK;
 
 namespace ArchHarness.App.Core;
 
@@ -36,13 +38,19 @@ public interface IOrchestratedRunProcessor
 public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 {
     private const string RUN_COMPLETED_MESSAGE = "Run completed";
+    private const string PLANNING_COMPLETED_MESSAGE = "Planning completed";
+    private const int MAX_CLARIFICATION_ROUNDS = 3;
     private const string RUN_STARTED_MESSAGE = "Run started";
     private const string RUN_RESUMED_MESSAGE = "Run resumed";
 
     private readonly OrchestratorRunServices _services;
     private readonly RuntimeStateAccessors _stateAccessors;
-    private readonly IRunCompletionValidator _completionValidator;
     private readonly IRunAgentModelUsageBuilder _agentModelUsageBuilder;
+    private readonly IPlanApprovalBridge? _approvalBridge;
+    private readonly ICopilotUserInputBridge? _userInputBridge;
+    private readonly OrchestrationAgent _orchestrationAgent;
+    private readonly PlanningAgent _planningAgent;
+    private readonly IRunVerificationWorkflow _verificationWorkflow;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratedRunProcessor"/> class.
@@ -50,13 +58,21 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
     public OrchestratedRunProcessor(
         OrchestratorRunServices services,
         RuntimeStateAccessors stateAccessors,
-        IRunCompletionValidator completionValidator,
-        IRunAgentModelUsageBuilder agentModelUsageBuilder)
+        IRunAgentModelUsageBuilder agentModelUsageBuilder,
+        OrchestrationAgent orchestrationAgent,
+        PlanningAgent planningAgent,
+        IRunVerificationWorkflow verificationWorkflow,
+        IPlanApprovalBridge? approvalBridge = null,
+        ICopilotUserInputBridge? userInputBridge = null)
     {
         this._services = services;
         this._stateAccessors = stateAccessors;
-        this._completionValidator = completionValidator;
         this._agentModelUsageBuilder = agentModelUsageBuilder;
+        this._orchestrationAgent = orchestrationAgent;
+        this._planningAgent = planningAgent;
+        this._verificationWorkflow = verificationWorkflow;
+        this._approvalBridge = approvalBridge;
+        this._userInputBridge = userInputBridge;
     }
 
     /// <inheritdoc />
@@ -107,12 +123,31 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_RESUMED_MESSAGE));
             }
 
-            (ExecutionPlan plan, PlanExecutionResult planResult) = await this.ExecutePlanAsync(context, progress, runId, runDirectory, cancellationToken).ConfigureAwait(false);
+            (ExecutionPlan plan, PlanExecutionResult planResult, ClarificationSpec? spec, IReadOnlyList<ClarificationAnswer> clarificationAnswers) = await this.ExecutePlanAsync(context, progress, runId, runDirectory, cancellationToken).ConfigureAwait(false);
+
+            if (IsPlanningWorkflow(request.Workflow))
+            {
+                await this.FinalizePlanningRunAsync(
+                    checkpoint,
+                    request,
+                    plan,
+                    spec,
+                    clarificationAnswers,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+
+                await sessionEventCts.CancelAsync().ConfigureAwait(false);
+                await agentEventCts.CancelAsync().ConfigureAwait(false);
+                await DrainPumpAsync(sessionEventPump).ConfigureAwait(false);
+                await DrainPumpAsync(agentEventPump).ConfigureAwait(false);
+                return new RunArtefacts(runId, runDirectory);
+            }
 
             string frontendPlan = planResult.StepResult.FrontendPlan;
             IReadOnlyList<string> filesTouched = planResult.StepResult.FilesTouched;
             ArchitectureReview review = planResult.StepResult.Review;
             SecurityReview securityReview = planResult.StepResult.SecurityReview;
+            BuildOutcome? lastBuildOutcome = planResult.StepResult.LastBuildOutcome;
 
             (review, securityReview, filesTouched) = await this.RunArchitectureLoopAsync(
                 context,
@@ -130,11 +165,15 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 checkpoint,
                 request,
                 plan,
+                adapter,
                 frontendPlan,
                 filesTouched,
                 review,
                 securityReview,
                 resumeState?.ReviewIteration ?? 0,
+                spec,
+                clarificationAnswers,
+                lastBuildOutcome,
                 progress,
                 cancellationToken).ConfigureAwait(false);
 
@@ -147,6 +186,11 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             await this.WriteTerminalRunStateAsync(runDirectory, RunStatuses.CANCELED, RunTerminalPhases.CANCELED, "Run canceled before completion.").ConfigureAwait(false);
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            await this.WriteTerminalRunStateAsync(runDirectory, RunStatuses.CANCELED, RunTerminalPhases.CANCELED, ex.Message).ConfigureAwait(false);
             throw;
         }
         catch (Exception ex)
@@ -205,6 +249,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             workflow = request.Workflow,
             projectName = request.ProjectName,
             buildCommand = request.BuildCommand,
+            planningSourceRunId = request.PlanningSourceRunId,
             permissionHandlerMode = request.PermissionHandlerMode,
             reviewLoopAgents,
             modelOverrides = request.ModelOverrides
@@ -224,7 +269,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         }
     }
 
-    private async Task<(ExecutionPlan Plan, PlanExecutionResult Result)> ExecutePlanAsync(
+    private async Task<(ExecutionPlan Plan, PlanExecutionResult Result, ClarificationSpec? Spec, IReadOnlyList<ClarificationAnswer> ClarificationAnswers)> ExecutePlanAsync(
         OrchestratedRunContext context,
         IProgress<RuntimeProgressEvent>? progress,
         string runId,
@@ -236,44 +281,128 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         PersistedRunState? resumeState = context.ResumeState;
         try
         {
-            if (resumeState is null)
+            // Resume path: if we have a persisted plan, execute from checkpoint.
+            if (resumeState is not null)
             {
-                PlanExecutionResult built = await this._services.RunPhases.PlanExecutor.BuildAndExecuteAsync(
+                string executionPlanPath = FileSystemStorageHelper.GetRunFilePath(runDirectory, "ExecutionPlan.json");
+                if (File.Exists(executionPlanPath))
+                {
+                    ExecutionPlan plan = JsonSerializer.Deserialize<ExecutionPlan>(
+                            await File.ReadAllTextAsync(executionPlanPath, cancellationToken).ConfigureAwait(false),
+                            JsonDefaults.INDENTED)
+                        ?? throw new InvalidOperationException($"Unable to deserialize persisted execution plan for run '{runId}'.");
+
+                    // Resume from plan-approval if the plan was built but not yet approved.
+                    if (string.Equals(resumeState.Phase, RunPhases.PLAN_APPROVAL, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ClarificationSpec? resumeSpec = resumeState.Spec;
+                        plan = await this.RunPlanningApprovalLoopAsync(
+                            request,
+                            adapter,
+                            plan,
+                            resumeSpec,
+                            resumeState.ClarificationAnswers ?? Array.Empty<ClarificationAnswer>(),
+                            runId,
+                            runDirectory,
+                            progress,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    if (IsPlanningWorkflow(request.Workflow))
+                    {
+                        return (plan, CreatePlanningPlanExecutionResult(plan), resumeState.Spec, resumeState.ClarificationAnswers ?? Array.Empty<ClarificationAnswer>());
+                    }
+
+                    PlanExecutionResult resumed = await this._services.RunPhases.PlanExecutor.ExecuteExistingPlanAsync(
+                        plan,
+                        request,
+                        adapter,
+                        new PlanResumeContext(runId, runDirectory, resumeState),
+                        progress,
+                        cancellationToken).ConfigureAwait(false);
+                    return (plan, resumed, resumeState.Spec, resumeState.ClarificationAnswers ?? Array.Empty<ClarificationAnswer>());
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.PlanningSourceRunId))
+            {
+                (ExecutionPlan seededPlan, ClarificationSpec? seededSpec, IReadOnlyList<ClarificationAnswer> seededAnswers) = await this.LoadPlanningSourcePlanAsync(
                     request,
                     adapter,
                     runId,
                     runDirectory,
-                    progress,
                     cancellationToken).ConfigureAwait(false);
-                return (built.Plan, built);
-            }
 
-            string executionPlanPath = FileSystemStorageHelper.GetRunFilePath(runDirectory, "ExecutionPlan.json");
-            if (!File.Exists(executionPlanPath))
-            {
-                PlanExecutionResult rebuilt = await this._services.RunPhases.PlanExecutor.BuildAndExecuteAsync(
+                PlanExecutionResult seededResult = await this._services.RunPhases.PlanExecutor.ExecuteApprovedPlanAsync(
+                    seededPlan,
                     request,
                     adapter,
-                    runId,
-                    runDirectory,
+                    new StepExecutionContext(runId, runDirectory, null),
                     progress,
                     cancellationToken).ConfigureAwait(false);
-                return (rebuilt.Plan, rebuilt);
+                return (seededPlan, seededResult, seededSpec, seededAnswers);
             }
 
-            ExecutionPlan plan = JsonSerializer.Deserialize<ExecutionPlan>(
-                    await File.ReadAllTextAsync(executionPlanPath, cancellationToken).ConfigureAwait(false),
-                    JsonDefaults.INDENTED)
-                ?? throw new InvalidOperationException($"Unable to deserialize persisted execution plan for run '{runId}'.");
+            // Fresh run: clarification/spec → plan → approval → execution.
 
-            PlanExecutionResult resumed = await this._services.RunPhases.PlanExecutor.ExecuteExistingPlanAsync(
-                plan,
+            // Phase: Clarification/Spec generation
+            ClarificationSpec? spec = null;
+            IReadOnlyList<ClarificationAnswer> clarificationAnswers = resumeState?.ClarificationAnswers ?? Array.Empty<ClarificationAnswer>();
+            if (IsPlanningWorkflow(request.Workflow))
+            {
+                OrchestrationAgent planningAgent = this.ResolvePlanningAgent(request.Workflow);
+                progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Generating clarification spec"));
+                (spec, clarificationAnswers) = await this.RunClarificationLoopAsync(
+                    request,
+                    adapter.RootPath,
+                    runId,
+                    runDirectory,
+                    clarificationAnswers,
+                    planningAgent,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            // Phase: Plan building
+            ExecutionPlan builtPlan = await this._services.RunPhases.PlanExecutor.BuildPlanAsync(
                 request,
                 adapter,
-                new PlanResumeContext(runId, runDirectory, resumeState),
+                runId,
+                runDirectory,
+                new PlanningContext(spec, clarificationAnswers),
+                cancellationToken).ConfigureAwait(false);
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Execution plan built"));
+
+            // Phase: Plan approval (when bridge is available)
+            if (IsPlanningWorkflow(request.Workflow))
+            {
+                builtPlan = await this.RunPlanningApprovalLoopAsync(
+                    request,
+                    adapter,
+                    builtPlan,
+                    spec,
+                    clarificationAnswers,
+                    runId,
+                    runDirectory,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (IsPlanningWorkflow(request.Workflow))
+            {
+                return (builtPlan, CreatePlanningPlanExecutionResult(builtPlan), spec, clarificationAnswers);
+            }
+
+            // Phase: Execution
+            PlanExecutionResult result = await this._services.RunPhases.PlanExecutor.ExecuteApprovedPlanAsync(
+                builtPlan,
+                request,
+                adapter,
+                new StepExecutionContext(runId, runDirectory, null),
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            return (plan, resumed);
+
+            return (builtPlan, result, spec, clarificationAnswers);
         }
         catch (Exception ex) when (StructuredOutputParser.IsParseFailure(ex))
         {
@@ -288,6 +417,364 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             }, cancellationToken).ConfigureAwait(false);
             throw;
         }
+    }
+
+    private async Task<PlanApproval?> RequestPlanApprovalAsync(
+        ClarificationSpec? spec,
+        ExecutionPlan plan,
+        string runId,
+        string runDirectory,
+        CancellationToken cancellationToken)
+    {
+        if (this._approvalBridge is null)
+        {
+            return new PlanApproval(PlanApprovalDecisions.APPROVED, DateTimeOffset.UtcNow, string.Empty);
+        }
+
+        RunStateCheckpoint checkpoint = new(runId, runDirectory, this._stateAccessors.WorkspaceRoot.Current ?? string.Empty,
+            this._services.SessionContext.RunStateStore.GetState(runDirectory)?.Request
+            ?? throw new InvalidOperationException("Cannot approve plan: no run state found."));
+
+        // Persist plan-approval phase so it's resumable.
+        PersistedRunState? existingState = this._services.SessionContext.RunStateStore.GetState(runDirectory);
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                existingState?.CompletedStepIds ?? Array.Empty<int>(),
+                existingState?.ReviewIteration ?? 0,
+                existingState?.FrontendPlan ?? string.Empty,
+                existingState?.FilesTouched ?? Array.Empty<string>(),
+                existingState?.Review ?? new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                existingState?.SecurityReview ?? new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>()),
+                Spec: spec),
+            RunPhases.PLAN_APPROVAL,
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+        string planSummary = string.Join(Environment.NewLine, plan.Steps.Select(s => $"  {s.Id}. [{s.Agent}] {s.Objective}"));
+        string specMarkdown = spec is not null
+            ? $"Task: {spec.Task}\nOutcome: {spec.DesiredOutcome}\nCriteria: {string.Join(", ", spec.AcceptanceCriteria)}"
+            : "(no spec generated)";
+
+        PlanApprovalResponse response = await this._approvalBridge.RequestApprovalAsync(
+            new PlanApprovalRequest(
+                spec ?? new ClarificationSpec(string.Empty, string.Empty, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>()),
+                plan,
+                specMarkdown,
+                planSummary),
+            cancellationToken).ConfigureAwait(false);
+
+        string planHash = plan.Steps.Count.ToString();
+        PlanApproval approval = new PlanApproval(response.Decision, DateTimeOffset.UtcNow, planHash, response.Reason);
+        await this._services.RunInfrastructure.ArtifactWriter.WritePlanApprovalAsync(runDirectory, approval, cancellationToken).ConfigureAwait(false);
+        await this._services.RunInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
+        {
+            runId,
+            source = WellKnownSources.ORCHESTRATOR,
+            message = $"Plan approval decision: {approval.Decision}",
+            decision = approval.Decision,
+            reason = approval.Reason
+        }, cancellationToken).ConfigureAwait(false);
+
+        PersistedRunState? updatedState = this._services.SessionContext.RunStateStore.GetState(runDirectory);
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                updatedState?.CompletedStepIds ?? Array.Empty<int>(),
+                updatedState?.ReviewIteration ?? 0,
+                updatedState?.FrontendPlan ?? string.Empty,
+                updatedState?.FilesTouched ?? Array.Empty<string>(),
+                updatedState?.Review ?? new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                updatedState?.SecurityReview ?? new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>()),
+                Spec: spec,
+                Approval: approval,
+                LastBuildOutcome: updatedState?.LastBuildOutcome),
+            RunPhases.PLAN_APPROVAL,
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+        return approval;
+    }
+
+    private async Task<(ClarificationSpec Spec, IReadOnlyList<ClarificationAnswer> Answers)> RunClarificationLoopAsync(
+        RunRequest request,
+        string workspaceRoot,
+        string runId,
+        string runDirectory,
+        IReadOnlyList<ClarificationAnswer> existingAnswers,
+        OrchestrationAgent clarificationAgent,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        List<ClarificationAnswer> clarificationAnswers = existingAnswers.ToList();
+        ClarificationSpec spec = await clarificationAgent.BuildClarificationSpecAsync(
+            request,
+            workspaceRoot,
+            clarificationAnswers,
+            clarificationAgent.Id,
+            clarificationAgent.Role,
+            cancellationToken).ConfigureAwait(false);
+
+        await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
+
+        if (!IsPlanningWorkflow(request.Workflow) || this._userInputBridge is null)
+        {
+            return (spec, clarificationAnswers);
+        }
+
+        for (int round = 1; round <= MAX_CLARIFICATION_ROUNDS && spec.OpenQuestions.Count > 0; round++)
+        {
+            List<string> unansweredQuestions = spec.OpenQuestions
+                .Where(question => clarificationAnswers.All(answer => !string.Equals(answer.Question, question, StringComparison.Ordinal)))
+                .ToList();
+
+            if (unansweredQuestions.Count == 0)
+            {
+                break;
+            }
+
+            progress?.Report(new RuntimeProgressEvent(
+                DateTimeOffset.UtcNow,
+                WellKnownSources.ORCHESTRATOR,
+                "Awaiting planning clarification",
+                unansweredQuestions.Count == 1
+                    ? unansweredQuestions[0]
+                    : string.Join(Environment.NewLine, unansweredQuestions.Select(question => $"- {question}"))));
+
+            List<UserInputRequest> requests = unansweredQuestions
+                .Select(question => new UserInputRequest
+                {
+                    Question = question,
+                    Choices = new List<string>()
+                })
+                .ToList();
+
+            IReadOnlyList<UserInputResponse> responses = unansweredQuestions.Count == 1
+                ? new[] { await this._userInputBridge.RequestInputAsync(requests[0]).ConfigureAwait(false) }
+                : await this._userInputBridge.RequestInputsAsync(requests).ConfigureAwait(false);
+
+            for (int index = 0; index < unansweredQuestions.Count; index++)
+            {
+                UserInputResponse response = index < responses.Count
+                    ? responses[index]
+                    : new UserInputResponse { Answer = string.Empty, WasFreeform = true };
+                clarificationAnswers.Add(new ClarificationAnswer(unansweredQuestions[index], response.Answer ?? string.Empty));
+            }
+
+            await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
+
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Regenerating clarification spec"));
+            spec = await clarificationAgent.BuildClarificationSpecAsync(
+                request,
+                workspaceRoot,
+                clarificationAnswers,
+                clarificationAgent.Id,
+                clarificationAgent.Role,
+                cancellationToken).ConfigureAwait(false);
+            await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
+        }
+
+        return (spec, clarificationAnswers);
+    }
+
+    private async Task<ExecutionPlan> RunPlanningApprovalLoopAsync(
+        RunRequest request,
+        IWorkspaceAdapter adapter,
+        ExecutionPlan plan,
+        ClarificationSpec? spec,
+        IReadOnlyList<ClarificationAnswer> clarificationAnswers,
+        string runId,
+        string runDirectory,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            PlanApproval? approval = await this.RequestPlanApprovalAsync(spec, plan, runId, runDirectory, cancellationToken).ConfigureAwait(false);
+            if (approval is null || string.Equals(approval.Decision, PlanApprovalDecisions.CANCELED, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new OperationCanceledException("Plan approval was canceled by user.");
+            }
+
+            if (!string.Equals(approval.Decision, PlanApprovalDecisions.REGENERATE, StringComparison.OrdinalIgnoreCase))
+            {
+                return plan;
+            }
+
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Regenerating execution plan", approval.Reason));
+            plan = await this._services.RunPhases.PlanExecutor.BuildPlanAsync(
+                request,
+                adapter,
+                runId,
+                runDirectory,
+                new PlanningContext(spec, clarificationAnswers, approval.Reason),
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private OrchestrationAgent ResolvePlanningAgent(string workflow)
+        => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase)
+            ? this._planningAgent
+            : this._orchestrationAgent;
+
+    private async Task PersistClarificationStateAsync(
+        string runId,
+        string runDirectory,
+        ClarificationSpec spec,
+        IReadOnlyList<ClarificationAnswer> clarificationAnswers,
+        CancellationToken cancellationToken)
+    {
+        await this._services.RunInfrastructure.ArtifactWriter.WriteClarificationSpecAsync(runDirectory, spec, cancellationToken).ConfigureAwait(false);
+        await this._services.RunInfrastructure.EventLogger.AppendEventAsync(
+            runDirectory,
+            new
+            {
+                runId,
+                source = WellKnownSources.ORCHESTRATOR,
+                message = "Clarification spec generated",
+                clarificationAnswerCount = clarificationAnswers.Count
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        PersistedRunState? existingState = this._services.SessionContext.RunStateStore.GetState(runDirectory)
+            ?? throw new InvalidOperationException("Cannot persist clarification state: no run state found.");
+        RunStateCheckpoint checkpoint = new(runId, runDirectory, existingState.WorkspaceRoot, existingState.Request);
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                existingState.CompletedStepIds,
+                existingState.ReviewIteration,
+                existingState.FrontendPlan,
+                existingState.FilesTouched,
+                existingState.Review,
+                existingState.SecurityReview,
+                Spec: spec,
+                Approval: existingState.Approval,
+                LastBuildOutcome: existingState.LastBuildOutcome,
+                ClarificationAnswers: clarificationAnswers),
+            RunPhases.CLARIFICATION,
+            null,
+            cancellationToken,
+            existingState.Status).ConfigureAwait(false);
+    }
+
+    private async Task<(ExecutionPlan Plan, ClarificationSpec? Spec, IReadOnlyList<ClarificationAnswer> ClarificationAnswers)> LoadPlanningSourcePlanAsync(
+        RunRequest request,
+        IWorkspaceAdapter adapter,
+        string runId,
+        string runDirectory,
+        CancellationToken cancellationToken)
+    {
+        string planningRunId = request.PlanningSourceRunId
+            ?? throw new InvalidOperationException("Cannot seed implementation without a planning source run id.");
+        string planningRunDirectory = Path.Combine(FileSystemStorageHelper.GetRunsRootPath(adapter.RootPath), planningRunId);
+        PersistedRunState planningState = this._services.SessionContext.RunStateStore.GetState(planningRunDirectory)
+            ?? throw new InvalidOperationException($"Planning run '{planningRunId}' could not be found.");
+
+        if (!IsPlanningWorkflow(planningState.Request.Workflow))
+        {
+            throw new InvalidOperationException($"Run '{planningRunId}' is not a planning run.");
+        }
+
+        if (!string.Equals(planningState.Phase, RunPhases.HANDOFF_READY, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(planningState.Status, RunStatuses.COMPLETED, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Planning run '{planningRunId}' is not ready for implementation handoff.");
+        }
+
+        string executionPlanPath = FileSystemStorageHelper.GetRunFilePath(planningRunDirectory, "ExecutionPlan.json");
+        if (!File.Exists(executionPlanPath))
+        {
+            throw new InvalidOperationException($"Planning run '{planningRunId}' does not have a persisted execution plan.");
+        }
+
+        ExecutionPlan plan = JsonSerializer.Deserialize<ExecutionPlan>(
+                await File.ReadAllTextAsync(executionPlanPath, cancellationToken).ConfigureAwait(false),
+                JsonDefaults.INDENTED)
+            ?? throw new InvalidOperationException($"Unable to deserialize the execution plan for planning run '{planningRunId}'.");
+
+        await this._services.RunInfrastructure.ArtifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken).ConfigureAwait(false);
+        if (planningState.Spec is not null)
+        {
+            await this._services.RunInfrastructure.ArtifactWriter.WriteClarificationSpecAsync(runDirectory, planningState.Spec, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (planningState.Approval is not null)
+        {
+            await this._services.RunInfrastructure.ArtifactWriter.WritePlanApprovalAsync(runDirectory, planningState.Approval, cancellationToken).ConfigureAwait(false);
+        }
+
+        await this._services.RunInfrastructure.EventLogger.AppendEventAsync(
+            runDirectory,
+            new
+            {
+                runId,
+                source = WellKnownSources.ORCHESTRATOR,
+                message = $"Seeded implementation from planning run {planningRunId}",
+                planningSourceRunId = planningRunId
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        return (plan, planningState.Spec, planningState.ClarificationAnswers ?? Array.Empty<ClarificationAnswer>());
+    }
+
+    private async Task FinalizePlanningRunAsync(
+        RunStateCheckpoint checkpoint,
+        RunRequest request,
+        ExecutionPlan plan,
+        ClarificationSpec? spec,
+        IReadOnlyList<ClarificationAnswer> clarificationAnswers,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArchitectureReview emptyArchitectureReview = new(Array.Empty<ArchitectureFinding>(), Array.Empty<string>());
+        SecurityReview emptySecurityReview = new(Array.Empty<SecurityFinding>(), Array.Empty<string>());
+
+        await this._services.RunInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(
+            checkpoint.RunDirectory,
+            BuildPlanningSummary(plan, spec),
+            cancellationToken).ConfigureAwait(false);
+
+        string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
+        IReadOnlyList<CopilotModelUsage> usage = this._services.SessionContext.CopilotClient.GetUsageSnapshot();
+        IReadOnlyList<object> agentModelUsage = this._agentModelUsageBuilder.Build(request.ModelOverrides);
+
+        await this._services.RunInfrastructure.ArtifactWriter.WriteRunLogAsync(checkpoint.RunDirectory, new
+        {
+            status = RunStatuses.COMPLETED,
+            projectId = request.ProjectId,
+            projectName = request.ProjectName,
+            runTitle = request.RunTitle,
+            request.WorkspaceMode,
+            request.Workflow,
+            request.PermissionHandlerMode,
+            modelOverrides,
+            agents = agentModelUsage,
+            copilotUsage = usage
+        }, cancellationToken).ConfigureAwait(false);
+
+        await this._services.RunInfrastructure.EventLogger.AppendEventAsync(
+            checkpoint.RunDirectory,
+            new { runId = checkpoint.RunId, source = WellKnownSources.ORCHESTRATOR, message = PLANNING_COMPLETED_MESSAGE },
+            cancellationToken).ConfigureAwait(false);
+
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                plan.Steps.Select(step => step.Id).ToArray(),
+                0,
+                string.Empty,
+                Array.Empty<string>(),
+                emptyArchitectureReview,
+                emptySecurityReview,
+                Spec: spec,
+                Approval: this._services.SessionContext.RunStateStore.GetState(checkpoint.RunDirectory)?.Approval,
+                ClarificationAnswers: clarificationAnswers),
+            RunPhases.HANDOFF_READY,
+            null,
+            cancellationToken,
+            RunStatuses.COMPLETED).ConfigureAwait(false);
+        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, PLANNING_COMPLETED_MESSAGE));
     }
 
     private async Task<(ArchitectureReview Review, SecurityReview SecurityReview, IReadOnlyList<string> FilesTouched)> RunArchitectureLoopAsync(
@@ -342,11 +829,15 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         RunStateCheckpoint checkpoint,
         RunRequest request,
         ExecutionPlan plan,
+        IWorkspaceAdapter adapter,
         string frontendPlan,
         IReadOnlyList<string> filesTouched,
         ArchitectureReview review,
         SecurityReview securityReview,
         int reviewIteration,
+        ClarificationSpec? spec,
+        IReadOnlyList<ClarificationAnswer> clarificationAnswers,
+        BuildOutcome? lastBuildOutcome,
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
@@ -354,15 +845,24 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         await this._services.RunInfrastructure.ArtifactWriter.WriteSecurityReviewAsync(checkpoint.RunDirectory, securityReview, cancellationToken).ConfigureAwait(false);
         await this.WriteRunStateAsync(
             checkpoint,
-            new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview),
+            new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview, Spec: spec, LastBuildOutcome: lastBuildOutcome, ClarificationAnswers: clarificationAnswers),
             RunPhases.FINALIZING,
             null,
             cancellationToken).ConfigureAwait(false);
 
-        bool completed = await this._completionValidator.ValidateAsync(plan, review, securityReview, request.ModelOverrides, cancellationToken).ConfigureAwait(false);
+        VerificationWorkflowResult verificationResult = await this._verificationWorkflow.RunAsync(
+            new RunVerificationRequest(request, plan, review, securityReview, spec, lastBuildOutcome, filesTouched),
+            adapter,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+        lastBuildOutcome = verificationResult.LastBuildOutcome;
+        filesTouched = verificationResult.FilesTouched;
+        CompletionValidationResult validationResult = verificationResult.ValidationResult;
+        bool completed = validationResult.Passed;
+        await this._services.RunInfrastructure.ArtifactWriter.WriteCompletionValidationAsync(checkpoint.RunDirectory, validationResult, cancellationToken).ConfigureAwait(false);
         await this._services.RunInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(
             checkpoint.RunDirectory,
-            BuildFinalSummary(frontendPlan, filesTouched, review, securityReview, completed),
+            BuildFinalSummary(frontendPlan, filesTouched, review, securityReview, validationResult),
             cancellationToken).ConfigureAwait(false);
 
         string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
@@ -371,7 +871,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
         await this._services.RunInfrastructure.ArtifactWriter.WriteRunLogAsync(checkpoint.RunDirectory, new
         {
-            status = completed ? RunStatuses.COMPLETED : "incomplete",
+            status = completed ? RunStatuses.COMPLETED : RunStatuses.INCOMPLETE,
             projectId = request.ProjectId,
             projectName = request.ProjectName,
             runTitle = request.RunTitle,
@@ -380,17 +880,18 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             request.PermissionHandlerMode,
             modelOverrides,
             agents = agentModelUsage,
-            copilotUsage = usage
+            copilotUsage = usage,
+            completionValidation = validationResult
         }, cancellationToken).ConfigureAwait(false);
 
         await this._services.RunInfrastructure.EventLogger.AppendEventAsync(checkpoint.RunDirectory, new { runId = checkpoint.RunId, source = WellKnownSources.ORCHESTRATOR, message = RUN_COMPLETED_MESSAGE }, cancellationToken).ConfigureAwait(false);
         await this.WriteRunStateAsync(
             checkpoint,
-            new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview),
-            RunTerminalPhases.COMPLETED,
+            new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview, Spec: spec, LastBuildOutcome: lastBuildOutcome, CompletionValidation: validationResult, ClarificationAnswers: clarificationAnswers),
+            completed ? RunTerminalPhases.COMPLETED : RunTerminalPhases.INCOMPLETE,
             null,
             cancellationToken,
-            RunStatuses.COMPLETED).ConfigureAwait(false);
+            completed ? RunStatuses.COMPLETED : RunStatuses.INCOMPLETE).ConfigureAwait(false);
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_COMPLETED_MESSAGE));
     }
 
@@ -440,7 +941,13 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 progress.FilesTouched.ToArray(),
                 progress.Review,
                 progress.SecurityReview,
-                failureMessage),
+                failureMessage,
+                Spec: progress.Spec ?? existingState?.Spec,
+                Approval: progress.Approval ?? existingState?.Approval,
+                LastBuildOutcome: progress.LastBuildOutcome ?? existingState?.LastBuildOutcome,
+                CompletionValidation: progress.CompletionValidation ?? existingState?.CompletionValidation,
+                ClarificationAnswers: progress.ClarificationAnswers?.ToArray() ?? existingState?.ClarificationAnswers,
+                HandoffRunId: existingState?.HandoffRunId),
             cancellationToken);
     }
 
@@ -449,20 +956,56 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         IReadOnlyList<string> filesTouched,
         ArchitectureReview review,
         SecurityReview securityReview,
-        bool completed)
+        CompletionValidationResult validationResult)
     {
         int securityHighCount = securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         int architectureHighCount = review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         string filesTouchedList = string.Join(", ", filesTouched);
+        string failedCriteria = validationResult.CriterionResults.Count == 0
+            ? "(none)"
+            : string.Join(", ", validationResult.CriterionResults.Where(result => !result.Passed).Select(result => result.Criterion));
         return $"""
             # Final Summary
-            - Completed: {completed}
+            - Completed: {validationResult.Passed}
+            - MateriallyImplemented: {validationResult.Assessment?.MateriallyImplemented}
             - FrontendPlan: {frontendPlan}
             - FilesTouched: {filesTouchedList}
             - SecurityHighFindings: {securityHighCount}
             - ArchitectureHighFindings: {architectureHighCount}
+            - FailedCriteria: {failedCriteria}
             """;
     }
+
+    private static string BuildPlanningSummary(ExecutionPlan plan, ClarificationSpec? spec)
+    {
+        string criteria = spec is null || spec.AcceptanceCriteria.Count == 0
+            ? "(none)"
+            : string.Join(", ", spec.AcceptanceCriteria);
+        string stepList = plan.Steps.Count == 0
+            ? "(none)"
+            : string.Join(Environment.NewLine, plan.Steps.Select(step => $"- {step.Id}. [{step.Agent}] {step.Objective}"));
+
+        return $"""
+            # Planning Summary
+            - Task: {spec?.Task ?? "(no clarified task)"}
+            - DesiredOutcome: {spec?.DesiredOutcome ?? "(no clarified outcome)"}
+            - AcceptanceCriteria: {criteria}
+            - Steps:
+            {stepList}
+            """;
+    }
+
+    private static bool IsPlanningWorkflow(string? workflow)
+        => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase);
+
+    private static PlanExecutionResult CreatePlanningPlanExecutionResult(ExecutionPlan plan)
+        => new(
+            plan,
+            new AgentStepExecutor.StepExecutionResult(
+                string.Empty,
+                Array.Empty<string>(),
+                new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())));
 
     private static async Task DrainPumpAsync(Task pumpTask)
     {
@@ -484,5 +1027,10 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         string FrontendPlan,
         IReadOnlyList<string> FilesTouched,
         ArchitectureReview Review,
-        SecurityReview SecurityReview);
+        SecurityReview SecurityReview,
+        ClarificationSpec? Spec = null,
+        PlanApproval? Approval = null,
+        BuildOutcome? LastBuildOutcome = null,
+        CompletionValidationResult? CompletionValidation = null,
+        IReadOnlyList<ClarificationAnswer>? ClarificationAnswers = null);
 }

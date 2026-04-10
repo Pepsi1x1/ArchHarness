@@ -55,7 +55,8 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
         }
 
         return Directory.GetFiles(normalizedRunDirectory)
-            .OrderBy(file => file)
+            .OrderBy(GetArtifactSortOrder)
+            .ThenBy(file => file, StringComparer.OrdinalIgnoreCase)
             .Select(file => BuildArtifact(file, previewLength))
             .ToList();
     }
@@ -238,6 +239,16 @@ public sealed class FileSystemRunHistoryCatalog : IRunHistoryCatalog
 
         return $"{sizeInBytes / 1024d / 1024d:F1} MB";
     }
+
+    private static int GetArtifactSortOrder(string filePath)
+        => Path.GetFileName(filePath) switch
+        {
+            "CompletionValidation.md" => 0,
+            "CompletionValidation.json" => 1,
+            "FinalSummary.md" => 2,
+            "BuildResult.json" => 3,
+            _ => 10
+        };
 
     private static PersistedRunSummaryMetadata TryReadRunSummaryMetadata(string runDirectory)
     {

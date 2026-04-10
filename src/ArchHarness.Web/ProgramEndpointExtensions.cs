@@ -55,6 +55,7 @@ internal static class ProgramEndpointExtensions
         endpoints.MapGet("/api/runs/{runId}/artifacts", ProgramHandlers.GetRunArtifacts);
         endpoints.MapGet("/api/runs/{runId}/events", ProgramHandlers.GetRunEvents);
         endpoints.MapGet("/api/runs/{runId}/state", ProgramHandlers.GetRunState);
+        endpoints.MapPost("/api/runs/{runId}/handoff", ProgramHandlers.StartImplementationFromPlanningRunAsync);
         endpoints.MapPost("/api/runs", ProgramHandlers.StartRunAsync);
         endpoints.MapPost("/api/runs/{runId}/resume", ProgramHandlers.ResumeRunAsync);
         endpoints.MapPost("/api/runs/active/pause", ProgramHandlers.PauseActiveRunAsync);
@@ -68,6 +69,7 @@ internal static class ProgramEndpointExtensions
         endpoints.MapGet("/api/interactions/pending", ProgramHandlers.GetPendingInteraction);
         endpoints.MapPost("/api/interactions/user-input", ProgramHandlers.SubmitUserInput);
         endpoints.MapPost("/api/interactions/permission", ProgramHandlers.SubmitPermission);
+        endpoints.MapPost("/api/interactions/plan-approval", ProgramHandlers.SubmitPlanApproval);
 
         return endpoints;
     }

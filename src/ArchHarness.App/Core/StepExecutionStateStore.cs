@@ -50,7 +50,8 @@ public sealed class StepExecutionStateStore : IStepExecutionStateStore
             FrontendPlan = resumeState?.FrontendPlan ?? string.Empty,
             FilesTouched = resumeState?.FilesTouched ?? Array.Empty<string>(),
             Review = resumeState?.Review ?? new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
-            SecurityReview = resumeState?.SecurityReview ?? new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())
+            SecurityReview = resumeState?.SecurityReview ?? new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>()),
+            LastBuildOutcome = resumeState?.LastBuildOutcome
         };
 
     /// <inheritdoc />
@@ -84,7 +85,10 @@ public sealed class StepExecutionStateStore : IStepExecutionStateStore
                 state.FilesTouched.ToArray(),
                 state.Review,
                 state.SecurityReview,
-                failureMessage),
+                failureMessage,
+                Spec: existingState?.Spec,
+                Approval: existingState?.Approval,
+                LastBuildOutcome: state.LastBuildOutcome ?? existingState?.LastBuildOutcome),
             cancellationToken);
     }
 }

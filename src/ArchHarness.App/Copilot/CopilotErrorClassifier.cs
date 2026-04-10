@@ -7,6 +7,33 @@ namespace ArchHarness.App.Copilot;
 /// </summary>
 internal static class CopilotErrorClassifier
 {
+    public static bool RequiresSessionReset(Exception ex)
+    {
+        if (ex is TimeoutException)
+        {
+            return true;
+        }
+
+        string text = ex.ToString();
+        return text.Contains("session not found", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("json-rpc connection", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("connection with the remote party was lost", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("connection lost", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("timed out", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Determines whether the exception indicates the Copilot CLI process is dead
+    /// and the <see cref="ICopilotClientProvider"/> must be recycled.
+    /// </summary>
+    public static bool RequiresClientRecycle(Exception ex)
+    {
+        string text = ex.ToString();
+        return text.Contains("json-rpc connection", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("connection with the remote party was lost", StringComparison.OrdinalIgnoreCase)
+            || text.Contains("ConnectionLostException", StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Determines whether the exception represents a permanent, non-retryable error.
     /// </summary>
@@ -46,7 +73,8 @@ internal static class CopilotErrorClassifier
         }
 
         string text = ex.ToString();
-        return text.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
+        return RequiresSessionReset(ex)
+            || text.Contains("rate limit", StringComparison.OrdinalIgnoreCase)
             || text.Contains("too many requests", StringComparison.OrdinalIgnoreCase)
             || text.Contains("status code 429", StringComparison.OrdinalIgnoreCase)
             || text.Contains("temporarily unavailable", StringComparison.OrdinalIgnoreCase)

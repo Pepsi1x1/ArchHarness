@@ -5,7 +5,8 @@ namespace ArchHarness.Web.Services;
 /// </summary>
 public sealed record UpdateGlobalSettingsRequest(
     AgentModelSettingsRequest AgentModels,
-    DefaultSettingsRequest Defaults);
+    DefaultSettingsRequest Defaults,
+    AgentReasoningSettingsRequest? AgentReasoningEfforts = null);
 
 /// <summary>
 /// Structured per-agent model selections for the settings UI.
@@ -13,12 +14,19 @@ public sealed record UpdateGlobalSettingsRequest(
 public sealed record AgentModelSettingsRequest(
     string Conversation,
     string Orchestration,
+    string Planning,
     string FrontendDeveloper,
     string BackendDeveloper,
     string Build,
     string CodingStyle,
     string Security,
     string Architecture);
+
+/// <summary>
+/// Structured per-agent reasoning selections for the settings UI.
+/// </summary>
+public sealed record AgentReasoningSettingsRequest(
+    string? Planning);
 
 /// <summary>
 /// Structured global defaults surfaced to the shell.

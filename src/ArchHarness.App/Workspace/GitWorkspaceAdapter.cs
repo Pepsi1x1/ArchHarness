@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Workspace;
 
@@ -92,7 +93,7 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
     private static void AddPaths(ISet<string> output, string raw)
     {
         string[] lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (string line in lines.Where(line => !string.IsNullOrWhiteSpace(line)))
+        foreach (string line in lines.Where(line => !string.IsNullOrWhiteSpace(line) && !WorkspaceSnapshotHelper.IsIgnoredPath(line)))
         {
             output.Add(line);
         }

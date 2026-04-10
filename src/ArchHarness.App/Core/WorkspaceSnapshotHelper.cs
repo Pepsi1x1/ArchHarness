@@ -67,6 +67,7 @@ internal static class WorkspaceSnapshotHelper
     {
         string normalized = relativePath.Replace('\\', '/');
         return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith(".agent-harness/", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
             || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)

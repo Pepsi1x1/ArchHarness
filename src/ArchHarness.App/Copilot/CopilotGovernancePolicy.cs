@@ -78,12 +78,23 @@ public sealed class CopilotGovernancePolicy : ICopilotGovernancePolicy
     /// <inheritdoc />
     public async Task<PostToolUseHookOutput> OnPostToolUseAsync(PostToolUseHookInput input)
     {
+        if (IsFailureHookInput(input))
+        {
+            return new PostToolUseHookOutput
+            {
+                AdditionalContext = "Tool failure observed under governance audit."
+            };
+        }
+
         await this._toolUsageLogger.LogPostToolUseAsync(input);
         return new PostToolUseHookOutput
         {
             AdditionalContext = $"Tool '{input.ToolName}' completed under governance audit."
         };
     }
+
+    private static bool IsFailureHookInput(PostToolUseHookInput input)
+        => input.GetType().GetProperty("Error") is not null;
 
     private static readonly Regex DESTRUCTIVE_PATTERN_REGEX = new Regex(
         "(?i)(rm\\s+-rf|drop\\s+table|truncate\\s+table|del\\s+/f|format\\s+[a-z]:)",

@@ -33,6 +33,11 @@ public interface IRunArtifactWriter
     Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Persists the completion validation result to the run directory as JSON and Markdown.
+    /// </summary>
+    Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Persists the final summary to the run directory.
     /// </summary>
     Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken);
@@ -41,4 +46,14 @@ public interface IRunArtifactWriter
     /// Persists the run log to the run directory.
     /// </summary>
     Task WriteRunLogAsync(string runDirectory, object payload, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Persists the clarification spec as both JSON and Markdown to the run directory.
+    /// </summary>
+    Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Persists the plan approval decision to the run directory.
+    /// </summary>
+    Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken);
 }

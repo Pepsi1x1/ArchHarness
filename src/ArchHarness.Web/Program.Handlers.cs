@@ -15,10 +15,10 @@ namespace ArchHarness.Web;
 
 internal static class ProgramHandlers
 {
-    private const string AgentHarnessDirectoryName = ".agent-harness";
-    private const string InvalidRunIdMessage = "runId must be a single directory name.";
-    private const string UnknownWorkspaceMessage = "workspacePath does not match a registered project.";
-    private const string WorkspacePathRequiredMessage = "workspacePath is required.";
+    private const string AGENT_HARNESS_DIRECTORY_NAME = ".agent-harness";
+    private const string INVALID_RUN_ID_MESSAGE = "runId must be a single directory name.";
+    private const string UNKNOWN_WORKSPACE_MESSAGE = "workspacePath does not match a registered project.";
+    private const string WORKSPACE_PATH_REQUIRED_MESSAGE = "workspacePath is required.";
 
     public static IResult GetApiRoot()
         => Results.Ok(new
@@ -349,12 +349,17 @@ internal static class ProgramHandlers
             {
                 conversation = settings.ConversationModel,
                 orchestration = settings.OrchestrationModel,
+                planning = settings.PlanningModel,
                 frontendDeveloper = settings.FrontendDeveloperModel,
                 backendDeveloper = settings.BackendDeveloperModel,
                 build = settings.BuildModel,
                 codingStyle = settings.CodingStyleModel,
                 security = settings.SecurityModel,
                 architecture = settings.ArchitectureModel
+            },
+            agentReasoningEfforts = new
+            {
+                planning = settings.PlanningReasoningEffort
             },
             defaults = new
             {
@@ -368,9 +373,12 @@ internal static class ProgramHandlers
 
     public static IResult UpdateSettings(UpdateGlobalSettingsRequest request, IGlobalSettingsCatalog settingsCatalog, IModelMetadataProvider modelMetadataProvider)
     {
+        PersistedGlobalSettings currentSettings = settingsCatalog.GetSettings();
         UpdatePersistedGlobalSettings update = new UpdatePersistedGlobalSettings(
             request.AgentModels.Conversation,
             request.AgentModels.Orchestration,
+            request.AgentModels.Planning,
+            request.AgentReasoningEfforts is null ? currentSettings.PlanningReasoningEffort : request.AgentReasoningEfforts.Planning,
             request.AgentModels.FrontendDeveloper,
             request.AgentModels.BackendDeveloper,
             request.AgentModels.Build,
@@ -397,12 +405,17 @@ internal static class ProgramHandlers
             {
                 conversation = settings.ConversationModel,
                 orchestration = settings.OrchestrationModel,
+                planning = settings.PlanningModel,
                 frontendDeveloper = settings.FrontendDeveloperModel,
                 backendDeveloper = settings.BackendDeveloperModel,
                 build = settings.BuildModel,
                 codingStyle = settings.CodingStyleModel,
                 security = settings.SecurityModel,
                 architecture = settings.ArchitectureModel
+            },
+            agentReasoningEfforts = new
+            {
+                planning = settings.PlanningReasoningEffort
             },
             defaults = new
             {
@@ -861,12 +874,12 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
         return Results.Ok(catalog.GetRecentRuns(workspacePath, Math.Max(1, maxCount ?? 20)));
@@ -876,20 +889,20 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
         }
 
         if (!IsSafeRunId(runId))
         {
-            return Results.BadRequest(new { error = InvalidRunIdMessage });
+            return Results.BadRequest(new { error = INVALID_RUN_ID_MESSAGE });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
-        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AGENT_HARNESS_DIRECTORY_NAME, "runs", runId);
         return Results.Ok(catalog.GetArtifacts(runDirectory, Math.Max(32, previewLength ?? 2400)));
     }
 
@@ -897,20 +910,20 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
         }
 
         if (!IsSafeRunId(runId))
         {
-            return Results.BadRequest(new { error = InvalidRunIdMessage });
+            return Results.BadRequest(new { error = INVALID_RUN_ID_MESSAGE });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
-        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AGENT_HARNESS_DIRECTORY_NAME, "runs", runId);
         return Results.Ok(catalog.GetEvents(runDirectory).Select(evt => new WebRunEvent(
             evt.TimestampUtc,
             evt.Kind,
@@ -931,20 +944,20 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
         }
 
         if (!IsSafeRunId(runId))
         {
-            return Results.BadRequest(new { error = InvalidRunIdMessage });
+            return Results.BadRequest(new { error = INVALID_RUN_ID_MESSAGE });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
-        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AGENT_HARNESS_DIRECTORY_NAME, "runs", runId);
         PersistedRunState? runState = runStateStore.GetState(runDirectory);
         if (runState is null)
         {
@@ -956,10 +969,14 @@ internal static class ProgramHandlers
             runState.RunId,
             runState.Status,
             runState.Phase,
+            workflow = runState.Request.Workflow,
             runState.StartedAtUtc,
             runState.UpdatedAtUtc,
             runState.FailureMessage,
             runState.CanResume,
+            canHandoff = CanHandoffToStandardRun(runState),
+            runState.HandoffRunId,
+            runState.Request.PlanningSourceRunId,
             completedStepIds = runState.CompletedStepIds,
             runState.ReviewIteration
         });
@@ -1017,20 +1034,20 @@ internal static class ProgramHandlers
     {
         if (string.IsNullOrWhiteSpace(workspacePath))
         {
-            return Results.BadRequest(new { error = WorkspacePathRequiredMessage });
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
         }
 
         if (!IsSafeRunId(runId))
         {
-            return Results.BadRequest(new { error = InvalidRunIdMessage });
+            return Results.BadRequest(new { error = INVALID_RUN_ID_MESSAGE });
         }
 
         if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
         {
-            return Results.BadRequest(new { error = UnknownWorkspaceMessage });
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
-        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AgentHarnessDirectoryName, "runs", runId);
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AGENT_HARNESS_DIRECTORY_NAME, "runs", runId);
         PersistedRunState? runState = runStateStore.GetState(runDirectory);
         if (runState is null)
         {
@@ -1044,6 +1061,77 @@ internal static class ProgramHandlers
 
         WebRunSnapshot snapshot = await sessionManager.ResumeRunAsync(runState, cancellationToken);
         return Results.Accepted("/api/runs/active", snapshot);
+    }
+
+    public static async Task<IResult> StartImplementationFromPlanningRunAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, SetupSummaryGenerator summaryGenerator, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
+        }
+
+        if (!IsSafeRunId(runId))
+        {
+            return Results.BadRequest(new { error = INVALID_RUN_ID_MESSAGE });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
+        }
+
+        string planningRunDirectory = Path.Combine(Path.GetFullPath(workspacePath), AGENT_HARNESS_DIRECTORY_NAME, "runs", runId);
+        PersistedRunState? planningState = runStateStore.GetState(planningRunDirectory);
+        if (planningState is null)
+        {
+            return Results.NotFound(new { error = $"Run '{runId}' does not have persisted planning state." });
+        }
+
+        if (!CanHandoffToStandardRun(planningState))
+        {
+            return Results.Conflict(new { error = $"Run '{runId}' is not ready for implementation handoff.", planningState.Status, planningState.Phase, planningState.HandoffRunId });
+        }
+
+        string executionPlanPath = Path.Combine(planningRunDirectory, "ExecutionPlan.json");
+        if (!File.Exists(executionPlanPath))
+        {
+            return Results.Conflict(new { error = $"Run '{runId}' does not have an approved execution plan to hand off." });
+        }
+
+        PersistedProjectWorkspace? project = string.IsNullOrWhiteSpace(planningState.Request.ProjectId)
+            ? projectCatalog.GetProjects().FirstOrDefault(candidate => string.Equals(candidate.WorkspacePath, Path.GetFullPath(workspacePath), StringComparison.OrdinalIgnoreCase))
+            : projectCatalog.GetProject(planningState.Request.ProjectId!);
+
+        RunRequest handoffRequest = planningState.Request with
+        {
+            TaskPrompt = planningState.Spec?.Task ?? planningState.Request.TaskPrompt,
+            Workflow = WorkflowNames.AUTO,
+            ArchitectureLoopMode = false,
+            ArchitectureLoopPrompt = null,
+            ProjectId = project?.ProjectId ?? planningState.Request.ProjectId,
+            ProjectName = project?.DisplayName ?? planningState.Request.ProjectName,
+            RunTitle = null,
+            PlanningSourceRunId = planningState.RunId
+        };
+        handoffRequest = await summaryGenerator.PopulateRunTitleAsync(handoffRequest, cancellationToken);
+
+        try
+        {
+            WebRunSnapshot snapshot = await sessionManager.StartRunAsync(handoffRequest, cancellationToken);
+            await runStateStore.WriteStateAsync(
+                planningRunDirectory,
+                planningState with
+                {
+                    UpdatedAtUtc = DateTimeOffset.UtcNow,
+                    HandoffRunId = snapshot.RunId
+                },
+                cancellationToken).ConfigureAwait(false);
+            return Results.Accepted("/api/runs/active", snapshot);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Conflict(new { error = ex.Message });
+        }
     }
 
     public static async Task<IResult> CancelActiveRunAsync(IWebRunSessionManager sessionManager)
@@ -1093,6 +1181,16 @@ internal static class ProgramHandlers
 
     public static IResult SubmitUserInput(UserInputSubmission submission, WebInteractionCoordinator interactions)
     {
+        if (submission.Answers is { Count: > 0 })
+        {
+            if (!interactions.TrySubmitUserInputs(submission.Answers))
+            {
+                return Results.Conflict(new { error = "No pending user-input request is active." });
+            }
+
+            return Results.Accepted();
+        }
+
         if (!interactions.TrySubmitUserInput(submission.Answer))
         {
             return Results.Conflict(new { error = "No pending user-input request is active." });
@@ -1106,6 +1204,16 @@ internal static class ProgramHandlers
         if (!interactions.TrySubmitPermission(submission.Approved))
         {
             return Results.Conflict(new { error = "No pending permission request is active." });
+        }
+
+        return Results.Accepted();
+    }
+
+    public static IResult SubmitPlanApproval(PlanApprovalSubmission submission, WebInteractionCoordinator interactions)
+    {
+        if (!interactions.TrySubmitPlanApproval(submission.Decision, submission.Reason))
+        {
+            return Results.Conflict(new { error = "No pending plan-approval request is active." });
         }
 
         return Results.Accepted();
@@ -1154,6 +1262,12 @@ internal static class ProgramHandlers
         return projectCatalog.GetProjects()
             .Any(p => string.Equals(p.WorkspacePath, normalized, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool CanHandoffToStandardRun(PersistedRunState runState)
+        => string.Equals(runState.Request.Workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(runState.Status, RunStatuses.COMPLETED, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(runState.Phase, RunPhases.HANDOFF_READY, StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(runState.HandoffRunId);
 
     private static bool RequiresPersonalAccessTokenForConnectionTest(SourceControlProvider provider)
         => provider is not SourceControlProvider.GitHub;

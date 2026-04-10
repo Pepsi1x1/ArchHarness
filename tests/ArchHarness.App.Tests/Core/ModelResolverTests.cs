@@ -86,11 +86,31 @@ public sealed class ModelResolverTests
         Assert.Null(exception);
     }
 
+    /// <summary>
+    /// Verifies expected behavior.
+    /// </summary>
+    [Fact]
+    public void ResolveReasoningEffort_PlanningRole_UsesPersistedPlanningValue()
+    {
+        ModelResolver resolver = CreateResolver(new[]
+        {
+            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
+            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
+            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4"),
+            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
+        });
+
+        Assert.Equal("xhigh", resolver.ResolveReasoningEffort("planning"));
+        Assert.Null(resolver.ResolveReasoningEffort("backend-developer"));
+    }
+
     private static ModelResolver CreateResolver(IEnumerable<DiscoveredModel> discoveredModels)
     {
         AgentsOptions agentsOptions = new AgentsOptions
         {
             Orchestration = new AgentModelOptions { Model = "claude-opus-4.6" },
+            Planning = new AgentModelOptions { Model = "gpt-5.4", ReasoningEffort = "xhigh" },
             FrontendDeveloper = new AgentModelOptions { Model = "claude-sonnet-4.6" },
             BackendDeveloper = new AgentModelOptions { Model = "gpt-5.4" },
             Build = new AgentModelOptions { Model = "gpt-4.1" },

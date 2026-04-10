@@ -78,6 +78,7 @@ public abstract class AgentBase
         {
             SystemMessage = options.SystemMessage,
             SystemMessageMode = options.SystemMessageMode,
+            ReasoningEffort = options.ReasoningEffort ?? this._modelResolver.ResolveReasoningEffort(this.Role),
             AvailableTools = available,
             ExcludedTools = excluded
         };

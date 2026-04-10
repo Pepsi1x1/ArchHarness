@@ -25,6 +25,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
     private readonly SemaphoreSlim _runGate = new SemaphoreSlim(1, 1);
     private readonly Task _agentPumpTask;
     private readonly Task _sessionPumpTask;
+    private Task? _activeExecutionTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WebRunSessionManager"/> class.
@@ -64,7 +65,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 request.WorkspacePath,
                 null));
             this._eventHub.Publish(new WebRunEvent(startedAt, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, "Run accepted by local web host."));
-            _ = Task.Run(() => this._executionRunner.ExecuteRunAsync(request, runCts, this._disposeCts.Token), CancellationToken.None);
+            this._activeExecutionTask = Task.Run(() => this._executionRunner.ExecuteRunAsync(request, runCts, this._disposeCts.Token), CancellationToken.None);
             return this._snapshotStore.GetSnapshot();
         }
         finally
@@ -91,7 +92,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
                 runState.WorkspaceRoot,
                 null));
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, $"Run {runState.RunId} resume accepted by local web host."));
-            _ = Task.Run(() => this._executionRunner.ExecuteResumeAsync(runState, runCts, this._disposeCts.Token), CancellationToken.None);
+            this._activeExecutionTask = Task.Run(() => this._executionRunner.ExecuteResumeAsync(runState, runCts, this._disposeCts.Token), CancellationToken.None);
             return this._snapshotStore.GetSnapshot();
         }
         finally
@@ -156,6 +157,19 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
     public async ValueTask DisposeAsync()
     {
         await this._disposeCts.CancelAsync().ConfigureAwait(false);
+
+        Task? activeExecutionTask = this._activeExecutionTask;
+        if (activeExecutionTask is not null)
+        {
+            try
+            {
+                await activeExecutionTask.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when the host is shutting down.
+            }
+        }
 
         try
         {

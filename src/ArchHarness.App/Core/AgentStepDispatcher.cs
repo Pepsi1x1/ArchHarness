@@ -10,13 +10,13 @@ namespace ArchHarness.App.Core;
 public interface IAgentStepDispatcher
 {
     /// <summary>
-    /// Executes a single step against the supplied workspace and state.
+    /// Executes a single step against the supplied workspace and returns an immutable outcome.
     /// </summary>
-    Task ExecuteAsync(
+    Task<StepOutcome> ExecuteAsync(
         ExecutionPlanStep step,
         IWorkspaceAdapter adapter,
         RunRequest request,
-        AgentStepExecutor.ExecutionState state,
+        IReadOnlyList<string> accumulatedFilesTouched,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -51,11 +51,11 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
     }
 
     /// <inheritdoc />
-    public async Task ExecuteAsync(
+    public async Task<StepOutcome> ExecuteAsync(
         ExecutionPlanStep step,
         IWorkspaceAdapter adapter,
         RunRequest request,
-        AgentStepExecutor.ExecutionState state,
+        IReadOnlyList<string> accumulatedFilesTouched,
         CancellationToken cancellationToken)
     {
         switch (step.Agent)
@@ -70,11 +70,10 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
                     this._frontendDeveloper.Role,
                     cancellationToken).ConfigureAwait(false);
 
-                state.FilesTouched = MergeFilesTouched(state.FilesTouched, newFiles);
-                state.FrontendPlan = newFiles.Count > 0
+                string frontendPlan = newFiles.Count > 0
                     ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
                     : "Frontend developer step executed.";
-                return;
+                return new StepOutcome(step.Id, step.Agent, newFiles, FrontendPlanDelta: frontendPlan);
             }
 
             case AgentNames.BACKEND_DEVELOPER:
@@ -88,24 +87,23 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
                     this._backendDeveloper.Role,
                     cancellationToken).ConfigureAwait(false);
 
-                state.FilesTouched = MergeFilesTouched(state.FilesTouched, newFiles);
-                return;
+                return new StepOutcome(step.Id, step.Agent, newFiles);
             }
 
             case AgentNames.BUILD:
-                await this._build.RunBuildAsync(
+                BuildOutcome buildOutcome = await this._build.RunBuildAsync(
                     adapter,
                     step.Objective,
                     request.BuildCommand,
                     request.ModelOverrides,
+                    step.Id,
                     this._build.Id,
                     this._build.Role,
                     cancellationToken).ConfigureAwait(false);
-                return;
+                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), BuildOutcome: buildOutcome);
 
             default:
-                await this._reviewDispatcher.ExecuteAsync(step, adapter, request, state, cancellationToken).ConfigureAwait(false);
-                return;
+                return await this._reviewDispatcher.ExecuteAsync(step, adapter, request, accumulatedFilesTouched, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -118,12 +116,6 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
             AgentNames.BUILD => new AgentExecutionContext(this._build.Id, this._build.Role),
             _ => this._reviewDispatcher.ResolveAgentExecutionContext(stepAgent)
         };
-
-    private static IReadOnlyList<string> MergeFilesTouched(IReadOnlyList<string> existingFiles, IReadOnlyList<string> newFiles)
-        => existingFiles
-            .Concat(newFiles)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
 }
 
 /// <summary>
@@ -149,13 +141,13 @@ public sealed class AgentStepReviewDispatcher
     }
 
     /// <summary>
-    /// Executes a review-oriented plan step.
+    /// Executes a review-oriented plan step and returns an immutable outcome.
     /// </summary>
-    public async Task ExecuteAsync(
+    public async Task<StepOutcome> ExecuteAsync(
         ExecutionPlanStep step,
         IWorkspaceAdapter adapter,
         RunRequest request,
-        AgentStepExecutor.ExecutionState state,
+        IReadOnlyList<string> accumulatedFilesTouched,
         CancellationToken cancellationToken)
     {
         switch (step.Agent)
@@ -168,47 +160,47 @@ public sealed class AgentStepReviewDispatcher
                         AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
                         latestDiff,
                         adapter.RootPath,
-                        state.FilesTouched,
+                        accumulatedFilesTouched,
                         step.Languages,
                         request.ModelOverrides),
                     this._codingStyle.Id,
                     this._codingStyle.Role,
                     cancellationToken).ConfigureAwait(false);
-                return;
+                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>());
             }
 
             case AgentNames.SECURITY:
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
-                state.SecurityReview = await this._security.ReviewAsync(
+                SecurityReview securityReview = await this._security.ReviewAsync(
                     new SecurityReviewRequest(
                         AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
                         latestDiff,
                         adapter.RootPath,
-                        AgentStepExecutor.ResolveReviewFiles(adapter, request, state.FilesTouched, step.Languages),
+                        AgentStepExecutor.ResolveReviewFiles(adapter, request, accumulatedFilesTouched, step.Languages),
                         step.Languages,
                         request.ModelOverrides),
                     this._security.Id,
                     this._security.Role,
                     cancellationToken).ConfigureAwait(false);
-                return;
+                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), SecurityReview: securityReview);
             }
 
             case AgentNames.ARCHITECTURE:
             {
                 string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
-                state.Review = await this._architecture.ReviewAsync(
+                ArchitectureReview review = await this._architecture.ReviewAsync(
                     new ArchitectureReviewRequest(
                         AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
                         latestDiff,
                         adapter.RootPath,
-                        AgentStepExecutor.ResolveReviewFiles(adapter, request, state.FilesTouched, step.Languages),
+                        AgentStepExecutor.ResolveReviewFiles(adapter, request, accumulatedFilesTouched, step.Languages),
                         step.Languages,
                         request.ModelOverrides),
                     this._architecture.Id,
                     this._architecture.Role,
                     cancellationToken).ConfigureAwait(false);
-                return;
+                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), Review: review);
             }
 
             default:

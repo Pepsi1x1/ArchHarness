@@ -6,6 +6,8 @@ namespace ArchHarness.App.Storage;
 public sealed record UpdatePersistedGlobalSettings(
     string ConversationModel,
     string OrchestrationModel,
+    string PlanningModel,
+    string? PlanningReasoningEffort,
     string FrontendDeveloperModel,
     string BackendDeveloperModel,
     string BuildModel,
@@ -23,6 +25,7 @@ public sealed record UpdatePersistedGlobalSettings(
     {
         yield return this.ConversationModel;
         yield return this.OrchestrationModel;
+        yield return this.PlanningModel;
         yield return this.FrontendDeveloperModel;
         yield return this.BackendDeveloperModel;
         yield return this.BuildModel;

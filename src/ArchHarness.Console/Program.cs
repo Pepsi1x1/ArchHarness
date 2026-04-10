@@ -11,6 +11,7 @@ builder.Services.AddArchHarnessRuntimeServices(builder.Configuration);
 builder.Services.AddArchHarnessInteractiveServices();
 builder.Services.AddSingleton<ISetupStatusSink, ConsoleSetupStatusSink>();
 builder.Services.AddSingleton<ICopilotUserInputBridge, ConsoleCopilotUserInputBridge>();
+builder.Services.AddSingleton<IPlanApprovalBridge, ConsolePlanApprovalBridge>();
 builder.Services.AddSingleton<ChatTerminal>();
 builder.Services.AddSingleton<IApplicationHost>(sp => sp.GetRequiredService<ChatTerminal>());
 

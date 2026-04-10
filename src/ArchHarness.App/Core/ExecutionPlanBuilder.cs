@@ -97,16 +97,16 @@ internal sealed class ExecutionPlanBuilder
     {
         reviewLoopAgents ??= this.GetCurrentReviewLoopAgents();
 
-        var categorizedSteps = CategorizeSteps(steps, reviewLoopAgents);
-        
+        (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorizedSteps = CategorizeSteps(steps, reviewLoopAgents);
+
         if (categorizedSteps.NonReview.Count == 0 && categorizedSteps.TerminalValidationBuilds.Count == 0)
         {
             return steps;
         }
 
         InjectMissingReviewSteps(categorizedSteps, reviewLoopAgents, workspaceLanguages);
-        
-        var reordered = BuildReorderedList(categorizedSteps);
+
+        List<ExecutionPlanStep> reordered = BuildReorderedList(categorizedSteps);
         RemapStepIds(reordered);
         EnforceCodingStyleDependencies(reordered);
         EnforceSecurityDependencies(reordered);
@@ -118,13 +118,13 @@ internal sealed class ExecutionPlanBuilder
 
     private (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) CategorizeSteps(List<ExecutionPlanStep> steps, ReviewLoopAgentSelection reviewLoopAgents)
     {
-        var terminalBuilds = steps.Where(IsTerminalValidationBuildStep).ToList();
-        var nonTerminal = steps.Where(s => !IsTerminalValidationBuildStep(s)).ToList();
-        var enabledReview = nonTerminal.Where(s => IsReviewAgent(s.Agent) && reviewLoopAgents.IsEnabled(s.Agent)).ToList();
-        var nonReview = nonTerminal.Where(s => !IsReviewAgent(s.Agent)).ToList();
-        var codingStyle = enabledReview.Where(s => s.Agent == CODING_STYLE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
-        var security = enabledReview.Where(s => s.Agent == SECURITY_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
-        var architecture = enabledReview.Where(s => s.Agent == ARCHITECTURE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
+        List<ExecutionPlanStep> terminalBuilds = steps.Where(IsTerminalValidationBuildStep).ToList();
+        List<ExecutionPlanStep> nonTerminal = steps.Where(s => !IsTerminalValidationBuildStep(s)).ToList();
+        List<ExecutionPlanStep> enabledReview = nonTerminal.Where(s => IsReviewAgent(s.Agent) && reviewLoopAgents.IsEnabled(s.Agent)).ToList();
+        List<ExecutionPlanStep> nonReview = nonTerminal.Where(s => !IsReviewAgent(s.Agent)).ToList();
+        List<ExecutionPlanStep> codingStyle = enabledReview.Where(s => s.Agent == CODING_STYLE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
+        List<ExecutionPlanStep> security = enabledReview.Where(s => s.Agent == SECURITY_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
+        List<ExecutionPlanStep> architecture = enabledReview.Where(s => s.Agent == ARCHITECTURE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
         
         return (nonReview, codingStyle, security, architecture, terminalBuilds, -1, -1, -1);
     }
@@ -167,7 +167,7 @@ internal sealed class ExecutionPlanBuilder
     private List<ExecutionPlanStep> BuildReorderedList(
         (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorized)
     {
-        var reviewSteps = new List<ExecutionPlanStep>();
+        List<ExecutionPlanStep> reviewSteps = new List<ExecutionPlanStep>();
         
         if (categorized.CodeStyle.Count > 0)
         {
@@ -207,14 +207,14 @@ internal sealed class ExecutionPlanBuilder
 
     private void RemapStepIds(List<ExecutionPlanStep> reordered)
     {
-        var idMap = reordered
+        Dictionary<int, int> idMap = reordered
             .Select((step, index) => new { oldId = step.Id, newId = index + 1 })
             .ToDictionary(x => x.oldId, x => x.newId);
 
         for (int i = 0; i < reordered.Count; i++)
         {
-            var step = reordered[i];
-            var remappedDepends = step.DependsOnStepIds?
+            ExecutionPlanStep step = reordered[i];
+            int[]? remappedDepends = step.DependsOnStepIds?
                 .Where(dep => idMap.ContainsKey(dep))
                 .Select(dep => idMap[dep])
                 .Distinct()
@@ -234,8 +234,8 @@ internal sealed class ExecutionPlanBuilder
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
         if (codingStyleIndex < 0) return;
 
-        var codingStyleStep = reordered[codingStyleIndex];
-        var codingStyleDepends = reordered
+        ExecutionPlanStep codingStyleStep = reordered[codingStyleIndex];
+        int[] codingStyleDepends = reordered
             .Where((_, index) => index < codingStyleIndex)
             .Select(s => s.Id)
             .Distinct()
@@ -254,8 +254,8 @@ internal sealed class ExecutionPlanBuilder
         if (securityIndex < 0) return;
 
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
-        var securityStep = reordered[securityIndex];
-        
+        ExecutionPlanStep securityStep = reordered[securityIndex];
+
         int[] securityDepends = GetSecurityDependencies(reordered, securityIndex, codingStyleIndex);
         reordered[securityIndex] = securityStep with
         {
@@ -287,7 +287,7 @@ internal sealed class ExecutionPlanBuilder
         int securityIndex = reordered.FindLastIndex(s => s.Agent == SECURITY_AGENT_NAME);
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
         
-        var architectureStep = reordered[architectureIndex];
+        ExecutionPlanStep architectureStep = reordered[architectureIndex];
         int[] enforcedDepends = GetArchitectureDependencies(reordered, architectureIndex, securityIndex, codingStyleIndex);
         
         reordered[architectureIndex] = architectureStep with
@@ -332,7 +332,7 @@ internal sealed class ExecutionPlanBuilder
 
         foreach (int buildIndex in terminalBuildIndexes)
         {
-            var buildStep = reordered[buildIndex];
+            ExecutionPlanStep buildStep = reordered[buildIndex];
             int[] enforcedDepends = previousDependencyId > 0 ? new[] { previousDependencyId } : Array.Empty<int>();
             
             reordered[buildIndex] = buildStep with

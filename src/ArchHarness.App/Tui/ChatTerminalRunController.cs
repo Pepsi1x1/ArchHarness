@@ -47,7 +47,7 @@ public sealed class ChatTerminalRunController : IChatTerminalRunController
     /// <inheritdoc />
     public async Task<ChatTerminalRunResult?> ExecuteAsync(RunRequest request, CancellationToken cancellationToken)
     {
-        List<RuntimeProgressEvent> runEvents = new();
+        List<RuntimeProgressEvent> runEvents = new List<RuntimeProgressEvent>();
         Progress<RuntimeProgressEvent> progress = CreateRunProgress(runEvents);
 
         AgentStreamState agentStreamState = new(this._agentStreamEventStream);
