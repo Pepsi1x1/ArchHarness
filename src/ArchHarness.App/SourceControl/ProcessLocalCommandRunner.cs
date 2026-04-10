@@ -24,6 +24,7 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
             ?? throw new Win32Exception($"Command '{commandName}' was not found on PATH.");
 
         bool redirectStandardInput = standardInput is not null;
+        string validatedWorkingDirectory = ResolveWorkingDirectory(workingDirectory);
 
         ProcessStartInfo info = new ProcessStartInfo(executablePath)
         {
@@ -32,7 +33,7 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? Environment.CurrentDirectory : workingDirectory
+            WorkingDirectory = validatedWorkingDirectory
         };
 
         foreach (string argument in arguments)
@@ -56,6 +57,20 @@ public sealed class ProcessLocalCommandRunner : ILocalCommandRunner
         await Task.WhenAll(stdoutTask, stderrTask, waitForExitTask).ConfigureAwait(false);
 
         return new LocalCommandResult(process.ExitCode, await stdoutTask.ConfigureAwait(false), await stderrTask.ConfigureAwait(false));
+    }
+
+    private static string ResolveWorkingDirectory(string? workingDirectory)
+    {
+        string resolved = string.IsNullOrWhiteSpace(workingDirectory)
+            ? Environment.CurrentDirectory
+            : Path.GetFullPath(workingDirectory);
+
+        if (!Directory.Exists(resolved))
+        {
+            throw new DirectoryNotFoundException($"Working directory '{resolved}' does not exist.");
+        }
+
+        return resolved;
     }
 
     private static string? TryResolveExecutable(string commandName)
