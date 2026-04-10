@@ -45,12 +45,12 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
     private readonly OrchestratorRunServices _services;
     private readonly RuntimeStateAccessors _stateAccessors;
-    private readonly IRunCompletionValidator _completionValidator;
     private readonly IRunAgentModelUsageBuilder _agentModelUsageBuilder;
     private readonly IPlanApprovalBridge? _approvalBridge;
     private readonly ICopilotUserInputBridge? _userInputBridge;
     private readonly OrchestrationAgent _orchestrationAgent;
     private readonly PlanningAgent _planningAgent;
+    private readonly IRunVerificationWorkflow _verificationWorkflow;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratedRunProcessor"/> class.
@@ -58,19 +58,19 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
     public OrchestratedRunProcessor(
         OrchestratorRunServices services,
         RuntimeStateAccessors stateAccessors,
-        IRunCompletionValidator completionValidator,
         IRunAgentModelUsageBuilder agentModelUsageBuilder,
         OrchestrationAgent orchestrationAgent,
         PlanningAgent planningAgent,
+        IRunVerificationWorkflow verificationWorkflow,
         IPlanApprovalBridge? approvalBridge = null,
         ICopilotUserInputBridge? userInputBridge = null)
     {
         this._services = services;
         this._stateAccessors = stateAccessors;
-        this._completionValidator = completionValidator;
         this._agentModelUsageBuilder = agentModelUsageBuilder;
         this._orchestrationAgent = orchestrationAgent;
         this._planningAgent = planningAgent;
+        this._verificationWorkflow = verificationWorkflow;
         this._approvalBridge = approvalBridge;
         this._userInputBridge = userInputBridge;
     }
@@ -165,6 +165,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 checkpoint,
                 request,
                 plan,
+                adapter,
                 frontendPlan,
                 filesTouched,
                 review,
@@ -830,6 +831,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         RunStateCheckpoint checkpoint,
         RunRequest request,
         ExecutionPlan plan,
+        IWorkspaceAdapter adapter,
         string frontendPlan,
         IReadOnlyList<string> filesTouched,
         ArchitectureReview review,
@@ -850,10 +852,19 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             null,
             cancellationToken).ConfigureAwait(false);
 
-        bool completed = await this._completionValidator.ValidateAsync(plan, review, securityReview, request.ModelOverrides, spec, lastBuildOutcome, cancellationToken).ConfigureAwait(false);
+        VerificationWorkflowResult verificationResult = await this._verificationWorkflow.RunAsync(
+            new RunVerificationRequest(request, plan, review, securityReview, spec, lastBuildOutcome, filesTouched),
+            adapter,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+        lastBuildOutcome = verificationResult.LastBuildOutcome;
+        filesTouched = verificationResult.FilesTouched;
+        CompletionValidationResult validationResult = verificationResult.ValidationResult;
+        bool completed = validationResult.Passed;
+        await this._services.RunInfrastructure.ArtifactWriter.WriteCompletionValidationAsync(checkpoint.RunDirectory, validationResult, cancellationToken).ConfigureAwait(false);
         await this._services.RunInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(
             checkpoint.RunDirectory,
-            BuildFinalSummary(frontendPlan, filesTouched, review, securityReview, completed),
+            BuildFinalSummary(frontendPlan, filesTouched, review, securityReview, validationResult),
             cancellationToken).ConfigureAwait(false);
 
         string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
@@ -862,7 +873,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
         await this._services.RunInfrastructure.ArtifactWriter.WriteRunLogAsync(checkpoint.RunDirectory, new
         {
-            status = completed ? RunStatuses.COMPLETED : "incomplete",
+            status = completed ? RunStatuses.COMPLETED : RunStatuses.INCOMPLETE,
             projectId = request.ProjectId,
             projectName = request.ProjectName,
             runTitle = request.RunTitle,
@@ -871,17 +882,18 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             request.PermissionHandlerMode,
             modelOverrides,
             agents = agentModelUsage,
-            copilotUsage = usage
+            copilotUsage = usage,
+            completionValidation = validationResult
         }, cancellationToken).ConfigureAwait(false);
 
         await this._services.RunInfrastructure.EventLogger.AppendEventAsync(checkpoint.RunDirectory, new { runId = checkpoint.RunId, source = WellKnownSources.ORCHESTRATOR, message = RUN_COMPLETED_MESSAGE }, cancellationToken).ConfigureAwait(false);
         await this.WriteRunStateAsync(
             checkpoint,
-            new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview, Spec: spec, LastBuildOutcome: lastBuildOutcome, ClarificationAnswers: clarificationAnswers),
-            RunTerminalPhases.COMPLETED,
+            new RunProgressSnapshot(plan.Steps.Select(step => step.Id).ToArray(), reviewIteration, frontendPlan, filesTouched, review, securityReview, Spec: spec, LastBuildOutcome: lastBuildOutcome, CompletionValidation: validationResult, ClarificationAnswers: clarificationAnswers),
+            completed ? RunTerminalPhases.COMPLETED : RunTerminalPhases.INCOMPLETE,
             null,
             cancellationToken,
-            RunStatuses.COMPLETED).ConfigureAwait(false);
+            completed ? RunStatuses.COMPLETED : RunStatuses.INCOMPLETE).ConfigureAwait(false);
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_COMPLETED_MESSAGE));
     }
 
@@ -935,6 +947,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 Spec: progress.Spec ?? existingState?.Spec,
                 Approval: progress.Approval ?? existingState?.Approval,
                 LastBuildOutcome: progress.LastBuildOutcome ?? existingState?.LastBuildOutcome,
+                CompletionValidation: progress.CompletionValidation ?? existingState?.CompletionValidation,
                 ClarificationAnswers: progress.ClarificationAnswers?.ToArray() ?? existingState?.ClarificationAnswers,
                 HandoffRunId: existingState?.HandoffRunId),
             cancellationToken);
@@ -945,18 +958,22 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         IReadOnlyList<string> filesTouched,
         ArchitectureReview review,
         SecurityReview securityReview,
-        bool completed)
+        CompletionValidationResult validationResult)
     {
         int securityHighCount = securityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         int architectureHighCount = review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
         string filesTouchedList = string.Join(", ", filesTouched);
+        string failedCriteria = validationResult.CriterionResults.Count == 0
+            ? "(none)"
+            : string.Join(", ", validationResult.CriterionResults.Where(result => !result.Passed).Select(result => result.Criterion));
         return $"""
             # Final Summary
-            - Completed: {completed}
+            - Completed: {validationResult.Passed}
             - FrontendPlan: {frontendPlan}
             - FilesTouched: {filesTouchedList}
             - SecurityHighFindings: {securityHighCount}
             - ArchitectureHighFindings: {architectureHighCount}
+            - FailedCriteria: {failedCriteria}
             """;
     }
 
@@ -1015,5 +1032,6 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         ClarificationSpec? Spec = null,
         PlanApproval? Approval = null,
         BuildOutcome? LastBuildOutcome = null,
+        CompletionValidationResult? CompletionValidation = null,
         IReadOnlyList<ClarificationAnswer>? ClarificationAnswers = null);
 }

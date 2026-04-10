@@ -33,6 +33,11 @@ public interface IRunArtifactWriter
     Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Persists the completion validation result to the run directory as JSON and Markdown.
+    /// </summary>
+    Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Persists the final summary to the run directory.
     /// </summary>
     Task WriteFinalSummaryAsync(string runDirectory, string summary, CancellationToken cancellationToken);

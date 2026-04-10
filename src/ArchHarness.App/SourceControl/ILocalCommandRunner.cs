@@ -13,5 +13,10 @@ public interface ILocalCommandRunner
     /// <summary>
     /// Runs a local command asynchronously and captures its output.
     /// </summary>
-    Task<LocalCommandResult> RunAsync(string commandName, IReadOnlyList<string> arguments, string? standardInput = null);
+    Task<LocalCommandResult> RunAsync(
+        string commandName,
+        IReadOnlyList<string> arguments,
+        string? standardInput = null,
+        string? workingDirectory = null,
+        CancellationToken cancellationToken = default);
 }

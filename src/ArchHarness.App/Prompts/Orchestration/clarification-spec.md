@@ -11,13 +11,24 @@ You are the orchestration planner. Analyze the task prompt and produce a clarifi
     "acceptanceCriteria": ["string — evaluable acceptance criteria"],
     "likelyTouchpoints": ["string — files or areas likely modified"],
     "openQuestions": ["string — unresolved questions, if any"],
-    "decisionNotes": ["string — key decisions made"]
+    "decisionNotes": ["string — key decisions made"],
+    "verificationCommands": [
+        {
+            "name": "string — human friendly command label",
+            "command": "string — shell command to execute",
+            "evidenceType": "build|test|lint|typecheck|runtime|manual",
+            "criterion": "string — acceptance criterion or built-in criterion satisfied by this command",
+            "required": true
+        }
+    ]
 }
 ```
 
 Constraints:
 - Return ONLY the raw JSON object. No markdown, no code fences, no commentary.
 - acceptanceCriteria must be concrete and evaluable (e.g., "Build passes", "No high-severity security findings").
+- For every non-built-in acceptance criterion that can be checked with a shell command, add a matching `verificationCommands` entry.
+- Set `verificationCommands` to an empty array when no executable verification commands are needed.
 - likelyTouchpoints should reference specific files, directories, or modules when possible.
 - If there are no open questions, set openQuestions to an empty array.
 - Scope and constraints should be derived from the task prompt and workspace context.

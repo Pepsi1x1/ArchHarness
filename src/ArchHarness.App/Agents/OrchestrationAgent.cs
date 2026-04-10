@@ -13,6 +13,7 @@ public class OrchestrationAgent : AgentBase
 {
     private const string ORCHESTRATION_PROMPT_GROUP_NAME = "Orchestration";
     private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
+    private const string NONE_LABEL = "(none)";
 
     private const string CLARIFICATION_SPEC_PROMPT_FALLBACK = """
         You are the orchestration planner. Analyze the task prompt and produce a clarification spec as strict JSON with this schema:
@@ -26,7 +27,8 @@ public class OrchestrationAgent : AgentBase
             "acceptanceCriteria": ["string"],
             "likelyTouchpoints": ["string"],
             "openQuestions": ["string"],
-            "decisionNotes": ["string"]
+            "decisionNotes": ["string"],
+            "verificationCommands": [{"name":"string","command":"string","evidenceType":"build|test|lint|typecheck|runtime|manual","criterion":"string","required":true}]
         }
 
         TaskPrompt: {{TaskPrompt}}
@@ -166,9 +168,9 @@ public class OrchestrationAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         string model = base.ResolveModel(request.ModelOverrides);
-        string buildCommand = request.BuildCommand ?? "(none)";
+        string buildCommand = request.BuildCommand ?? NONE_LABEL;
         bool architectureLoopMode = request.ArchitectureLoopMode;
-        string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? "(none)";
+        string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? NONE_LABEL;
         string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, architectureLoopMode);
         ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents
             ?? this._reviewLoopAgentSelectionAccessor.Current
@@ -238,7 +240,7 @@ public class OrchestrationAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         string model = base.ResolveModel(request.ModelOverrides);
-        string buildCommand = request.BuildCommand ?? "(none)";
+        string buildCommand = request.BuildCommand ?? NONE_LABEL;
 
         string specTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "clarification-spec.md", CLARIFICATION_SPEC_PROMPT_FALLBACK);
         string specPrompt = PromptLoader.Render(
@@ -255,9 +257,10 @@ public class OrchestrationAgent : AgentBase
 
         for (int attempt = 1; attempt <= MAX_SPEC_ATTEMPTS; attempt++)
         {
+            string previousResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse ?? string.Empty;
             string promptForAttempt = attempt == 1
                 ? specPrompt
-                : $"{specPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{(lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse)}";
+                : $"{specPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{previousResponsePreview}";
 
             lastResponse = await base.CopilotClient.CompleteAsync(
                 model,
@@ -286,6 +289,10 @@ public class OrchestrationAgent : AgentBase
             return string.Empty;
         }
 
+        string verificationCommands = spec.VerificationCommands is { Count: > 0 }
+            ? string.Join("; ", spec.VerificationCommands.Select(command => $"{command.Name}: {command.Command}"))
+            : NONE_LABEL;
+
         return $"""
             ClarificationSpec:
             - Task: {spec.Task}
@@ -297,6 +304,7 @@ public class OrchestrationAgent : AgentBase
             - AcceptanceCriteria: {JoinValues(spec.AcceptanceCriteria)}
             - LikelyTouchpoints: {JoinValues(spec.LikelyTouchpoints)}
             - DecisionNotes: {JoinValues(spec.DecisionNotes)}
+            - VerificationCommands: {verificationCommands}
             """;
     }
 
@@ -321,7 +329,7 @@ public class OrchestrationAgent : AgentBase
     }
 
     private static string JoinValues(IReadOnlyList<string> values)
-        => values.Count == 0 ? "(none)" : string.Join("; ", values);
+        => values.Count == 0 ? NONE_LABEL : string.Join("; ", values);
 
     /// <summary>
     /// Generates a delegated remediation prompt for the Architecture agent based on outstanding required actions.
@@ -391,7 +399,7 @@ public class OrchestrationAgent : AgentBase
     /// <param name="agentRole">Optional agent role override.</param>
     /// <param name="cancellationToken">Token to signal cancellation.</param>
     /// <returns><see langword="true"/> if all completion criteria are met; otherwise <see langword="false"/>.</returns>
-    public async Task<bool> ValidateCompletionAsync(
+    public async Task<CompletionValidationResult> ValidateCompletionAsync(
         CompletionValidationRequest request,
         string? agentId = null,
         string? agentRole = null,
@@ -414,7 +422,7 @@ public class OrchestrationAgent : AgentBase
         // Evaluate each plan completion criterion.
         foreach (string criterion in request.Plan.CompletionCriteria)
         {
-            CriterionResult result = EvaluateCriterion(criterion, request, reviewLoopAgents);
+            CriterionResult result = CompletionCriteriaSupport.EvaluateCriterion(criterion, request, reviewLoopAgents);
             results.Add(result);
         }
 
@@ -429,15 +437,20 @@ public class OrchestrationAgent : AgentBase
                     continue;
                 }
 
-                CriterionResult result = EvaluateCriterion(acceptanceCriterion, request, reviewLoopAgents);
+                CriterionResult result = CompletionCriteriaSupport.EvaluateCriterion(acceptanceCriterion, request, reviewLoopAgents);
                 results.Add(result);
             }
         }
 
         // Store the detailed results for later retrieval.
-        this._lastValidationResult = new CompletionValidationResult(results.All(r => r.Passed), results);
+        this._lastValidationResult = new CompletionValidationResult(
+            results.All(r => r.Passed),
+            results,
+            Summary: BuildValidationSummary(results),
+            Confidence: request.VerificationEvidence is { Count: > 0 } ? "high" : "medium",
+            Evidence: request.VerificationEvidence);
 
-        return this._lastValidationResult.Passed;
+        return this._lastValidationResult;
     }
 
     /// <summary>
@@ -446,58 +459,12 @@ public class OrchestrationAgent : AgentBase
     public CompletionValidationResult? LastValidationResult => this._lastValidationResult;
     private CompletionValidationResult? _lastValidationResult;
 
-    private static CriterionResult EvaluateCriterion(
-        string criterion,
-        CompletionValidationRequest request,
-        ReviewLoopAgentSelection reviewLoopAgents)
+    private static string BuildValidationSummary(IReadOnlyList<CriterionResult> results)
     {
-        string normalized = criterion.Trim().ToLowerInvariant();
-
-        // Build passes
-        if (normalized.Contains("build pass") || normalized.Contains("build succeeds") || normalized.Contains("build success"))
-        {
-            if (request.BuildOutcome is null)
-            {
-                return new CriterionResult(criterion, false, "No build outcome was recorded during execution.");
-            }
-
-            return new CriterionResult(criterion, request.BuildOutcome.Passed, request.BuildOutcome.Summary);
-        }
-
-        // No high-severity architecture findings
-        if (normalized.Contains("architecture") && (normalized.Contains("no high") || normalized.Contains("high-severity")))
-        {
-            if (!reviewLoopAgents.ArchitectureEnabled)
-            {
-                return new CriterionResult(criterion, true, "Architecture review is disabled for this run.");
-            }
-
-            bool hasHigh = request.Review.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-            return new CriterionResult(criterion, !hasHigh,
-                hasHigh ? $"{request.Review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))} high-severity architecture finding(s) remain." : "No high-severity architecture findings.");
-        }
-
-        // No high-severity security findings
-        if (normalized.Contains("security") && (normalized.Contains("no high") || normalized.Contains("high-severity")))
-        {
-            if (!reviewLoopAgents.SecurityEnabled)
-            {
-                return new CriterionResult(criterion, true, "Security review is disabled for this run.");
-            }
-
-            bool hasHigh = request.SecurityReview.Findings.Any(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
-            return new CriterionResult(criterion, !hasHigh,
-                hasHigh ? $"{request.SecurityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase))} high-severity security finding(s) remain." : "No high-severity security findings.");
-        }
-
-        // Coding style compliance
-        if (normalized.Contains("coding style") || normalized.Contains("naming convention") || normalized.Contains("style compliance"))
-        {
-            return new CriterionResult(criterion, true, "Coding style enforcement was applied during execution.");
-        }
-
-        // Catch-all: unrecognized criteria pass with a warning.
-        return new CriterionResult(criterion, true, $"Criterion could not be structurally evaluated; assumed passing: '{criterion}'.");
+        int failedCount = results.Count(result => !result.Passed);
+        return failedCount == 0
+            ? $"All {results.Count} completion criteria passed."
+            : $"{failedCount} of {results.Count} completion criteria failed.";
     }
 
     private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, ReviewLoopAgentSelection reviewLoopAgents)
@@ -582,19 +549,6 @@ public class OrchestrationAgent : AgentBase
             using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(cleaned);
             System.Text.Json.JsonElement root = doc.RootElement;
 
-            static IReadOnlyList<string> ReadStringArray(System.Text.Json.JsonElement el, string prop)
-            {
-                if (!el.TryGetProperty(prop, out System.Text.Json.JsonElement arr) || arr.ValueKind != System.Text.Json.JsonValueKind.Array)
-                {
-                    return Array.Empty<string>();
-                }
-
-                return arr.EnumerateArray()
-                    .Where(v => v.ValueKind == System.Text.Json.JsonValueKind.String)
-                    .Select(v => v.GetString()!)
-                    .ToArray();
-            }
-
             string task = root.TryGetProperty("task", out System.Text.Json.JsonElement taskEl) ? taskEl.GetString() ?? string.Empty : string.Empty;
             string desiredOutcome = root.TryGetProperty("desiredOutcome", out System.Text.Json.JsonElement outcomeEl) ? outcomeEl.GetString() ?? string.Empty : string.Empty;
 
@@ -608,7 +562,8 @@ public class OrchestrationAgent : AgentBase
                 AcceptanceCriteria: ReadStringArray(root, "acceptanceCriteria"),
                 LikelyTouchpoints: ReadStringArray(root, "likelyTouchpoints"),
                 OpenQuestions: ReadStringArray(root, "openQuestions"),
-                DecisionNotes: ReadStringArray(root, "decisionNotes"));
+                DecisionNotes: ReadStringArray(root, "decisionNotes"),
+                VerificationCommands: ReadVerificationCommands(root));
 
             return !string.IsNullOrWhiteSpace(spec.Task);
         }
@@ -616,5 +571,67 @@ public class OrchestrationAgent : AgentBase
         {
             return false;
         }
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(System.Text.Json.JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out System.Text.Json.JsonElement arrayElement)
+            || arrayElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return Array.Empty<string>();
+        }
+
+        return arrayElement.EnumerateArray()
+            .Where(value => value.ValueKind == System.Text.Json.JsonValueKind.String)
+            .Select(value => value.GetString()!)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<VerificationCommand> ReadVerificationCommands(System.Text.Json.JsonElement element)
+    {
+        if (!element.TryGetProperty("verificationCommands", out System.Text.Json.JsonElement commandsElement)
+            || commandsElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return Array.Empty<VerificationCommand>();
+        }
+
+        List<VerificationCommand> commands = new List<VerificationCommand>();
+        foreach (System.Text.Json.JsonElement commandElement in commandsElement.EnumerateArray())
+        {
+            VerificationCommand? parsed = TryParseVerificationCommand(commandElement);
+            if (parsed is not null)
+            {
+                commands.Add(parsed);
+            }
+        }
+
+        return commands;
+    }
+
+    private static VerificationCommand? TryParseVerificationCommand(System.Text.Json.JsonElement commandElement)
+    {
+        if (commandElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        string? name = commandElement.TryGetProperty("name", out System.Text.Json.JsonElement nameElement) ? nameElement.GetString() : null;
+        string? command = commandElement.TryGetProperty("command", out System.Text.Json.JsonElement commandValueElement) ? commandValueElement.GetString() : null;
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(command))
+        {
+            return null;
+        }
+
+        string evidenceType = commandElement.TryGetProperty("evidenceType", out System.Text.Json.JsonElement evidenceTypeElement)
+            ? evidenceTypeElement.GetString() ?? "runtime"
+            : "runtime";
+        string? criterion = commandElement.TryGetProperty("criterion", out System.Text.Json.JsonElement criterionElement)
+            ? criterionElement.GetString()
+            : null;
+        bool required = !commandElement.TryGetProperty("required", out System.Text.Json.JsonElement requiredElement)
+            || requiredElement.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
+            || requiredElement.GetBoolean();
+
+        return new VerificationCommand(name.Trim(), command.Trim(), evidenceType.Trim(), criterion?.Trim(), required);
     }
 }

@@ -59,6 +59,8 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IAgentExecutionContextAccessor, AgentExecutionContextAccessor>();
         services.AddSingleton<RuntimeStateAccessors>();
         services.AddSingleton<IToolUsageLogger, ToolUsageLogger>();
+        services.AddSingleton<IShellCommandExecutor, ShellCommandExecutor>();
+        services.AddSingleton<IVerificationCommandRunner, VerificationCommandRunner>();
         services.AddSingleton<OrchestrationAgent>();
         services.AddSingleton<PlanningAgent>();
         services.AddSingleton<FrontendDeveloperAgent>();
@@ -73,6 +75,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<RunSessionContext>();
         services.AddSingleton<OrchestratorRuntime.RunPhaseDependencies>();
         services.AddSingleton<IRunCompletionValidator, RunCompletionValidator>();
+        services.AddSingleton<IRunVerificationWorkflow, RunVerificationWorkflow>();
         services.AddSingleton<IRunAgentModelUsageBuilder, RunAgentModelUsageBuilder>();
         services.AddSingleton<OrchestratorRunServices>();
         services.AddSingleton<IOrchestratedRunProcessor, OrchestratedRunProcessor>();

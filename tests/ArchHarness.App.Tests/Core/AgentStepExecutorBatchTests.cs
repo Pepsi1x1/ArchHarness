@@ -87,7 +87,8 @@ public sealed class AgentStepExecutorBatchTests
     [Fact]
     public void MergeOutcome_FilesTouchedDelta_MergesDistinctFiles()
     {
-        AgentStepExecutor.ExecutionState state = new AgentStepExecutor.ExecutionState()`r`n        {
+        AgentStepExecutor.ExecutionState state = new AgentStepExecutor.ExecutionState()
+        {
             FilesTouched = new[] { "src/A.cs", "src/B.cs" }
         };
 
@@ -150,7 +151,8 @@ public sealed class AgentStepExecutorBatchTests
     public void MergeOutcome_NullDeltas_DoesNotOverwrite()
     {
         ArchitectureReview existingReview = new(Array.Empty<ArchitectureFinding>(), Array.Empty<string>());
-        AgentStepExecutor.ExecutionState state = new AgentStepExecutor.ExecutionState()`r`n        {
+        AgentStepExecutor.ExecutionState state = new AgentStepExecutor.ExecutionState()
+        {
             FrontendPlan = "Existing",
             Review = existingReview
         };

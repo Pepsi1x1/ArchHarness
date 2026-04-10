@@ -111,6 +111,9 @@ public sealed class SessionEventPumpTests
         public Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken)
             => Task.CompletedTask;
 
+        public Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
         public Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
         {
             AppendedEvents.Add(evt);

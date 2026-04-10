@@ -10,13 +10,14 @@ public interface IRunCompletionValidator
     /// <summary>
     /// Validates final run completion using the orchestration agent.
     /// </summary>
-    Task<bool> ValidateAsync(
+    Task<CompletionValidationResult> ValidateAsync(
         ExecutionPlan plan,
         ArchitectureReview review,
         SecurityReview securityReview,
         IDictionary<string, string>? modelOverrides,
         ClarificationSpec? spec,
         BuildOutcome? buildOutcome,
+        IReadOnlyList<VerificationEvidence>? verificationEvidence,
         CancellationToken cancellationToken);
 }
 
@@ -36,16 +37,17 @@ public sealed class RunCompletionValidator : IRunCompletionValidator
     }
 
     /// <inheritdoc />
-    public Task<bool> ValidateAsync(
+    public Task<CompletionValidationResult> ValidateAsync(
         ExecutionPlan plan,
         ArchitectureReview review,
         SecurityReview securityReview,
         IDictionary<string, string>? modelOverrides,
         ClarificationSpec? spec,
         BuildOutcome? buildOutcome,
+        IReadOnlyList<VerificationEvidence>? verificationEvidence,
         CancellationToken cancellationToken)
         => this._orchestrationAgent.ValidateCompletionAsync(
-            new CompletionValidationRequest(plan, review, securityReview, modelOverrides, spec, buildOutcome),
+            new CompletionValidationRequest(plan, review, securityReview, modelOverrides, spec, buildOutcome, verificationEvidence),
             this._orchestrationAgent.Id,
             this._orchestrationAgent.Role,
             cancellationToken);

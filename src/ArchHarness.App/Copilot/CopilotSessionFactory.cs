@@ -198,16 +198,16 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
 
     private SessionConfig CreateSessionConfig(string model, CopilotCompletionOptions? requestOptions, string permissionHandlerMode, SessionCacheKey cacheKey)
     {
+        string? stableSessionId = BuildStableSessionId(cacheKey);
         SessionConfig config = new SessionConfig
         {
             Model = model,
             Streaming = this._options.StreamingResponses,
             OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
             OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
-            Hooks = this.CreateSessionHooks()
+            Hooks = this.CreateSessionHooks(model, stableSessionId ?? "n/a")
         };
 
-        string? stableSessionId = BuildStableSessionId(cacheKey);
         if (!string.IsNullOrWhiteSpace(stableSessionId))
         {
             config.SessionId = stableSessionId;
@@ -259,7 +259,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             {
                 OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
                 OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
-                Hooks = this.CreateSessionHooks(),
+                Hooks = this.CreateSessionHooks(model, stableSessionId),
                 Model = model,
                 Streaming = this._options.StreamingResponses,
                 ReasoningEffort = config.ReasoningEffort,
@@ -276,11 +276,42 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         }
     }
 
-    private SessionHooks CreateSessionHooks()
+    private SessionHooks CreateSessionHooks(string model, string sessionId)
         => new SessionHooks
         {
             OnPreToolUse = async (input, _) => await this._hooks.Governance.OnPreToolUseAsync(input).ConfigureAwait(false),
-            OnPostToolUse = async (input, _) => await this._hooks.Governance.OnPostToolUseAsync(input).ConfigureAwait(false)
+            OnPostToolUse = async (input, _) => await this._hooks.Governance.OnPostToolUseAsync(input).ConfigureAwait(false),
+            OnSessionStart = async (input, _) =>
+            {
+                this._sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+                    DateTimeOffset.UtcNow,
+                    sessionId,
+                    model,
+                    "session.hook.start",
+                    $"source={input.Source}; cwd={input.Cwd}"));
+                return null;
+            },
+            OnSessionEnd = async (input, _) =>
+            {
+                string details = $"reason={input.Reason}; cwd={input.Cwd}";
+                this._sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+                    DateTimeOffset.UtcNow,
+                    sessionId,
+                    model,
+                    "session.hook.end",
+                    details));
+                return null;
+            },
+            OnErrorOccurred = async (input, _) =>
+            {
+                this._sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+                    DateTimeOffset.UtcNow,
+                    sessionId,
+                    model,
+                    "session.hook.error",
+                    $"context={input.ErrorContext}; recoverable={input.Recoverable}; error={input.Error}"));
+                return null;
+            }
         };
 
     private PermissionRequestHandler ResolvePermissionHandler(string permissionHandlerMode)

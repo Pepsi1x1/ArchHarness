@@ -24,6 +24,7 @@ public sealed record PersistedRunState(
     ClarificationSpec? Spec = null,
     PlanApproval? Approval = null,
     BuildOutcome? LastBuildOutcome = null,
+    CompletionValidationResult? CompletionValidation = null,
     ClarificationAnswer[]? ClarificationAnswers = null,
     string? HandoffRunId = null)
 {

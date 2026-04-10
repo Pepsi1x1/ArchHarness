@@ -63,7 +63,7 @@ internal static class ExecutionPlanValidator
         }
 
         List<JsonElement> criteria = criteriaEl.EnumerateArray().ToList();
-        return ValidateCompletionCriteria(criteria.Count, out error);
+        return ValidateCompletionCriteria(criteria, out error);
     }
 
     private static bool ValidateStepCount(int stepCount, out string? error)
@@ -135,12 +135,28 @@ internal static class ExecutionPlanValidator
         return true;
     }
 
-    private static bool ValidateCompletionCriteria(int criteriaCount, out string? error)
+    private static bool ValidateCompletionCriteria(IReadOnlyList<JsonElement> criteria, out string? error)
     {
-        if (criteriaCount == 0)
+        if (criteria.Count == 0)
         {
             error = "Field 'completionCriteria' is empty. Must include at least one completion criterion.";
             return false;
+        }
+
+        foreach (JsonElement criterion in criteria)
+        {
+            string? value = criterion.GetString();
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                error = "Field 'completionCriteria' must contain only non-empty strings.";
+                return false;
+            }
+
+            if (!CompletionCriteriaSupport.IsSupportedPlanCriterion(value))
+            {
+                error = $"Completion criterion '{value}' is not supported. Use supported build, coding style, security, or architecture criteria only.";
+                return false;
+            }
         }
 
         error = null;

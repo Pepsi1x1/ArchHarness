@@ -10,23 +10,8 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class BuildAgent : AgentBase
 {
-    private const string BUILD_INSTRUCTIONS_FALLBACK = """
-        You are the Build Agent.
-        Your role is build execution and build-result triage only.
-        Use terminal tools to run the provided build command from WorkspaceRoot.
-        Do not edit workspace files or apply code changes.
-        Return a concise summary including whether the build passed and the most important failures when it did not.
-        """;
-    private const string BUILD_EXECUTION_PROMPT_FALLBACK = """
-        WorkspaceRoot: {{WorkspaceRoot}}
-        BuildCommand: {{BuildCommand}}
-
-        DelegatedPrompt:
-        {{Objective}}
-
-        Execute the build-related work directly. If BuildCommand is provided, use it exactly unless the delegated prompt explicitly says otherwise.
-        Return a concise completion summary.
-        """;
+    private const int MAX_CAPTURE_LENGTH = 4000;
+    private readonly IShellCommandExecutor _shellCommandExecutor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="BuildAgent"/> class.
@@ -35,8 +20,16 @@ public sealed class BuildAgent : AgentBase
     /// <param name="modelResolver">Resolves which model to use for this agent.</param>
     /// <param name="toolPolicyProvider">Provides tool access policies for the agent.</param>
     /// <param name="agentsOptions">Configuration options for agent behavior.</param>
-    public BuildAgent(ICopilotClient copilotClient, IModelResolver modelResolver, IAgentToolPolicyProvider toolPolicyProvider, IOptions<AgentsOptions> agentsOptions)
-        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "build", Guid.NewGuid().ToString("N")) { }
+    public BuildAgent(
+        ICopilotClient copilotClient,
+        IModelResolver modelResolver,
+        IAgentToolPolicyProvider toolPolicyProvider,
+        IShellCommandExecutor shellCommandExecutor,
+        IOptions<AgentsOptions> agentsOptions)
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, "build", Guid.NewGuid().ToString("N"))
+    {
+        this._shellCommandExecutor = shellCommandExecutor;
+    }
 
     /// <summary>
     /// Runs the delegated build task in the workspace.
@@ -60,51 +53,51 @@ public sealed class BuildAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        string promptTemplate = PromptLoader.Load("Build", "execution.md", BUILD_EXECUTION_PROMPT_FALLBACK);
-        string prompt = PromptLoader.Render(
-            promptTemplate,
-            ("{{WorkspaceRoot}}", workspace.RootPath),
-            ("{{BuildCommand}}", buildCommand ?? "(none)"),
-            ("{{Objective}}", objective));
-        string systemInstructions = PromptLoader.Load("Build", "system.md", BUILD_INSTRUCTIONS_FALLBACK);
+        _ = objective;
+        _ = modelOverrides;
+        _ = agentId;
+        _ = agentRole;
 
-        CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
+        if (string.IsNullOrWhiteSpace(buildCommand))
         {
-            SystemMessage = systemInstructions,
-            SystemMessageMode = CopilotSystemMessageMode.Append
-        });
+            return new BuildOutcome(false, "No build command was configured for the build step.", stepId, DateTimeOffset.UtcNow);
+        }
 
-        string response = await base.CopilotClient.CompleteAsync(
-            base.ResolveModel(modelOverrides),
-            prompt,
-            options,
-            agentId: agentId ?? base.Id,
-            agentRole: agentRole ?? base.Role,
-            cancellationToken);
+        ArchHarness.App.SourceControl.LocalCommandResult result = await this._shellCommandExecutor.RunAsync(buildCommand, workspace.RootPath, cancellationToken).ConfigureAwait(false);
+        DateTimeOffset timestamp = DateTimeOffset.UtcNow;
+        string detail = FirstMeaningfulLine(result.StandardError) ?? FirstMeaningfulLine(result.StandardOutput) ?? "No output captured.";
+        string summary = result.ExitCode == 0
+            ? $"Build passed. {detail}"
+            : $"Build failed with exit code {result.ExitCode}. {detail}";
 
-        bool passed = InferBuildPassed(response);
-        string summary = string.IsNullOrWhiteSpace(response) ? "Build step completed." : response.Trim();
-        return new BuildOutcome(passed, summary, stepId, DateTimeOffset.UtcNow);
+        return new BuildOutcome(
+            result.ExitCode == 0,
+            summary,
+            stepId,
+            timestamp,
+            buildCommand,
+            result.ExitCode,
+            Truncate(result.StandardOutput),
+            Truncate(result.StandardError));
     }
 
-    private static bool InferBuildPassed(string? response)
+    private static string? FirstMeaningfulLine(string? value)
     {
-        if (string.IsNullOrWhiteSpace(response))
+        if (string.IsNullOrWhiteSpace(value))
         {
-            return true;
+            return null;
         }
 
-        string lower = response.ToLowerInvariant();
-        if (lower.Contains("build failed") || lower.Contains("build error") || lower.Contains("compilation failed"))
+        return value.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+    }
+
+    private static string? Truncate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length <= MAX_CAPTURE_LENGTH)
         {
-            return false;
+            return value;
         }
 
-        if (lower.Contains("build succeeded") || lower.Contains("build passed") || lower.Contains("build success"))
-        {
-            return true;
-        }
-
-        return true;
+        return value[..MAX_CAPTURE_LENGTH] + Environment.NewLine + "...[truncated]";
     }
 }

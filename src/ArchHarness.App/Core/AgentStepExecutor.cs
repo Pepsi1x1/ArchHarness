@@ -88,6 +88,11 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             foreach (StepOutcome outcome in batchOutcomes)
             {
                 MergeOutcome(state, outcome);
+                if (outcome.BuildOutcome is not null)
+                {
+                    await this._artefactStore.WriteBuildResultAsync(context.RunDirectory, outcome.BuildOutcome, cancellationToken).ConfigureAwait(false);
+                }
+
                 completedStepIds.Add(outcome.StepId);
                 pendingSteps.Remove(outcome.StepId);
                 await this._artefactStore.AppendEventAsync(context.RunDirectory, new

@@ -169,7 +169,8 @@ public sealed record CompletionValidationRequest(
     SecurityReview SecurityReview,
     IDictionary<string, string>? ModelOverrides,
     ClarificationSpec? Spec = null,
-    BuildOutcome? BuildOutcome = null);
+    BuildOutcome? BuildOutcome = null,
+    IReadOnlyList<VerificationEvidence>? VerificationEvidence = null);
 
 /// <summary>
 /// Request payload for the architecture review remediation loop.
@@ -267,7 +268,8 @@ public sealed record ClarificationSpec(
     IReadOnlyList<string> AcceptanceCriteria,
     IReadOnlyList<string> LikelyTouchpoints,
     IReadOnlyList<string> OpenQuestions,
-    IReadOnlyList<string> DecisionNotes);
+    IReadOnlyList<string> DecisionNotes,
+    IReadOnlyList<VerificationCommand>? VerificationCommands = null);
 
 /// <summary>
 /// Records the user's approval decision for a generated plan.
@@ -308,7 +310,68 @@ public sealed record BuildOutcome(
     bool Passed,
     string Summary,
     int StepId,
-    DateTimeOffset TimestampUtc);
+    DateTimeOffset TimestampUtc,
+    string? Command = null,
+    int? ExitCode = null,
+    string? StandardOutput = null,
+    string? StandardError = null);
+
+/// <summary>
+/// Declares an executable verification command associated with a run or acceptance criterion.
+/// </summary>
+/// <param name="Name">Human-friendly name used in summaries and ledgers.</param>
+/// <param name="Command">The shell command to execute.</param>
+/// <param name="EvidenceType">The evidence category (build, test, lint, typecheck, runtime, manual).</param>
+/// <param name="Criterion">Optional completion or acceptance criterion satisfied by this command.</param>
+/// <param name="Required">Whether a failure should fail the overall verification attempt.</param>
+public sealed record VerificationCommand(
+    string Name,
+    string Command,
+    string EvidenceType = "runtime",
+    string? Criterion = null,
+    bool Required = true);
+
+/// <summary>
+/// Captures the result of executing a verification command.
+/// </summary>
+/// <param name="Type">The evidence category (build, test, lint, typecheck, runtime, manual).</param>
+/// <param name="Name">Human-friendly command name.</param>
+/// <param name="Passed">Whether the command passed.</param>
+/// <param name="Command">The shell command that ran.</param>
+/// <param name="ExitCode">The observed command exit code.</param>
+/// <param name="Summary">A concise summary of the result.</param>
+/// <param name="Criterion">Optional completion or acceptance criterion satisfied by this evidence.</param>
+/// <param name="Output">Captured standard output, if any.</param>
+/// <param name="ErrorOutput">Captured standard error, if any.</param>
+/// <param name="TimestampUtc">When the command completed.</param>
+public sealed record VerificationEvidence(
+    string Type,
+    string Name,
+    bool Passed,
+    string Command,
+    int ExitCode,
+    string Summary,
+    string? Criterion = null,
+    string? Output = null,
+    string? ErrorOutput = null,
+    DateTimeOffset? TimestampUtc = null);
+
+/// <summary>
+/// Captures a single verification attempt and its evidence.
+/// </summary>
+/// <param name="AttemptNumber">The 1-based attempt number.</param>
+/// <param name="Passed">Whether the attempt satisfied completion validation.</param>
+/// <param name="Summary">A concise attempt summary.</param>
+/// <param name="Evidence">The verification evidence gathered during the attempt.</param>
+/// <param name="RemediationPrompt">Optional remediation prompt executed before the attempt.</param>
+/// <param name="TimestampUtc">When the attempt completed.</param>
+public sealed record VerificationAttempt(
+    int AttemptNumber,
+    bool Passed,
+    string Summary,
+    IReadOnlyList<VerificationEvidence> Evidence,
+    string? RemediationPrompt = null,
+    DateTimeOffset? TimestampUtc = null);
 
 /// <summary>
 /// Immutable outcome of executing a single plan step.
@@ -337,7 +400,11 @@ public sealed record StepOutcome(
 /// <param name="CriterionResults">Per-criterion evaluation results.</param>
 public sealed record CompletionValidationResult(
     bool Passed,
-    IReadOnlyList<CriterionResult> CriterionResults);
+    IReadOnlyList<CriterionResult> CriterionResults,
+    string Summary = "",
+    string Confidence = "medium",
+    IReadOnlyList<VerificationEvidence>? Evidence = null,
+    IReadOnlyList<VerificationAttempt>? Attempts = null);
 
 /// <summary>
 /// The evaluation result of a single completion criterion.

@@ -49,6 +49,14 @@ public interface IArtefactStore
     Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Writes the completion validation result to the run directory as JSON and Markdown.
+    /// </summary>
+    /// <param name="runDirectory">The run output directory.</param>
+    /// <param name="validation">The validation result to persist.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Appends an event as a JSONL line to the run events log.
     /// </summary>
     /// <param name="runDirectory">The run output directory.</param>
@@ -72,6 +80,8 @@ public interface IArtefactStore
 /// </summary>
 public sealed class ArtefactStore : IArtefactStore
 {
+    private const string NONE_LABEL = "(none)";
+
     /// <inheritdoc />
     public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
     {
@@ -99,6 +109,13 @@ public sealed class ArtefactStore : IArtefactStore
     /// <inheritdoc />
     public Task WriteBuildResultAsync(string runDirectory, object payload, CancellationToken cancellationToken)
         => WriteRedactedJsonAsync(runDirectory, "BuildResult.json", payload, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task WriteCompletionValidationAsync(string runDirectory, CompletionValidationResult validation, CancellationToken cancellationToken)
+    {
+        await WriteRedactedJsonAsync(runDirectory, "CompletionValidation.json", validation, cancellationToken).ConfigureAwait(false);
+        await WriteRedactedTextAsync(runDirectory, "CompletionValidation.md", RenderCompletionValidationMarkdown(validation), cancellationToken).ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
     public async Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken)
@@ -144,7 +161,13 @@ public sealed class ArtefactStore : IArtefactStore
     private static string RenderSpecMarkdown(ClarificationSpec spec)
     {
         static string RenderList(IReadOnlyList<string> items)
-            => items.Count == 0 ? "(none)" : string.Join(Environment.NewLine, items.Select(i => $"- {i}"));
+            => items.Count == 0 ? NONE_LABEL : string.Join(Environment.NewLine, items.Select(i => $"- {i}"));
+
+        static string RenderVerificationCommands(IReadOnlyList<VerificationCommand>? commands)
+            => commands is not { Count: > 0 }
+                ? NONE_LABEL
+                : string.Join(Environment.NewLine, commands.Select(command =>
+                    $"- {command.Name}: `{command.Command}` ({command.EvidenceType}, criterion: {command.Criterion ?? command.Name}, required: {command.Required})"));
 
         return $"""
             # Clarification Spec
@@ -178,6 +201,41 @@ public sealed class ArtefactStore : IArtefactStore
 
             ## Decision Notes
             {RenderList(spec.DecisionNotes)}
+
+            ## Verification Commands
+            {RenderVerificationCommands(spec.VerificationCommands)}
+            """;
+    }
+
+    private static string RenderCompletionValidationMarkdown(CompletionValidationResult validation)
+    {
+        string criteria = validation.CriterionResults.Count == 0
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, validation.CriterionResults.Select(result => $"- [{(result.Passed ? "PASS" : "FAIL")}] {result.Criterion}{Environment.NewLine}  Evidence: {result.Evidence}"));
+        string evidence = validation.Evidence is not { Count: > 0 }
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, validation.Evidence.Select(item =>
+                $"- [{(item.Passed ? "PASS" : "FAIL")}] {item.Name} ({item.Type}){Environment.NewLine}  Command: {item.Command}{Environment.NewLine}  ExitCode: {item.ExitCode}{Environment.NewLine}  Criterion: {item.Criterion ?? item.Name}{Environment.NewLine}  Summary: {item.Summary}"));
+        string attempts = validation.Attempts is not { Count: > 0 }
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, validation.Attempts.Select(attempt =>
+                $"- Attempt {attempt.AttemptNumber}: {(attempt.Passed ? "PASS" : "FAIL")} at {attempt.TimestampUtc:O}{Environment.NewLine}  Summary: {attempt.Summary}{Environment.NewLine}  RemediationPrompt: {attempt.RemediationPrompt ?? "(none)"}"));
+
+        return $"""
+            # Completion Validation
+
+            - Passed: {validation.Passed}
+            - Summary: {validation.Summary}
+            - Confidence: {validation.Confidence}
+
+            ## Criteria
+            {criteria}
+
+            ## Evidence
+            {evidence}
+
+            ## Attempts
+            {attempts}
             """;
     }
 }

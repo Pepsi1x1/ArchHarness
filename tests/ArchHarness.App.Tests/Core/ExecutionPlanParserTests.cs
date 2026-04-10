@@ -74,6 +74,33 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    [Fact]
+    public void TryBuildExecutionPlan_UnsupportedCompletionCriterion_ReturnsFailure()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature X"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 1, "reviewRequired": false},
+                    "completionCriteria": ["Implementation started"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+
+            Assert.False(result);
+            Assert.Contains("not supported", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
     /// <summary>
     /// Invalid dependency IDs should cause a parse failure.
     /// </summary>
