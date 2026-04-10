@@ -298,7 +298,7 @@ public sealed class WebInteractionCoordinator
             }
 
             using CancellationTokenRegistration registration = cancellationToken.Register(
-                static state => ((TaskCompletionSource<object>)state!).TrySetCanceled(),
+                static (state, token) => ((TaskCompletionSource<object>)state!).TrySetCanceled(token),
                 responseSource);
 
             object response = await responseSource.Task.ConfigureAwait(false);
