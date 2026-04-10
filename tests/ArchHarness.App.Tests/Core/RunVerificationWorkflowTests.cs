@@ -77,8 +77,12 @@ public sealed class RunVerificationWorkflowTests
     {
         private int _invocationCount;
 
-        public Task<IReadOnlyList<VerificationEvidence>> RunAsync(string workspaceRoot, IReadOnlyList<VerificationCommand> commands, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+        Task<IReadOnlyList<VerificationEvidence>> IVerificationCommandRunner.RunAsync(string workspaceRoot, IReadOnlyList<VerificationCommand> commands, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
         {
+            _ = workspaceRoot;
+            _ = commands;
+            _ = progress;
+            _ = cancellationToken;
             _invocationCount++;
             bool passed = _invocationCount >= 2;
             return Task.FromResult<IReadOnlyList<VerificationEvidence>>(new[]
@@ -91,22 +95,23 @@ public sealed class RunVerificationWorkflowTests
     private sealed class FakeRunCompletionValidator : IRunCompletionValidator
     {
         public Task<CompletionValidationResult> ValidateAsync(
-            ExecutionPlan plan,
-            ArchitectureReview review,
-            SecurityReview securityReview,
-            IDictionary<string, string>? modelOverrides,
-            ClarificationSpec? spec,
-            BuildOutcome? buildOutcome,
-            IReadOnlyList<VerificationEvidence>? verificationEvidence,
+            CompletionValidationRequest request,
             CancellationToken cancellationToken)
         {
-            VerificationEvidence evidence = Assert.Single(verificationEvidence!);
+            VerificationEvidence evidence = Assert.Single(request.VerificationEvidence!);
             return Task.FromResult(new CompletionValidationResult(
                 evidence.Passed,
                 new[] { new CriterionResult("API tests pass", evidence.Passed, evidence.Summary) },
                 evidence.Summary,
                 "high",
-                verificationEvidence));
+                request.VerificationEvidence,
+                new ImplementationAssessment(
+                    evidence.Passed ? "PASS" : "FAIL",
+                    evidence.Passed,
+                    evidence.Summary,
+                    new[] { evidence.Summary },
+                    Array.Empty<string>(),
+                    Array.Empty<string>())));
         }
     }
 

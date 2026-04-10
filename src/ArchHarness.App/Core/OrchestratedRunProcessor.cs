@@ -358,9 +358,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                     runId,
                     runDirectory,
                     clarificationAnswers,
+                    planningAgent,
                     progress,
-                    planningAgent.Id,
-                    planningAgent.Role,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -503,18 +502,17 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         string runId,
         string runDirectory,
         IReadOnlyList<ClarificationAnswer> existingAnswers,
+        OrchestrationAgent clarificationAgent,
         IProgress<RuntimeProgressEvent>? progress,
-        string? agentId,
-        string? agentRole,
         CancellationToken cancellationToken)
     {
         List<ClarificationAnswer> clarificationAnswers = existingAnswers.ToList();
-        ClarificationSpec spec = await this._orchestrationAgent.BuildClarificationSpecAsync(
+        ClarificationSpec spec = await clarificationAgent.BuildClarificationSpecAsync(
             request,
             workspaceRoot,
             clarificationAnswers,
-            agentId,
-            agentRole,
+            clarificationAgent.Id,
+            clarificationAgent.Role,
             cancellationToken).ConfigureAwait(false);
 
         await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
@@ -566,12 +564,12 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
 
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Regenerating clarification spec"));
-            spec = await this._orchestrationAgent.BuildClarificationSpecAsync(
+            spec = await clarificationAgent.BuildClarificationSpecAsync(
                 request,
                 workspaceRoot,
                 clarificationAnswers,
-                agentId,
-                agentRole,
+                clarificationAgent.Id,
+                clarificationAgent.Role,
                 cancellationToken).ConfigureAwait(false);
             await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
         }
@@ -969,6 +967,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         return $"""
             # Final Summary
             - Completed: {validationResult.Passed}
+            - MateriallyImplemented: {validationResult.Assessment?.MateriallyImplemented}
             - FrontendPlan: {frontendPlan}
             - FilesTouched: {filesTouchedList}
             - SecurityHighFindings: {securityHighCount}

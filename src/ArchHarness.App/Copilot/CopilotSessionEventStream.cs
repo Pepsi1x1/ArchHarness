@@ -20,6 +20,26 @@ public sealed record CopilotSessionLifecycleEvent(
 );
 
 /// <summary>
+/// Represents a raw SDK event emitted during a Copilot session.
+/// </summary>
+/// <param name="TimestampUtc">The UTC timestamp of the event.</param>
+/// <param name="SessionId">The session identifier.</param>
+/// <param name="Model">The model identifier used.</param>
+/// <param name="EventType">The SDK event type key.</param>
+/// <param name="EventClass">The concrete SDK event CLR type.</param>
+/// <param name="PayloadJson">The serialized SDK event payload when serialization succeeds.</param>
+/// <param name="SerializationError">The serialization error message when payload capture fails.</param>
+public sealed record CopilotSdkRawEvent(
+    DateTimeOffset TimestampUtc,
+    string SessionId,
+    string Model,
+    string EventType,
+    string EventClass,
+    string? PayloadJson,
+    string? SerializationError
+);
+
+/// <summary>
 /// Publishes and consumes Copilot session lifecycle events.
 /// </summary>
 public interface ICopilotSessionEventStream
@@ -32,6 +52,21 @@ public interface ICopilotSessionEventStream
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>An async enumerable of lifecycle events.</returns>
     IAsyncEnumerable<CopilotSessionLifecycleEvent> ReadAllAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Publishes and consumes raw SDK events emitted during a Copilot session.
+/// </summary>
+public interface ICopilotSdkEventStream
+{
+    /// <summary>Publishes a raw SDK event to the stream.</summary>
+    /// <param name="evt">The event to publish.</param>
+    void Publish(CopilotSdkRawEvent evt);
+
+    /// <summary>Reads all raw SDK events as an async enumerable.</summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>An async enumerable of raw SDK events.</returns>
+    IAsyncEnumerable<CopilotSdkRawEvent> ReadAllAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -115,6 +150,20 @@ public sealed class CopilotSessionEventStream : MulticastEventStream<CopilotSess
 
     /// <inheritdoc />
     IAsyncEnumerable<CopilotSessionLifecycleEvent> ICopilotSessionEventStream.ReadAllAsync(CancellationToken cancellationToken)
+        => this.ReadAllAsyncCore(cancellationToken);
+}
+
+/// <summary>
+/// Channel-backed implementation of <see cref="ICopilotSdkEventStream"/>.
+/// </summary>
+public sealed class CopilotSdkEventStream : MulticastEventStream<CopilotSdkRawEvent>, ICopilotSdkEventStream
+{
+    /// <inheritdoc />
+    void ICopilotSdkEventStream.Publish(CopilotSdkRawEvent evt)
+        => this.PublishCore(evt);
+
+    /// <inheritdoc />
+    IAsyncEnumerable<CopilotSdkRawEvent> ICopilotSdkEventStream.ReadAllAsync(CancellationToken cancellationToken)
         => this.ReadAllAsyncCore(cancellationToken);
 }
 

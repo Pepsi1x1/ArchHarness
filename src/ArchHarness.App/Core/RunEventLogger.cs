@@ -18,10 +18,10 @@ public sealed class RunEventLogger : IRunEventLogger
     /// </summary>
     /// <param name="artefactStore">Store for persisting run artefacts.</param>
     /// <param name="sessionEventStream">Stream of Copilot session events.</param>
-    public RunEventLogger(IArtefactStore artefactStore, ICopilotSessionEventStream sessionEventStream, IAgentStreamEventStream agentStreamEventStream)
+    public RunEventLogger(IArtefactStore artefactStore, ICopilotSessionEventStream sessionEventStream, ICopilotSdkEventStream sdkEventStream, IAgentStreamEventStream agentStreamEventStream)
     {
         this._artefactStore = artefactStore;
-        this._sessionEventPump = new SessionEventPump(sessionEventStream, artefactStore);
+        this._sessionEventPump = new SessionEventPump(sessionEventStream, sdkEventStream, artefactStore);
         this._agentStreamEventPump = new AgentStreamEventPump(agentStreamEventStream, artefactStore);
     }
 

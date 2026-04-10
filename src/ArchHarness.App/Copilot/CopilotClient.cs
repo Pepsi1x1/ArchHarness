@@ -41,6 +41,7 @@ public interface ICopilotClient
 public sealed class CopilotClient : ICopilotClient
 {
     private readonly ICopilotSessionFactory _sessionFactory;
+    private readonly ICopilotClientProvider _clientProvider;
     private readonly IModelResolver _modelResolver;
     private readonly ICopilotSessionEventStream _sessionEventStream;
     private readonly ILogger<CopilotClient> _logger;
@@ -51,18 +52,21 @@ public sealed class CopilotClient : ICopilotClient
     /// Initializes a new instance of the <see cref="CopilotClient"/> class.
     /// </summary>
     /// <param name="sessionFactory">Factory for creating Copilot sessions.</param>
+    /// <param name="clientProvider">Provider for the underlying SDK client.</param>
     /// <param name="modelResolver">Resolver for validating and resolving model identifiers.</param>
     /// <param name="sessionEventStream">Stream for publishing session lifecycle events.</param>
     /// <param name="logger">Logger instance.</param>
     /// <param name="options">Copilot configuration options.</param>
     public CopilotClient(
         ICopilotSessionFactory sessionFactory,
+        ICopilotClientProvider clientProvider,
         IModelResolver modelResolver,
         ICopilotSessionEventStream sessionEventStream,
         ILogger<CopilotClient> logger,
         IOptions<CopilotOptions> options)
     {
         this._sessionFactory = sessionFactory;
+        this._clientProvider = clientProvider;
         this._modelResolver = modelResolver;
         this._sessionEventStream = sessionEventStream;
         this._logger = logger;
@@ -92,6 +96,11 @@ public sealed class CopilotClient : ICopilotClient
                 this.TrackUsage(model, boundedPrompt.Length, boundedCompletion.Length);
                 return boundedCompletion;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                this._sessionFactory.Invalidate(model, options);
+                throw;
+            }
             catch (Exception ex)
             {
                 lastException = ex;
@@ -112,6 +121,36 @@ public sealed class CopilotClient : ICopilotClient
                 if (attempt >= this._options.MaxRetries || !CopilotErrorClassifier.IsTransient(ex))
                 {
                     break;
+                }
+
+                if (CopilotErrorClassifier.RequiresSessionReset(ex))
+                {
+                    this._sessionFactory.Invalidate(model, options);
+                    this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+                        DateTimeOffset.UtcNow,
+                        "n/a",
+                        model,
+                        "client.completion.session_reset",
+                        ex.Message));
+
+                    if (CopilotErrorClassifier.RequiresClientRecycle(ex))
+                    {
+                        try
+                        {
+                            await this._clientProvider.InvalidateAsync().ConfigureAwait(false);
+                        }
+                        catch (Exception recycleEx)
+                        {
+                            this._logger.LogDebug(recycleEx, "Client provider recycle failed.");
+                        }
+
+                        this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+                            DateTimeOffset.UtcNow,
+                            "n/a",
+                            model,
+                            "client.completion.client_recycled",
+                            ex.Message));
+                    }
                 }
 
                 int backoff = this._options.BaseRetryDelayMilliseconds * (int)Math.Pow(2, attempt);

@@ -107,6 +107,50 @@ public class OrchestrationAgent : AgentBase
         {{RequiredActionsSection}}
         {{ArchitectureLoopPromptSection}}
         """;
+    private const string ORCHESTRATION_VERIFIER_PROMPT_FALLBACK = """
+        You are Verifier. Prove or disprove completion with concrete evidence.
+
+        Return ONLY strict JSON with this schema:
+        {
+            "verdict": "PASS|FAIL|INCOMPLETE",
+            "materiallyImplemented": true,
+            "summary": "string",
+            "evidence": ["string"],
+            "gaps": ["string"],
+            "risks": ["string"]
+        }
+
+        Rules:
+        - Verify claims against code, relevant files, diffs, commands, tests, and recorded evidence.
+        - Do not trust unverified implementation claims.
+        - Distinguish missing evidence from failed behavior.
+        - Passing commands alone is insufficient if the core requested behavior or plan outcomes are not materially present in the workspace.
+        - materiallyImplemented must be false when the core requested work is absent, partial, or only weakly evidenced.
+        - Prefer direct evidence over reassurance.
+
+        Task: {{Task}}
+        DesiredOutcome: {{DesiredOutcome}}
+        AcceptanceCriteria:
+        {{AcceptanceCriteriaSection}}
+
+        PlanSteps:
+        {{PlanStepsSection}}
+
+        FilesTouched:
+        {{FilesTouchedSection}}
+
+        BuildOutcome:
+        {{BuildOutcomeSection}}
+
+        VerificationEvidence:
+        {{VerificationEvidenceSection}}
+
+        DeterministicChecks:
+        {{DeterministicChecksSection}}
+
+        ReviewSummary:
+        {{ReviewSummarySection}}
+        """;
 
     private readonly IExecutionPlanParser _executionPlanParser;
     private readonly AgentsOptions _agentsOptions;
@@ -405,16 +449,6 @@ public class OrchestrationAgent : AgentBase
         string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        string model = base.ResolveModel(request.ModelOverrides);
-        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
-        _ = await base.CopilotClient.CompleteAsync(
-            model,
-            "Validate completion",
-            options,
-            agentId: agentId ?? base.Id,
-            agentRole: agentRole ?? base.Role,
-            cancellationToken);
-
         List<CriterionResult> results = new List<CriterionResult>();
         ReviewLoopAgentSelection reviewLoopAgents = this._reviewLoopAgentSelectionAccessor.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
@@ -442,13 +476,25 @@ public class OrchestrationAgent : AgentBase
             }
         }
 
+        ImplementationAssessment assessment = await this.BuildImplementationAssessmentAsync(
+            request,
+            results,
+            agentId,
+            agentRole,
+            cancellationToken).ConfigureAwait(false);
+        results.Add(new CriterionResult(
+            "Plan materially implemented",
+            assessment.MateriallyImplemented,
+            BuildImplementationEvidenceSummary(assessment)));
+
         // Store the detailed results for later retrieval.
         this._lastValidationResult = new CompletionValidationResult(
             results.All(r => r.Passed),
             results,
-            Summary: BuildValidationSummary(results),
-            Confidence: request.VerificationEvidence is { Count: > 0 } ? "high" : "medium",
-            Evidence: request.VerificationEvidence);
+            Summary: BuildValidationSummary(results, assessment),
+            Confidence: ResolveValidationConfidence(request, assessment),
+            Evidence: request.VerificationEvidence,
+            Assessment: assessment);
 
         return this._lastValidationResult;
     }
@@ -459,12 +505,90 @@ public class OrchestrationAgent : AgentBase
     public CompletionValidationResult? LastValidationResult => this._lastValidationResult;
     private CompletionValidationResult? _lastValidationResult;
 
-    private static string BuildValidationSummary(IReadOnlyList<CriterionResult> results)
+    private async Task<ImplementationAssessment> BuildImplementationAssessmentAsync(
+        CompletionValidationRequest request,
+        IReadOnlyList<CriterionResult> deterministicResults,
+        string? agentId,
+        string? agentRole,
+        CancellationToken cancellationToken)
+    {
+        string model = base.ResolveModel(request.ModelOverrides);
+        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
+        string template = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "verifier.md", ORCHESTRATION_VERIFIER_PROMPT_FALLBACK);
+        string prompt = PromptLoader.Render(
+            template,
+            ("{{Task}}", request.Spec?.Task ?? "(no clarified task)"),
+            ("{{DesiredOutcome}}", request.Spec?.DesiredOutcome ?? "(no clarified desired outcome)"),
+            ("{{AcceptanceCriteriaSection}}", BuildStringListSection(request.Spec?.AcceptanceCriteria)),
+            ("{{PlanStepsSection}}", BuildPlanStepsSection(request.Plan)),
+            ("{{FilesTouchedSection}}", BuildStringListSection(request.FilesTouched)),
+            ("{{BuildOutcomeSection}}", BuildBuildOutcomeSection(request.BuildOutcome)),
+            ("{{VerificationEvidenceSection}}", BuildVerificationEvidenceSection(request.VerificationEvidence)),
+            ("{{DeterministicChecksSection}}", BuildDeterministicChecksSection(deterministicResults)),
+            ("{{ReviewSummarySection}}", BuildReviewSummarySection(request)));
+
+        const int MAX_VERIFIER_ATTEMPTS = 3;
+        string? lastResponse = null;
+        for (int attempt = 1; attempt <= MAX_VERIFIER_ATTEMPTS; attempt++)
+        {
+            string previousResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse ?? string.Empty;
+            string promptForAttempt = attempt == 1
+                ? prompt
+                : $"{prompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{previousResponsePreview}";
+
+            lastResponse = await base.CopilotClient.CompleteAsync(
+                model,
+                promptForAttempt,
+                options,
+                agentId: agentId ?? base.Id,
+                agentRole: agentRole ?? base.Role,
+                cancellationToken).ConfigureAwait(false);
+
+            if (TryParseImplementationAssessment(lastResponse, out ImplementationAssessment? assessment))
+            {
+                return assessment;
+            }
+        }
+
+        return new ImplementationAssessment(
+            "INCOMPLETE",
+            false,
+            "Verifier response could not be parsed, so material implementation could not be proven.",
+            Array.Empty<string>(),
+            new[] { "Verifier response could not be parsed." },
+            new[] { "Final completion verdict is conservative because verifier proof is unavailable." });
+    }
+
+    private static string BuildValidationSummary(IReadOnlyList<CriterionResult> results, ImplementationAssessment assessment)
     {
         int failedCount = results.Count(result => !result.Passed);
-        return failedCount == 0
+        string baseSummary = failedCount == 0
             ? $"All {results.Count} completion criteria passed."
             : $"{failedCount} of {results.Count} completion criteria failed.";
+        return $"{baseSummary} Material implementation verdict: {assessment.Verdict}. {assessment.Summary}";
+    }
+
+    private static string ResolveValidationConfidence(CompletionValidationRequest request, ImplementationAssessment assessment)
+    {
+        bool hasEvidence = request.VerificationEvidence is { Count: > 0 };
+        bool hasVerifierEvidence = assessment.Evidence.Count > 0;
+        if (hasEvidence && hasVerifierEvidence)
+        {
+            return "high";
+        }
+
+        if (hasEvidence || hasVerifierEvidence)
+        {
+            return "medium";
+        }
+
+        return "low";
+    }
+
+    private static string BuildImplementationEvidenceSummary(ImplementationAssessment assessment)
+    {
+        string gaps = assessment.Gaps.Count == 0 ? string.Empty : $" Gaps: {string.Join("; ", assessment.Gaps)}";
+        return $"{assessment.Summary}{gaps}".Trim();
     }
 
     private static ExecutionPlan ApplyArchitectureLoopMode(ExecutionPlan plan, RunRequest request, ReviewLoopAgentSelection reviewLoopAgents)
@@ -586,6 +710,82 @@ public class OrchestrationAgent : AgentBase
             .Select(value => value.GetString()!)
             .ToArray();
     }
+
+    private static bool TryParseImplementationAssessment(string? response, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ImplementationAssessment? assessment)
+    {
+        assessment = null;
+        if (string.IsNullOrWhiteSpace(response))
+        {
+            return false;
+        }
+
+        try
+        {
+            string? cleaned = ExecutionPlanParser.ExtractJson(response);
+            if (cleaned is null)
+            {
+                return false;
+            }
+
+            using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(cleaned);
+            System.Text.Json.JsonElement root = document.RootElement;
+            string verdict = root.TryGetProperty("verdict", out System.Text.Json.JsonElement verdictElement)
+                ? verdictElement.GetString() ?? "INCOMPLETE"
+                : "INCOMPLETE";
+            bool materiallyImplemented = root.TryGetProperty("materiallyImplemented", out System.Text.Json.JsonElement materiallyImplementedElement)
+                && materiallyImplementedElement.ValueKind is System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False
+                && materiallyImplementedElement.GetBoolean();
+            string summary = root.TryGetProperty("summary", out System.Text.Json.JsonElement summaryElement)
+                ? summaryElement.GetString() ?? string.Empty
+                : string.Empty;
+
+            assessment = new ImplementationAssessment(
+                verdict.Trim(),
+                materiallyImplemented,
+                summary.Trim(),
+                ReadStringArray(root, "evidence"),
+                ReadStringArray(root, "gaps"),
+                ReadStringArray(root, "risks"));
+
+            return !string.IsNullOrWhiteSpace(assessment.Verdict);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string BuildPlanStepsSection(ExecutionPlan plan)
+        => plan.Steps.Count == 0
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, plan.Steps.Select(step => $"- {step.Id}. [{step.Agent}] {step.Objective}"));
+
+    private static string BuildBuildOutcomeSection(BuildOutcome? buildOutcome)
+        => buildOutcome is null
+            ? NONE_LABEL
+            : $"Passed: {buildOutcome.Passed}; Summary: {buildOutcome.Summary}; Command: {buildOutcome.Command ?? NONE_LABEL}; ExitCode: {buildOutcome.ExitCode?.ToString() ?? NONE_LABEL}";
+
+    private static string BuildVerificationEvidenceSection(IReadOnlyList<VerificationEvidence>? evidence)
+        => evidence is not { Count: > 0 }
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, evidence.Select(item => $"- [{(item.Passed ? "PASS" : "FAIL")}] {item.Name} ({item.Type}) -> {item.Summary}"));
+
+    private static string BuildDeterministicChecksSection(IReadOnlyList<CriterionResult> results)
+        => results.Count == 0
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, results.Select(result => $"- [{(result.Passed ? "PASS" : "FAIL")}] {result.Criterion}: {result.Evidence}"));
+
+    private static string BuildReviewSummarySection(CompletionValidationRequest request)
+    {
+        int architectureHighCount = request.Review.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        int securityHighCount = request.SecurityReview.Findings.Count(f => string.Equals(f.Severity, "high", StringComparison.OrdinalIgnoreCase));
+        return $"ArchitectureHighFindings: {architectureHighCount}{Environment.NewLine}SecurityHighFindings: {securityHighCount}";
+    }
+
+    private static string BuildStringListSection(IReadOnlyList<string>? values)
+        => values is not { Count: > 0 }
+            ? NONE_LABEL
+            : string.Join(Environment.NewLine, values.Select(value => $"- {value}"));
 
     private static IReadOnlyList<VerificationCommand> ReadVerificationCommands(System.Text.Json.JsonElement element)
     {

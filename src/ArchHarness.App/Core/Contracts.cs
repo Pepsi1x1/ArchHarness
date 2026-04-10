@@ -170,7 +170,8 @@ public sealed record CompletionValidationRequest(
     IDictionary<string, string>? ModelOverrides,
     ClarificationSpec? Spec = null,
     BuildOutcome? BuildOutcome = null,
-    IReadOnlyList<VerificationEvidence>? VerificationEvidence = null);
+    IReadOnlyList<VerificationEvidence>? VerificationEvidence = null,
+    IReadOnlyList<string>? FilesTouched = null);
 
 /// <summary>
 /// Request payload for the architecture review remediation loop.
@@ -374,6 +375,23 @@ public sealed record VerificationAttempt(
     DateTimeOffset? TimestampUtc = null);
 
 /// <summary>
+/// Captures a verifier-style assessment of whether the requested plan was materially implemented.
+/// </summary>
+/// <param name="Verdict">PASS, FAIL, or INCOMPLETE.</param>
+/// <param name="MateriallyImplemented">Whether the core requested work is materially present in the workspace.</param>
+/// <param name="Summary">Concise summary of the verifier's conclusion.</param>
+/// <param name="Evidence">Concrete evidence supporting the verdict.</param>
+/// <param name="Gaps">Missing proof or missing implementation details.</param>
+/// <param name="Risks">Remaining risks or uncertainties.</param>
+public sealed record ImplementationAssessment(
+    string Verdict,
+    bool MateriallyImplemented,
+    string Summary,
+    IReadOnlyList<string> Evidence,
+    IReadOnlyList<string> Gaps,
+    IReadOnlyList<string> Risks);
+
+/// <summary>
 /// Immutable outcome of executing a single plan step.
 /// Replaces shared mutable state mutation in step dispatch.
 /// </summary>
@@ -404,6 +422,7 @@ public sealed record CompletionValidationResult(
     string Summary = "",
     string Confidence = "medium",
     IReadOnlyList<VerificationEvidence>? Evidence = null,
+    ImplementationAssessment? Assessment = null,
     IReadOnlyList<VerificationAttempt>? Attempts = null);
 
 /// <summary>

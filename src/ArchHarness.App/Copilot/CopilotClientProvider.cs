@@ -12,6 +12,12 @@ public interface ICopilotClientProvider
     /// Returns the initialized SDK client, awaiting startup if still in progress.
     /// </summary>
     Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync();
+
+    /// <summary>
+    /// Forces the current SDK client to be disposed so that the next call to
+    /// <see cref="GetClientAsync"/> spawns a fresh CLI process.
+    /// </summary>
+    Task InvalidateAsync();
 }
 
 /// <summary>
@@ -60,6 +66,26 @@ public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDispos
             }
 
             return await this._clientTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            this._gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task InvalidateAsync()
+    {
+        await this._gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (this._clientTask is not null && this._clientTask.IsCompletedSuccessfully)
+            {
+                try { await this._clientTask.Result.DisposeAsync().ConfigureAwait(false); } catch { /* best-effort */ }
+            }
+
+            this._clientTask = null;
+            this._clientWorkingDirectory = null;
         }
         finally
         {

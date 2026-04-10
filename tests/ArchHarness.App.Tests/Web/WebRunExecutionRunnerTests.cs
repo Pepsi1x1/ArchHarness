@@ -9,6 +9,59 @@ namespace ArchHarness.App.Tests.Web;
 public sealed class WebRunExecutionRunnerTests
 {
     [Fact]
+    public async Task ExecuteResumeAsync_ExceptionPersistsFailedRunState()
+    {
+        PersistedRunState runState = CreatePersistedRunState();
+        TestOrchestratorRuntime runtime = new TestOrchestratorRuntime()
+        {
+            ResumeHandler = (_, _, _, _) => throw new TimeoutException("Delegate stalled waiting for session completion.")
+        };
+        TestWebRunEventHub eventHub = new TestWebRunEventHub();
+        TestRunStateStore runStateStore = new TestRunStateStore();
+        runStateStore.SetState(runState.RunDirectory, runState);
+        WebRunSnapshotStore snapshotStore = new WebRunSnapshotStore();
+        WebRunExecutionRunner runner = new(runtime, eventHub, runStateStore, snapshotStore);
+        using CancellationTokenSource runCts = new CancellationTokenSource();
+
+        await runner.ExecuteResumeAsync(runState, runCts, CancellationToken.None);
+
+        PersistedRunState failedState = Assert.IsType<PersistedRunState>(runStateStore.GetState(runState.RunDirectory));
+        Assert.Equal(RunStatuses.FAILED, failedState.Status);
+        Assert.Equal(RunTerminalPhases.FAILED, failedState.Phase);
+        Assert.Equal("Delegate stalled waiting for session completion.", failedState.FailureMessage);
+    }
+
+    [Fact]
+    public async Task ExecuteResumeAsync_ShutdownCancellationPersistsStoppedRunState()
+    {
+        PersistedRunState runState = CreatePersistedRunState();
+        TestOrchestratorRuntime runtime = new TestOrchestratorRuntime()
+        {
+            ResumeHandler = async (_, _, _, cancellationToken) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return new RunArtefacts(runState.RunId, runState.RunDirectory);
+            }
+        };
+        TestWebRunEventHub eventHub = new TestWebRunEventHub();
+        TestRunStateStore runStateStore = new TestRunStateStore();
+        runStateStore.SetState(runState.RunDirectory, runState);
+        WebRunSnapshotStore snapshotStore = new WebRunSnapshotStore();
+        WebRunExecutionRunner runner = new(runtime, eventHub, runStateStore, snapshotStore);
+        using CancellationTokenSource shutdownCts = new CancellationTokenSource();
+        using CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(shutdownCts.Token);
+
+        Task execution = runner.ExecuteResumeAsync(runState, runCts, shutdownCts.Token);
+        await shutdownCts.CancelAsync();
+        await execution;
+
+        PersistedRunState stoppedState = Assert.IsType<PersistedRunState>(runStateStore.GetState(runState.RunDirectory));
+        Assert.Equal(RunStatuses.STOPPED, stoppedState.Status);
+        Assert.Equal(RunTerminalPhases.STOPPED, stoppedState.Phase);
+        Assert.Equal("Run stopped because the local web host is shutting down.", stoppedState.FailureMessage);
+    }
+
+    [Fact]
     public async Task ExecuteRunAsync_RedactsSensitivePromptDetailsInPublishedProgressEvents()
     {
         const string SensitivePrompt = "Use github_pat_abcdefghijklmnopqrstuvwxyz123456 and Bearer abc123secret";
@@ -112,9 +165,29 @@ public sealed class WebRunExecutionRunnerTests
             ModelOverrides: null,
             BuildCommand: null);
 
+    private static PersistedRunState CreatePersistedRunState()
+        => new(
+            "run-123",
+            @"C:\runs\run-123",
+            @"C:\workspace",
+            RunStatuses.RUNNING,
+            RunPhases.EXECUTING_PLAN,
+            new DateTimeOffset(2026, 3, 28, 10, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 3, 28, 10, 1, 0, TimeSpan.Zero),
+            CreateRequest(),
+            Array.Empty<int>(),
+            0,
+            string.Empty,
+            Array.Empty<string>(),
+            new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+            new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>()));
+
     private sealed class TestOrchestratorRuntime : IOrchestratorRuntime
     {
         public Func<RunRequest, IProgress<RuntimeProgressEvent>?, Action<string, string>?, CancellationToken, Task<RunArtefacts>> RunHandler { get; init; }
+            = (_, _, _, _) => Task.FromResult(new RunArtefacts("run-default", @"C:\runs\run-default"));
+
+        public Func<PersistedRunState, IProgress<RuntimeProgressEvent>?, Action<string, string>?, CancellationToken, Task<RunArtefacts>> ResumeHandler { get; init; }
             = (_, _, _, _) => Task.FromResult(new RunArtefacts("run-default", @"C:\runs\run-default"));
 
         public Task<RunArtefacts> RunAsync(
@@ -129,7 +202,7 @@ public sealed class WebRunExecutionRunnerTests
             IProgress<RuntimeProgressEvent>? progress = null,
             Action<string, string>? onRunContextEstablished = null,
             CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => this.ResumeHandler(runState, progress, onRunContextEstablished, cancellationToken);
     }
 
     private sealed class TestWebRunEventHub : IWebRunEventHub

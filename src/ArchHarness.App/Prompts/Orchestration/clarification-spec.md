@@ -27,8 +27,10 @@ You are the orchestration planner. Analyze the task prompt and produce a clarifi
 Constraints:
 - Return ONLY the raw JSON object. No markdown, no code fences, no commentary.
 - acceptanceCriteria must be concrete and evaluable (e.g., "Build passes", "No high-severity security findings").
+- acceptanceCriteria should describe materially observable outcomes, not just activity or intent.
 - For every non-built-in acceptance criterion that can be checked with a shell command, add a matching `verificationCommands` entry.
 - Set `verificationCommands` to an empty array when no executable verification commands are needed.
+- `verificationCommands` provide executable proof, but they are not the only proof; the verifier will also check that the requested work is materially present in code and artifacts.
 - likelyTouchpoints should reference specific files, directories, or modules when possible.
 - If there are no open questions, set openQuestions to an empty array.
 - Scope and constraints should be derived from the task prompt and workspace context.

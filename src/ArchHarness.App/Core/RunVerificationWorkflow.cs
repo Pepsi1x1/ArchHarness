@@ -89,13 +89,15 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
             IReadOnlyList<VerificationEvidence> evidence = await this._verificationCommandRunner.RunAsync(adapter.RootPath, commands, progress, cancellationToken).ConfigureAwait(false);
             lastBuildOutcome = UpdateBuildOutcome(lastBuildOutcome, evidence);
             validationResult = await this._completionValidator.ValidateAsync(
-                request.Plan,
-                request.Review,
-                request.SecurityReview,
-                request.RunRequest.ModelOverrides,
-                request.Spec,
-                lastBuildOutcome,
-                evidence,
+                new CompletionValidationRequest(
+                    request.Plan,
+                    request.Review,
+                    request.SecurityReview,
+                    request.RunRequest.ModelOverrides,
+                    request.Spec,
+                    lastBuildOutcome,
+                    evidence,
+                    filesTouched),
                 cancellationToken).ConfigureAwait(false);
 
             attempts.Add(new VerificationAttempt(
@@ -186,14 +188,14 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
     private IEnumerable<AgentExecutionContext> ResolveRemediationAgents(ExecutionPlan plan)
     {
         HashSet<string> emitted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ExecutionPlanStep step in plan.Steps)
+        foreach (string stepAgent in plan.Steps.Select(step => step.Agent))
         {
-            if (string.Equals(step.Agent, AgentNames.FRONTEND_DEVELOPER, StringComparison.OrdinalIgnoreCase)
+            if (string.Equals(stepAgent, AgentNames.FRONTEND_DEVELOPER, StringComparison.OrdinalIgnoreCase)
                 && emitted.Add(this._frontendDeveloper.Role))
             {
                 yield return new AgentExecutionContext(this._frontendDeveloper.Id, this._frontendDeveloper.Role);
             }
-            else if (string.Equals(step.Agent, AgentNames.BACKEND_DEVELOPER, StringComparison.OrdinalIgnoreCase)
+            else if (string.Equals(stepAgent, AgentNames.BACKEND_DEVELOPER, StringComparison.OrdinalIgnoreCase)
                 && emitted.Add(this._backendDeveloper.Role))
             {
                 yield return new AgentExecutionContext(this._backendDeveloper.Id, this._backendDeveloper.Role);
@@ -232,6 +234,9 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
             : string.Join(Environment.NewLine, validationResult.CriterionResults
                 .Where(result => !result.Passed)
                 .Select(result => $"- {result.Criterion}: {result.Evidence}"));
+        string verifierGaps = validationResult.Assessment is not { Gaps.Count: > 0 }
+            ? string.Empty
+            : $"{Environment.NewLine}VerifierGaps:{Environment.NewLine}{string.Join(Environment.NewLine, validationResult.Assessment.Gaps.Select(gap => $"- {gap}"))}";
 
         return $"""
             Verification remediation attempt {nextAttempt}.
@@ -239,6 +244,7 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
 
             FailedCriteria:
             {failedCriteria}
+            {verifierGaps}
 
             Constraints:
             - Make the smallest code changes needed to satisfy the failed criteria.

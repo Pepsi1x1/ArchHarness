@@ -17,8 +17,9 @@ public sealed class SessionEventPumpTests
     public async Task PumpSessionEventsAsync_ForwardsEventsToArtefactStore()
     {
         FakeSessionEventStream eventStream = new FakeSessionEventStream();
+        FakeSdkEventStream sdkEventStream = new FakeSdkEventStream();
         FakeArtefactStore artefactStore = new FakeArtefactStore();
-        SessionEventPump pump = new SessionEventPump(eventStream, artefactStore);
+        SessionEventPump pump = new SessionEventPump(eventStream, sdkEventStream, artefactStore);
 
         CopilotSessionLifecycleEvent evt1 = new CopilotSessionLifecycleEvent(
             DateTimeOffset.UtcNow, "session-1", "gpt-4", "created", "details-1");
@@ -28,10 +29,35 @@ public sealed class SessionEventPumpTests
         eventStream.Enqueue(evt1);
         eventStream.Enqueue(evt2);
         eventStream.Complete();
+        sdkEventStream.Complete();
 
         await pump.PumpSessionEventsAsync("/fake/run", "run-1", CancellationToken.None);
 
         Assert.Equal(2, artefactStore.AppendedEvents.Count);
+    }
+
+    [Fact]
+    public async Task PumpSessionEventsAsync_ForwardsRawSdkEventsToDedicatedLog()
+    {
+        FakeSessionEventStream eventStream = new FakeSessionEventStream();
+        FakeSdkEventStream sdkEventStream = new FakeSdkEventStream();
+        FakeArtefactStore artefactStore = new FakeArtefactStore();
+        SessionEventPump pump = new SessionEventPump(eventStream, sdkEventStream, artefactStore);
+
+        sdkEventStream.Enqueue(new CopilotSdkRawEvent(
+            DateTimeOffset.UtcNow,
+            "session-1",
+            "gpt-5.4",
+            "tool.execution.start",
+            "GitHub.Copilot.SDK.ToolExecutionStartEvent",
+            "{\"type\":\"tool.execution.start\"}",
+            null));
+        eventStream.Complete();
+        sdkEventStream.Complete();
+
+        await pump.PumpSessionEventsAsync("/fake/run", "run-1", CancellationToken.None);
+
+        Assert.Single(artefactStore.AppendedSdkEvents);
     }
 
     /// <summary>
@@ -41,8 +67,9 @@ public sealed class SessionEventPumpTests
     public async Task PumpSessionEventsAsync_CancellationStopsCleanly()
     {
         FakeSessionEventStream eventStream = new FakeSessionEventStream();
+        FakeSdkEventStream sdkEventStream = new FakeSdkEventStream();
         FakeArtefactStore artefactStore = new FakeArtefactStore();
-        SessionEventPump pump = new SessionEventPump(eventStream, artefactStore);
+        SessionEventPump pump = new SessionEventPump(eventStream, sdkEventStream, artefactStore);
 
         CopilotSessionLifecycleEvent evt = new CopilotSessionLifecycleEvent(
             DateTimeOffset.UtcNow, "session-1", "gpt-4", "created", null);
@@ -68,10 +95,12 @@ public sealed class SessionEventPumpTests
     public async Task PumpSessionEventsAsync_EmptyStream_CompletesWithoutError()
     {
         FakeSessionEventStream eventStream = new FakeSessionEventStream();
+        FakeSdkEventStream sdkEventStream = new FakeSdkEventStream();
         FakeArtefactStore artefactStore = new FakeArtefactStore();
-        SessionEventPump pump = new SessionEventPump(eventStream, artefactStore);
+        SessionEventPump pump = new SessionEventPump(eventStream, sdkEventStream, artefactStore);
 
         eventStream.Complete();
+        sdkEventStream.Complete();
 
         await pump.PumpSessionEventsAsync("/fake/run", "run-1", CancellationToken.None);
 
@@ -92,9 +121,24 @@ public sealed class SessionEventPumpTests
             => _channel.Reader.ReadAllAsync(cancellationToken);
     }
 
+    private sealed class FakeSdkEventStream : ICopilotSdkEventStream
+    {
+        private readonly Channel<CopilotSdkRawEvent> _channel = Channel.CreateUnbounded<CopilotSdkRawEvent>();
+
+        public void Enqueue(CopilotSdkRawEvent evt) => _channel.Writer.TryWrite(evt);
+
+        public void Complete() => _channel.Writer.Complete();
+
+        public void Publish(CopilotSdkRawEvent evt) => _channel.Writer.TryWrite(evt);
+
+        public IAsyncEnumerable<CopilotSdkRawEvent> ReadAllAsync(CancellationToken cancellationToken)
+            => _channel.Reader.ReadAllAsync(cancellationToken);
+    }
+
     private sealed class FakeArtefactStore : IArtefactStore
     {
         public List<object> AppendedEvents { get; } = new List<object>();
+        public List<object> AppendedSdkEvents { get; } = new List<object>();
 
         public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
             => Task.CompletedTask;
@@ -117,6 +161,12 @@ public sealed class SessionEventPumpTests
         public Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
         {
             AppendedEvents.Add(evt);
+            return Task.CompletedTask;
+        }
+
+        public Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+        {
+            AppendedSdkEvents.Add(evt);
             return Task.CompletedTask;
         }
 

@@ -50,6 +50,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<CopilotSessionFactory.CopilotSessionContext>();
         services.AddSingleton<ICopilotClient, CopilotClient>();
         services.AddSingleton<ICopilotSessionEventStream, CopilotSessionEventStream>();
+        services.AddSingleton<ICopilotSdkEventStream, CopilotSdkEventStream>();
         services.AddSingleton<IAgentStreamEventStream, AgentStreamEventStream>();
         services.AddSingleton<IAgentToolPolicyProvider, AgentToolPolicyProvider>();
         services.AddSingleton<IRunContextAccessor, RunContextAccessor>();

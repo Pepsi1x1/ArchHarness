@@ -65,6 +65,14 @@ public interface IArtefactStore
     Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Appends a raw SDK event as a JSONL line to the dedicated SDK event log.
+    /// </summary>
+    /// <param name="runDirectory">The run output directory.</param>
+    /// <param name="evt">The raw SDK event object to serialize and append.</param>
+    /// <param name="cancellationToken">Token to signal cancellation.</param>
+    Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Writes the clarification spec as both JSON and Markdown to the run directory.
     /// </summary>
     Task WriteClarificationSpecAsync(string runDirectory, ClarificationSpec spec, CancellationToken cancellationToken);
@@ -130,9 +138,16 @@ public sealed class ArtefactStore : IArtefactStore
 
     /// <inheritdoc />
     public async Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+        => await AppendJsonLineAsync(runDirectory, "events.jsonl", evt, cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+        => await AppendJsonLineAsync(runDirectory, "copilot-sdk-events.jsonl", evt, cancellationToken).ConfigureAwait(false);
+
+    private static async Task AppendJsonLineAsync(string runDirectory, string fileName, object evt, CancellationToken cancellationToken)
     {
         string line = Redaction.RedactSecrets(JsonSerializer.Serialize(evt));
-        string eventsPath = Path.Combine(runDirectory, "events.jsonl");
+        string eventsPath = Path.Combine(runDirectory, fileName);
         await using FileStream stream = new FileStream(
             eventsPath,
             FileMode.Append,
@@ -209,6 +224,7 @@ public sealed class ArtefactStore : IArtefactStore
 
     private static string RenderCompletionValidationMarkdown(CompletionValidationResult validation)
     {
+        string assessment = RenderImplementationAssessment(validation.Assessment);
         string criteria = validation.CriterionResults.Count == 0
             ? NONE_LABEL
             : string.Join(Environment.NewLine, validation.CriterionResults.Select(result => $"- [{(result.Passed ? "PASS" : "FAIL")}] {result.Criterion}{Environment.NewLine}  Evidence: {result.Evidence}"));
@@ -228,6 +244,9 @@ public sealed class ArtefactStore : IArtefactStore
             - Summary: {validation.Summary}
             - Confidence: {validation.Confidence}
 
+            ## Implementation Assessment
+            {assessment}
+
             ## Criteria
             {criteria}
 
@@ -237,5 +256,18 @@ public sealed class ArtefactStore : IArtefactStore
             ## Attempts
             {attempts}
             """;
+    }
+
+    private static string RenderImplementationAssessment(ImplementationAssessment? assessment)
+    {
+        if (assessment is null)
+        {
+            return NONE_LABEL;
+        }
+
+        string evidence = assessment.Evidence.Count == 0 ? NONE_LABEL : string.Join("; ", assessment.Evidence);
+        string gaps = assessment.Gaps.Count == 0 ? NONE_LABEL : string.Join("; ", assessment.Gaps);
+        string risks = assessment.Risks.Count == 0 ? NONE_LABEL : string.Join("; ", assessment.Risks);
+        return $"- Verdict: {assessment.Verdict}{Environment.NewLine}- MateriallyImplemented: {assessment.MateriallyImplemented}{Environment.NewLine}- Summary: {assessment.Summary}{Environment.NewLine}- Evidence: {evidence}{Environment.NewLine}- Gaps: {gaps}{Environment.NewLine}- Risks: {risks}";
     }
 }

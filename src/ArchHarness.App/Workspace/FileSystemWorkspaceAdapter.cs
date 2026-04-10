@@ -1,3 +1,5 @@
+using ArchHarness.App.Core;
+
 namespace ArchHarness.App.Workspace;
 
 /// <summary>
@@ -99,8 +101,10 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
                      .Where(filePath => !this.IsExcludedPath(filePath)))
         {
             string relativePath = Path.GetRelativePath(this.RootPath, filePath);
-            FileInfo info = new FileInfo(filePath);
-            snapshot[relativePath] = new FileSignature(info.Length, info.LastWriteTimeUtc.Ticks);
+            if (TryGetFileSignature(filePath, out FileSignature signature))
+            {
+                snapshot[relativePath] = signature;
+            }
         }
 
         return snapshot;
@@ -109,13 +113,22 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
     private bool IsExcludedPath(string fullPath)
     {
         string relativePath = Path.GetRelativePath(this.RootPath, fullPath);
-        string normalized = relativePath.Replace('\\', '/');
+        return WorkspaceSnapshotHelper.IsIgnoredPath(relativePath);
+    }
 
-        return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
-            || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
+    private static bool TryGetFileSignature(string filePath, out FileSignature signature)
+    {
+        try
+        {
+            FileInfo info = new FileInfo(filePath);
+            signature = new FileSignature(info.Length, info.LastWriteTimeUtc.Ticks);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            signature = default;
+            return false;
+        }
     }
 
     private readonly record struct FileSignature(long Length, long LastWriteUtcTicks);

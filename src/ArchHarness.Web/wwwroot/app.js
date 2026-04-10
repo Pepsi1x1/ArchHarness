@@ -1709,16 +1709,12 @@ function getPromptPlaceholder() {
     : "Describe the change or review you want ArchHarness to run.";
 }
 
-function buildArchitecturePrompt(prompt) {
-  if (!prompt) {
-    return null;
-  }
-
+function buildArchitecturePrompt() {
   if (elements.architectureReviewPreset.value === "full-review") {
-    return `Run a full workspace architecture review. Focus area: ${prompt}`;
+    return "Run a full workspace architecture review.";
   }
 
-  return prompt;
+  return null;
 }
 
 function buildPullRequestArchitecturePrompt(project) {
@@ -2158,7 +2154,7 @@ function renderComposerState() {
   elements.resumeRun.textContent = "Resume";
   elements.implementRun.classList.toggle("hidden", !showImplementButton);
   elements.implementRun.disabled = !showImplementButton;
-  elements.implementRun.textContent = "Implement";
+  elements.implementRun.textContent = "Start Implementation";
   renderComposerDropdowns();
 }
 
@@ -2821,16 +2817,27 @@ function collectRunRequest() {
   const planningMode = isPlanningModeEnabled();
   const architectureLoopMode = isArchitectureModeEnabled();
   const prompt = elements.taskPrompt.value.trim();
-  const architecturePrompt = architectureLoopMode
-    ? buildArchitecturePrompt(prompt)
-    : null;
   const reviewLoopAgents = getSelectedReviewLoopAgents();
+  let architecturePrompt = null;
+  let workflow = WORKFLOWS.AUTO;
+  let architectureLoopPrompt = null;
+
+  if (architectureLoopMode) {
+    architecturePrompt = buildArchitecturePrompt();
+    architectureLoopPrompt = architecturePrompt || project.architectureReviewPrompt || null;
+  }
+
+  if (planningMode) {
+    workflow = WORKFLOWS.PLANNING;
+  } else if (architectureLoopMode) {
+    workflow = WORKFLOWS.ARCHITECTURE_LOOP;
+  }
 
   return {
-    taskPrompt: architectureLoopMode ? "" : prompt,
+    taskPrompt: prompt,
     workspacePath: project.workspacePath,
     workspaceMode: project.workspaceMode,
-    workflow: planningMode ? WORKFLOWS.PLANNING : architectureLoopMode ? WORKFLOWS.ARCHITECTURE_LOOP : WORKFLOWS.AUTO,
+    workflow,
     projectName: project.displayName,
     projectId: project.projectId,
     modelOverrides: null,
@@ -2838,7 +2845,7 @@ function collectRunRequest() {
     permissionHandlerMode: elements.permissionMode.value || project.permissionHandlerMode,
     reviewLoopAgents,
     architectureLoopMode,
-    architectureLoopPrompt: architectureLoopMode ? (architecturePrompt || project.architectureReviewPrompt || null) : null
+    architectureLoopPrompt
   };
 }
 
@@ -2863,6 +2870,7 @@ async function submitRunRequest(request) {
   renderActiveRun();
   connectEventStream();
   await loadProjects();
+  await syncSelectedRunStateToCurrentSelection();
 }
 
 async function cancelRun() {
@@ -2923,6 +2931,11 @@ function getSelectedProjectAndRun() {
   return { project, run };
 }
 
+async function syncSelectedRunStateToCurrentSelection() {
+  const { project, run } = getSelectedProjectAndRun();
+  await loadSelectedRunState(project, run);
+}
+
 function renderRunDetailsActions() {
   renderComposerState();
 }
@@ -2965,6 +2978,7 @@ async function resumeSelectedRun() {
     renderActiveRun();
     connectEventStream();
     await loadProjects();
+    await syncSelectedRunStateToCurrentSelection();
   } catch (error) {
     console.error("Resume failed:", error);
     renderComposerState();
@@ -2990,6 +3004,7 @@ async function startImplementationFromPlanningRun() {
     renderActiveRun();
     connectEventStream();
     await loadProjects();
+    await syncSelectedRunStateToCurrentSelection();
   } catch (error) {
     console.error("Implementation handoff failed:", error);
     renderComposerState();
@@ -3022,9 +3037,11 @@ function connectEventStream() {
     if (!snapshot?.isRunning) {
       closeEventStream(STREAM_CONNECTION_STATES.IDLE);
       await loadProjects();
+      await syncSelectedRunStateToCurrentSelection();
     } else if (!sidebarRefreshed && snapshot?.runId) {
       sidebarRefreshed = true;
       await loadProjects();
+      await syncSelectedRunStateToCurrentSelection();
     }
   };
 

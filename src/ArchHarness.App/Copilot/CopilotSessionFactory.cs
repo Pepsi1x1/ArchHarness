@@ -26,6 +26,13 @@ public interface ICopilotSessionFactory
         CopilotCompletionOptions? options = null,
         string? agentId = null,
         string? agentRole = null);
+
+    /// <summary>
+    /// Invalidates the cached Copilot session for the current run/workspace cache key.
+    /// </summary>
+    /// <param name="model">The model identifier.</param>
+    /// <param name="options">Optional completion configuration.</param>
+    void Invalidate(string model, CopilotCompletionOptions? options = null);
 }
 
 /// <summary>
@@ -41,6 +48,7 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     private readonly RuntimeStateAccessors _stateAccessors;
     private readonly ILogger<CopilotSessionFactory> _logger;
     private readonly ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>> _sessionHandles = new ConcurrentDictionary<SessionCacheKey, Lazy<Task<SessionHandle>>>();
+    private readonly ConcurrentBag<SessionHandle> _invalidatedSessionHandles = new ConcurrentBag<SessionHandle>();
     private readonly int _sessionInactivityTimeoutSeconds;
     private readonly int _sessionAbsoluteTimeoutSeconds;
 
@@ -94,14 +102,39 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     /// </summary>
     public async ValueTask DisposeAsync()
     {
+        HashSet<SessionHandle> handles = new HashSet<SessionHandle>();
         foreach (Lazy<Task<SessionHandle>> lazyHandle in this._sessionHandles.Values)
         {
             if (lazyHandle.IsValueCreated && lazyHandle.Value.IsCompletedSuccessfully)
             {
-                SessionHandle handle = await lazyHandle.Value;
-                await handle.Session.DisposeAsync();
-                handle.Gate.Dispose();
+                handles.Add(lazyHandle.Value.Result);
             }
+        }
+
+        while (this._invalidatedSessionHandles.TryTake(out SessionHandle? invalidatedHandle))
+        {
+            handles.Add(invalidatedHandle);
+        }
+
+        foreach (SessionHandle handle in handles)
+        {
+            await handle.Session.DisposeAsync().ConfigureAwait(false);
+            handle.Gate.Dispose();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Invalidate(string model, CopilotCompletionOptions? options = null)
+    {
+        SessionCacheKey key = this.BuildCurrentSessionCacheKey(model, options);
+        if (!this._sessionHandles.TryRemove(key, out Lazy<Task<SessionHandle>>? lazyHandle))
+        {
+            return;
+        }
+
+        if (lazyHandle.IsValueCreated && lazyHandle.Value.IsCompletedSuccessfully)
+        {
+            this._invalidatedSessionHandles.Add(lazyHandle.Value.Result);
         }
     }
 
@@ -138,10 +171,8 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
 
     internal Task<SessionHandle> GetOrCreateSessionHandleAsync(string model, CopilotCompletionOptions? options)
     {
-        string workspaceRoot = ResolveWorkspaceRoot(this._stateAccessors.WorkspaceRoot.Current);
+        SessionCacheKey key = this.BuildCurrentSessionCacheKey(model, options);
         string permissionHandlerMode = PermissionHandlerModes.Normalize(this._stateAccessors.PermissionHandlerMode.Current);
-        string? runId = this._runContextAccessor.Current?.RunId;
-        SessionCacheKey key = BuildSessionCacheKey(model, options, workspaceRoot, permissionHandlerMode, runId);
         Lazy<Task<SessionHandle>> lazy = this._sessionHandles.GetOrAdd(
             key,
             cacheKey => new Lazy<Task<SessionHandle>>(() => this.CreateSessionHandleAsync(model, options, permissionHandlerMode, cacheKey), LazyThreadSafetyMode.ExecutionAndPublication));
@@ -280,7 +311,37 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         => new SessionHooks
         {
             OnPreToolUse = async (input, _) => await this._hooks.Governance.OnPreToolUseAsync(input).ConfigureAwait(false),
-            OnPostToolUse = async (input, _) => await this._hooks.Governance.OnPostToolUseAsync(input).ConfigureAwait(false),
+            // All auditing is fire-and-forget via Task.Run.
+            OnPostToolUse = (input, __) =>
+            {
+                ICopilotGovernancePolicy governance = this._hooks.Governance;
+                ICopilotSessionEventStream eventStream = this._sessionContext.SessionEventStream;
+                ILogger logger = this._logger;
+
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        string details = BuildPostToolUseDetails(input);
+                        eventStream.Publish(new CopilotSessionLifecycleEvent(
+                            DateTimeOffset.UtcNow,
+                            sessionId,
+                            model,
+                            "session.hook.postToolUse",
+                            details));
+
+                        await governance.OnPostToolUseAsync(input)
+                            .WaitAsync(TimeSpan.FromSeconds(5))
+                            .ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogDebug(ex, "Post-tool-use governance audit failed.");
+                    }
+                });
+
+                return Task.FromResult<PostToolUseHookOutput?>(new PostToolUseHookOutput());
+            },
             OnSessionStart = async (input, _) =>
             {
                 this._sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
@@ -309,10 +370,47 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
                     sessionId,
                     model,
                     "session.hook.error",
-                    $"context={input.ErrorContext}; recoverable={input.Recoverable}; error={input.Error}"));
+                    BuildErrorOccurredDetails(input)));
+
+                if (input.Recoverable)
+                {
+                    return new ErrorOccurredHookOutput { ErrorHandling = "continue" };
+                }
+
                 return null;
             }
         };
+
+    internal static string BuildPostToolUseDetails(PostToolUseHookInput input)
+    {
+        string toolName;
+        try { toolName = string.IsNullOrEmpty(input.ToolName) ? "unknown" : input.ToolName; } catch { toolName = "unknown"; }
+        return $"tool={toolName}";
+    }
+
+    internal static string BuildErrorOccurredDetails(ErrorOccurredHookInput input)
+    {
+        string errorContext = input.ErrorContext ?? "unknown";
+        string errorType = TryGetErrorType(input.Error) ?? "unknown";
+        return $"context={errorContext}; recoverable={input.Recoverable}; errorType={errorType}";
+    }
+
+    private static string? TryGetErrorType(object? error)
+    {
+        if (error is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return error.GetType().FullName ?? error.GetType().Name;
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private PermissionRequestHandler ResolvePermissionHandler(string permissionHandlerMode)
         => string.Equals(permissionHandlerMode, PermissionHandlerModes.PROMPT, StringComparison.OrdinalIgnoreCase)
@@ -327,6 +425,14 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         string available = NormalizeToolList(options?.AvailableTools);
         string excluded = NormalizeToolList(options?.ExcludedTools);
         return new SessionCacheKey(model, systemMessage, mode, reasoningEffort, available, excluded, workspaceRoot, permissionHandlerMode, runId ?? string.Empty);
+    }
+
+    private SessionCacheKey BuildCurrentSessionCacheKey(string model, CopilotCompletionOptions? options)
+    {
+        string workspaceRoot = ResolveWorkspaceRoot(this._stateAccessors.WorkspaceRoot.Current);
+        string permissionHandlerMode = PermissionHandlerModes.Normalize(this._stateAccessors.PermissionHandlerMode.Current);
+        string? runId = this._runContextAccessor.Current?.RunId;
+        return BuildSessionCacheKey(model, options, workspaceRoot, permissionHandlerMode, runId);
     }
 
     private static string? BuildStableSessionId(SessionCacheKey key)
@@ -428,14 +534,17 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
         /// </summary>
         /// <param name="userInputState">Tracks whether the agent is awaiting user input.</param>
         /// <param name="sessionEventStream">Publishes session lifecycle events.</param>
+        /// <param name="sdkEventStream">Publishes raw SDK session events.</param>
         /// <param name="agentStream">Publishes real-time agent delta content events.</param>
         public CopilotSessionContext(
             IUserInputState userInputState,
             ICopilotSessionEventStream sessionEventStream,
+            ICopilotSdkEventStream sdkEventStream,
             IAgentStreamEventStream agentStream)
         {
             this.UserInputState = userInputState;
             this.SessionEventStream = sessionEventStream;
+            this.SdkEventStream = sdkEventStream;
             this.AgentStream = agentStream;
         }
 
@@ -444,6 +553,9 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
 
         /// <summary>Gets the session lifecycle event stream.</summary>
         public ICopilotSessionEventStream SessionEventStream { get; }
+
+        /// <summary>Gets the raw SDK event stream.</summary>
+        public ICopilotSdkEventStream SdkEventStream { get; }
 
         /// <summary>Gets the agent delta content event stream.</summary>
         public IAgentStreamEventStream AgentStream { get; }

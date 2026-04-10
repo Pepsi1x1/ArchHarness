@@ -345,3 +345,5 @@ healthchecksdb
 
 src/.DS_Store
 .DS_Store
+
+*.lscache

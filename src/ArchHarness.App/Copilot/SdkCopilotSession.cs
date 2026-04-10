@@ -23,10 +23,10 @@ internal sealed class SdkCopilotSession(
     /// <inheritdoc />
     public async Task<string> CompleteAsync(string prompt, CancellationToken cancellationToken)
     {
-        CopilotSessionFactory.SessionHandle handle = await factory.GetOrCreateSessionHandleAsync(model, options);
-        await handle.Gate.WaitAsync(cancellationToken);
-        StringBuilder completion = new StringBuilder();
-        TaskCompletionSource done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CopilotSessionFactory.SessionHandle handle = await factory.GetOrCreateSessionHandleAsync(model, options).ConfigureAwait(false);
+        await handle.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        StringBuilder completion = new();
+        TaskCompletionSource done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         string? finalMessage = null;
         string lastEventType = "none";
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
@@ -51,6 +51,7 @@ internal sealed class SdkCopilotSession(
             Interlocked.Exchange(ref lastEventTicks, DateTimeOffset.UtcNow.UtcTicks);
 
             string eventType = ResolveEventType(evt);
+            sessionContext.SdkEventStream.Publish(CreateRawSdkEvent(evt, handle.Session.SessionId, model, eventType));
             if (IsLifecycleEvent(eventType))
             {
                 sessionContext.SessionEventStream.Publish(new CopilotSessionLifecycleEvent(
@@ -98,10 +99,21 @@ internal sealed class SdkCopilotSession(
                             StreamKind: "tool-call",
                             Title: toolName));
                     }
+
                     break;
                 }
                 case SessionErrorEvent err:
-                    done.TrySetException(new InvalidOperationException($"Copilot SDK session error: {err.Data.Message}"));
+                    // Only treat the error as fatal if the SDK did not already
+                    // surface it as a recoverable tool-use failure via the
+                    // OnErrorOccurred hook (which returns ErrorHandling="continue").
+                    // When the error message originates from a tool execution
+                    // failure the SDK will continue the agentic loop; completing
+                    // with an exception here would abort the turn prematurely.
+                    if (!IsRecoverableSessionError(err))
+                    {
+                        done.TrySetException(new InvalidOperationException($"Copilot SDK session error: {err.Data.Message}"));
+                    }
+
                     break;
                 case SessionIdleEvent:
                     done.TrySetResult();
@@ -111,24 +123,23 @@ internal sealed class SdkCopilotSession(
 
         try
         {
-            await handle.Session.SendAsync(new MessageOptions { Prompt = prompt, Mode = "immediate" });
             using CancellationTokenRegistration registration = cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
+            Task sendTask = BeginSendAsync(() => handle.Session.SendAsync(new MessageOptions { Prompt = prompt, Mode = "immediate" }));
 
-            await AwaitSessionCompletionAsync(
-                done,
-                new SessionTimeoutContext(
-                    handle,
-                    sessionContext.UserInputState,
-                    prompt,
-                    model,
-                    startedAt,
-                    () => lastEventType,
-                    () => Interlocked.Read(ref lastEventTicks),
-                    timeoutSettings.InactivityTimeoutSeconds,
-                    timeoutSettings.AbsoluteTimeoutSeconds),
-                cancellationToken);
+            await AwaitTurnCompletionAsync(
+                sendTask,
+                done.Task,
+                () => handle.Session.AbortAsync(),
+                sessionContext.UserInputState,
+                prompt,
+                model,
+                startedAt,
+                () => lastEventType,
+                () => Interlocked.Read(ref lastEventTicks),
+                timeoutSettings.InactivityTimeoutSeconds,
+                timeoutSettings.AbsoluteTimeoutSeconds,
+                cancellationToken).ConfigureAwait(false);
 
-            await done.Task;
             string response = !string.IsNullOrWhiteSpace(finalMessage)
                 ? finalMessage
                 : completion.ToString().Trim();
@@ -141,26 +152,79 @@ internal sealed class SdkCopilotSession(
         }
     }
 
-    private static async Task AwaitSessionCompletionAsync(
-        TaskCompletionSource done,
+    internal static Task AwaitTurnCompletionAsync(
+        Task sendTask,
+        Task completionTask,
+        Func<Task> abortAsync,
+        IUserInputState userInputState,
+        string prompt,
+        string model,
+        DateTimeOffset startedAt,
+        Func<string> getLastEventType,
+        Func<long> getLastEventTicks,
+        int inactivityTimeoutSeconds,
+        int absoluteTimeoutSeconds,
+        CancellationToken cancellationToken)
+        => AwaitTurnCompletionCoreAsync(
+            sendTask,
+            completionTask,
+            new SessionTimeoutContext(
+                abortAsync,
+                userInputState,
+                prompt,
+                model,
+                startedAt,
+                getLastEventType,
+                getLastEventTicks,
+                inactivityTimeoutSeconds,
+                absoluteTimeoutSeconds),
+            cancellationToken);
+
+    internal static Task BeginSendAsync(Func<Task> sendAsync)
+        => Task.Run(sendAsync, CancellationToken.None);
+
+    private static async Task AwaitTurnCompletionCoreAsync(
+        Task sendTask,
+        Task completionTask,
         SessionTimeoutContext context,
         CancellationToken cancellationToken)
     {
-        while (!done.Task.IsCompleted)
+        while (true)
         {
+            if (sendTask.IsCompleted)
+            {
+                await sendTask.ConfigureAwait(false);
+            }
+
+            if (completionTask.IsCompleted)
+            {
+                await completionTask.ConfigureAwait(false);
+            }
+
+            if (sendTask.IsCompleted && completionTask.IsCompleted)
+            {
+                return;
+            }
+
             TimeoutState timeoutState = EvaluateTimeoutState(
                 context.StartedAt,
                 context.GetLastEventTicks(),
                 context.InactivityTimeoutSeconds,
                 context.AbsoluteTimeoutSeconds);
-            await ThrowIfTimedOutAsync(context, timeoutState);
+            await ThrowIfTimedOutAsync(context, timeoutState).ConfigureAwait(false);
 
+            Task pendingSendTask = sendTask.IsCompleted
+                ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                : sendTask;
+            Task pendingCompletionTask = completionTask.IsCompleted
+                ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                : completionTask;
 
-            Task completedTask = await Task.WhenAny(done.Task, Task.Delay(timeoutState.WaitDuration, cancellationToken));
-            if (completedTask == done.Task)
-            {
-                return;
-            }
+            await Task.WhenAny(
+                pendingSendTask,
+                pendingCompletionTask,
+                Task.Delay(timeoutState.WaitDuration, cancellationToken)).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 
@@ -171,7 +235,7 @@ internal sealed class SdkCopilotSession(
         int absoluteTimeoutSeconds)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        DateTimeOffset lastEventAt = new DateTimeOffset(lastEventTicks, TimeSpan.Zero);
+        DateTimeOffset lastEventAt = new(lastEventTicks, TimeSpan.Zero);
 
         TimeSpan inactivityRemaining = inactivityTimeoutSeconds > 0
             ? TimeSpan.FromSeconds(inactivityTimeoutSeconds) - (now - lastEventAt)
@@ -199,87 +263,86 @@ internal sealed class SdkCopilotSession(
         SessionTimeoutContext context,
         TimeoutState timeoutState)
     {
+        string? timeoutKind = null;
         if (timeoutState.AbsoluteRemaining <= TimeSpan.Zero)
         {
-            await ThrowTimeoutAsync(
-                context.Handle,
-                context.UserInputState,
-                context.Prompt,
-                context.Model,
-                $"absolute timeout {context.AbsoluteTimeoutSeconds}s",
-                context.GetLastEventType(),
-                timeoutState.LastEventAt);
+            timeoutKind = $"absolute timeout {context.AbsoluteTimeoutSeconds}s";
         }
-
-        if (context.InactivityTimeoutSeconds > 0 && timeoutState.InactivityRemaining <= TimeSpan.Zero)
+        else if (context.InactivityTimeoutSeconds > 0 && timeoutState.InactivityRemaining <= TimeSpan.Zero)
         {
-            await ThrowTimeoutAsync(
-                context.Handle,
-                context.UserInputState,
-                context.Prompt,
-                context.Model,
-                $"inactivity timeout {context.InactivityTimeoutSeconds}s",
-                context.GetLastEventType(),
-                timeoutState.LastEventAt);
+            timeoutKind = $"inactivity timeout {context.InactivityTimeoutSeconds}s";
         }
+
+        if (timeoutKind is null)
+        {
+            return;
+        }
+
+        await context.AbortAsync().ConfigureAwait(false);
+        string promptPreview = context.Prompt.Length <= 140 ? context.Prompt : context.Prompt[..137] + "...";
+        throw new TimeoutException(
+            $"Copilot SDK timed out ({timeoutKind}) for model '{context.Model}'. " +
+            $"LastEvent='{context.GetLastEventType()}' at {timeoutState.LastEventAt:HH:mm:ss}. " +
+            $"AwaitingUserInput={context.UserInputState.IsAwaitingInput}. Prompt='{promptPreview}'");
     }
 
-    private static async Task ThrowTimeoutAsync(
-        CopilotSessionFactory.SessionHandle handle,
-        IUserInputState userInputState,
-        string prompt,
-        string model,
-        string timeoutKind,
-        string lastEventType,
-        DateTimeOffset lastEventAt)
+    internal static bool IsRecoverableSessionError(SessionErrorEvent err)
     {
-        await handle.Session.AbortAsync();
-        bool waitingForUser = userInputState.IsAwaitingInput;
-        string promptPreview = prompt.Length <= 140 ? prompt : prompt[..137] + "...";
-        throw new TimeoutException(
-            $"Copilot SDK timed out ({timeoutKind}) for model '{model}'. " +
-            $"LastEvent='{lastEventType}' at {lastEventAt:HH:mm:ss}. " +
-            $"AwaitingUserInput={waitingForUser}. Prompt='{promptPreview}'");
+        string? errorType = err.Data.ErrorType;
+        if (!string.IsNullOrEmpty(errorType)
+            && errorType.Contains("tool", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string? message = err.Data.Message;
+        return !string.IsNullOrEmpty(message)
+            && message.Contains("tool", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static readonly string[] LIFECYCLE_KEYWORDS =
+    {
+        "session.start", "sessionstart",
+        "assistant.turn.end", "assistantturnend",
+        "tool.execution.start", "toolexecutionstart",
+        "tool.execution.complete", "toolexecutioncomplete",
+        "session.compaction.start", "sessioncompactionstart",
+        "session.compaction.complete", "sessioncompactioncomplete"
+    };
 
     private static bool IsLifecycleEvent(string eventType)
-    {
-        string normalized = eventType.ToLowerInvariant();
-        return normalized.Contains("session.start", StringComparison.Ordinal)
-            || normalized.Contains("sessionstart", StringComparison.Ordinal)
-            || normalized.Contains("assistant.turn.end", StringComparison.Ordinal)
-            || normalized.Contains("assistantturnend", StringComparison.Ordinal)
-            || normalized.Contains("tool.execution.start", StringComparison.Ordinal)
-            || normalized.Contains("toolexecutionstart", StringComparison.Ordinal)
-            || normalized.Contains("tool.execution.complete", StringComparison.Ordinal)
-            || normalized.Contains("toolexecutioncomplete", StringComparison.Ordinal)
-            || normalized.Contains("session.compaction.start", StringComparison.Ordinal)
-            || normalized.Contains("sessioncompactionstart", StringComparison.Ordinal)
-            || normalized.Contains("session.compaction.complete", StringComparison.Ordinal)
-            || normalized.Contains("sessioncompactioncomplete", StringComparison.Ordinal);
-    }
+        => LIFECYCLE_KEYWORDS.Any(kw => eventType.Contains(kw, StringComparison.OrdinalIgnoreCase));
 
     private static string ResolveEventType(SessionEvent evt)
         => evt.GetType().GetProperty("Type")?.GetValue(evt)?.ToString() ?? evt.GetType().Name;
-    private static string? TryGetToolName(object? data)
+
+    private static CopilotSdkRawEvent CreateRawSdkEvent(SessionEvent evt, string sessionId, string model, string eventType)
     {
-        if (data is null)
-        {
-            return null;
-        }
+        DateTimeOffset timestampUtc = DateTimeOffset.UtcNow;
+        string eventClass = evt.GetType().FullName ?? evt.GetType().Name;
 
         try
         {
-            return data.GetType().GetProperty("ToolName")?.GetValue(data) as string;
+            string payloadJson = System.Text.Json.JsonSerializer.Serialize(evt, evt.GetType());
+            return new CopilotSdkRawEvent(timestampUtc, sessionId, model, eventType, eventClass, payloadJson, null);
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return new CopilotSdkRawEvent(timestampUtc, sessionId, model, eventType, eventClass, null, ex.Message);
         }
     }
+
+    private static string? TryGetToolName(object? data)
+        => TryGetProperty(data, "ToolName") as string;
 
     private static string? TryGetToolArgs(object? data)
     {
+        object? args = TryGetProperty(data, "Arguments");
+        return args is null ? null : System.Text.Json.JsonSerializer.Serialize(args);
+    }
+
+    private static object? TryGetProperty(object? data, string propertyName)
+    {
         if (data is null)
         {
             return null;
@@ -287,14 +350,14 @@ internal sealed class SdkCopilotSession(
 
         try
         {
-            object? args = data.GetType().GetProperty("Arguments")?.GetValue(data);
-            return args is null ? null : System.Text.Json.JsonSerializer.Serialize(args);
+            return data.GetType().GetProperty(propertyName)?.GetValue(data);
         }
         catch
         {
             return null;
         }
     }
+
     private static string? ResolveEventDetails(SessionEvent evt)
     {
         return evt switch
@@ -311,7 +374,7 @@ internal sealed class SdkCopilotSession(
         TimeSpan WaitDuration);
 
     private sealed record SessionTimeoutContext(
-        CopilotSessionFactory.SessionHandle Handle,
+        Func<Task> AbortAsync,
         IUserInputState UserInputState,
         string Prompt,
         string Model,
