@@ -90,8 +90,8 @@ public sealed class SdkCopilotSessionTests
         {
             Data = new SessionErrorData
             {
-                ErrorType = errorType,
-                Message = message
+                ErrorType = errorType!,
+                Message = message!
             }
         };
 

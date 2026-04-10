@@ -133,7 +133,7 @@ public sealed class WebInteractionCoordinatorTests
         ClarificationSpec spec = new(
             "Test task", "Desired outcome", new[] { "In scope" },
             new[] { "Out of scope" }, new[] { "Constraint" }, new[] { "Assumption" },
-            Array.Empty<string>(), new[] { "Build passes" }, new[] { "src/app.cs" }, null);
+            Array.Empty<string>(), new[] { "Build passes" }, new[] { "src/app.cs" }, Array.Empty<string>());
 
         ExecutionPlan plan = new(new[]
         {
@@ -171,7 +171,7 @@ public sealed class WebInteractionCoordinatorTests
         ClarificationSpec spec = new(
             "Test task", "Outcome", Array.Empty<string>(),
             Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(),
-            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), null);
+            Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
 
         ExecutionPlan plan = new(new[]
         {
