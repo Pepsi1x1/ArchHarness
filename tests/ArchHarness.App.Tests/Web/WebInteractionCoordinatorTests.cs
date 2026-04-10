@@ -11,7 +11,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestUserInputAsync — ExposesPendingPromptAndReturnsSubmittedAnswer
     /// </summary>
     [Fact]
-    public async Task RequestUserInputAsync_ExposesPendingPromptAndReturnsSubmittedAnswer()
+    public async Task RequestUserInputAsync_ExposesPendingPromptAndReturnsSubmittedAnswerAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);
@@ -42,7 +42,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestUserInputsAsync — ExposesBatchedQuestionsAndReturnsSubmittedAnswersInOrder
     /// </summary>
     [Fact]
-    public async Task RequestUserInputsAsync_ExposesBatchedQuestionsAndReturnsSubmittedAnswersInOrder()
+    public async Task RequestUserInputsAsync_ExposesBatchedQuestionsAndReturnsSubmittedAnswersInOrderAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);
@@ -90,7 +90,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestPermissionAsync — ExposesPendingPermissionAndReturnsApproval
     /// </summary>
     [Fact]
-    public async Task RequestPermissionAsync_ExposesPendingPermissionAndReturnsApproval()
+    public async Task RequestPermissionAsync_ExposesPendingPermissionAndReturnsApprovalAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);
@@ -125,7 +125,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestPlanApprovalAsync — ExposesPendingApprovalAndReturnsApprovedDecision
     /// </summary>
     [Fact]
-    public async Task RequestPlanApprovalAsync_ExposesPendingApprovalAndReturnsApprovedDecision()
+    public async Task RequestPlanApprovalAsync_ExposesPendingApprovalAndReturnsApprovedDecisionAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);
@@ -163,7 +163,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestPlanApprovalAsync — ReturnsRegenerateDecisionWithReason
     /// </summary>
     [Fact]
-    public async Task RequestPlanApprovalAsync_ReturnsRegenerateDecisionWithReason()
+    public async Task RequestPlanApprovalAsync_ReturnsRegenerateDecisionWithReasonAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);

@@ -9,7 +9,7 @@ namespace ArchHarness.App.Tests.Web;
 public sealed class WebRunSessionManagerTests
 {
     [Fact]
-    public async Task DisposeAsync_WaitsForActiveExecutionTaskToObserveShutdown()
+    public async Task DisposeAsync_WaitsForActiveExecutionTaskToObserveShutdownAsync()
     {
         TrackingExecutionRunner executionRunner = new TrackingExecutionRunner();
         WebRunSessionManager manager = new(

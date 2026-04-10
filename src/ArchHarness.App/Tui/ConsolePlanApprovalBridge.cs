@@ -56,7 +56,7 @@ public sealed class ConsolePlanApprovalBridge : IPlanApprovalBridge
         // Choices
         WriteLineAt(row++, string.Empty, width, ConsoleColor.Gray);
         WriteLineAt(row++, "  [A] Approve   [R] Regenerate   [C] Cancel", width, ConsoleColor.Yellow);
-        WriteLineAt(row++, string.Empty, width, ConsoleColor.Gray);
+        WriteLineAt(row, string.Empty, width, ConsoleColor.Gray);
 
         Console.Write("  Your choice> ");
         Console.ForegroundColor = ConsoleColor.Cyan;
@@ -135,14 +135,21 @@ public sealed class ConsolePlanApprovalBridge : IPlanApprovalBridge
 
     private static bool TryGetCursorVisible()
     {
-        if (!OperatingSystem.IsWindows()) return false;
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
         try { return Console.CursorVisible; }
         catch { return false; }
     }
 
     private static void TrySetCursorVisible(bool visible)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+        
         try { Console.CursorVisible = visible; }
         catch { /* Ignore terminal capability failures. */ }
     }
