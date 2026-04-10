@@ -28,7 +28,7 @@ public interface IStartupPreflightValidator
 public sealed record PreflightValidationResult(bool IsSuccess, string Summary, IReadOnlyList<string> FixSteps);
 
 /// <summary>
-/// Default implementation of <see cref="IStartupPreflightValidator"/> that checks git, Copilot CLI, and authentication.
+/// Default implementation of <see cref="IStartupPreflightValidator"/> that checks Copilot CLI and authentication.
 /// </summary>
 public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidator
 {
@@ -49,12 +49,6 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
     /// <inheritdoc />
     public async Task<PreflightValidationResult> ValidateAsync(CancellationToken cancellationToken = default)
     {
-        PreflightValidationResult gitCheck = await CheckGitAsync();
-        if (!gitCheck.IsSuccess)
-        {
-            return gitCheck;
-        }
-
         PreflightValidationResult cliCheck = await CheckCliAsync();
         if (!cliCheck.IsSuccess)
         {
@@ -67,57 +61,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
             return authCheck;
         }
 
-        return new PreflightValidationResult(true, "Preflight passed: git and Copilot CLI are available and authentication is valid.", Array.Empty<string>());
-    }
-
-    private static async Task<PreflightValidationResult> CheckGitAsync()
-    {
-        try
-        {
-            ProcessStartInfo info = new ProcessStartInfo("git", "--version")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using Process process = new Process { StartInfo = info };
-            process.Start();
-            string stdout = await process.StandardOutput.ReadToEndAsync();
-            string stderr = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-
-            if (process.ExitCode == 0)
-            {
-                return new PreflightValidationResult(
-                    true,
-                    string.IsNullOrWhiteSpace(stdout) ? "git --version succeeded." : stdout.Trim(),
-                    Array.Empty<string>());
-            }
-
-            return new PreflightValidationResult(
-                false,
-                "Git is installed but could not be executed successfully.",
-                new[]
-                {
-                    "Run `git --version` in your terminal and resolve any local git errors.",
-                    "Ensure the git executable is available on PATH for the current session.",
-                    $"git stderr: {stderr.Trim()}"
-                });
-        }
-        catch (Win32Exception)
-        {
-            return new PreflightValidationResult(
-                false,
-                "Git was not found on PATH.",
-                new[]
-                {
-                    "Install git from https://git-scm.com/downloads.",
-                    "Ensure `git` is available on PATH and restart your terminal/session.",
-                    "Verify installation with `git --version`."
-                });
-        }
+        return new PreflightValidationResult(true, "Preflight passed: Copilot CLI is available and authentication is valid.", Array.Empty<string>());
     }
 
     private static async Task<PreflightValidationResult> CheckCliAsync()

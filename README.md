@@ -1,47 +1,66 @@
 # ArchHarness
 
-ArchHarness is a .NET application suite that runs a multi-agent software workflow on top of GitHub Copilot SDK sessions.
+A multi-agent software engineering harness built on the GitHub Copilot SDK. ArchHarness orchestrates specialized AI agents to plan, implement, review, and validate code changes across a target workspace.
 
-It ships with a shared runtime library plus three supported hosts: a console host for the terminal-first workflow, a local ASP.NET Core web host for the browser control room, and an Electron wrapper that presents that same web UI in a native window.
+Three hosts share the same runtime library:
+
+- **Console** — interactive terminal UI with scriptable CLI mode
+- **Web** — local ASP.NET Core host serving a browser control room
+- **Electron** — native desktop wrapper around the web host
 
 ## What It Does
 
-- Accepts a task prompt and workspace target.
-- Builds an execution plan with an orchestration agent.
-- Delegates implementation/review steps to specialized agents:
-	- `Orchestration`: planning and completion validation
-	- `FrontendDeveloper`: frontend implementation changes
-	- `BackendDeveloper`: backend implementation changes
-	- `Build`: baseline/intermediate build execution and build-result triage
-	- `Architecture`: architecture enforcement and findings
-- Optionally loops architecture remediation until high-severity findings are cleared (or max iterations reached).
-- Runs build validation and records final status.
-- Persists run artifacts under `.agent-harness/runs/<runId>/` in the target workspace.
+1. Accepts a task prompt and workspace target.
+2. Builds an execution plan via orchestration and planning agents.
+3. Delegates work to specialized agents:
+   - **Orchestration** — plan creation, step coordination, completion validation
+   - **Planning** — dedicated reasoning-heavy plan refinement and clarification
+   - **FrontendDeveloper / BackendDeveloper** — implementation changes
+   - **Build** — build execution, result triage, and fix suggestions
+   - **Architecture** — SOLID principle enforcement via static analyzers (SRP, DIP, ISP, OCP/LSP, DRY, completeness, missing tests)
+   - **Security** — OWASP-oriented review plus heuristic analysis (hardcoded secrets, insecure transport, SQL injection, XSS, TLS bypass)
+   - **CodingStyle** — naming conventions and language-specific style enforcement with direct file editing
+4. Runs review loops (architecture, security, style) until findings are resolved or max iterations reached.
+5. Validates builds and records final status.
+6. Persists run artifacts under `.agent-harness/runs/<runId>/` in the target workspace.
+
+## Workflows
+
+| Name | Description |
+| --- | --- |
+| `auto` | Default orchestrator-driven workflow |
+| `planning` | Clarification and plan approval only (no execution) |
+| `architecture-loop` | Architecture review remediation loop |
+| `frontend-feature` | Legacy frontend-focused default |
 
 ## Repository Layout
 
-- `src/ArchHarness.App/`: shared runtime, agents, Copilot integration, storage, and TUI components
-- `src/ArchHarness.Console/`: console entry point for the existing interactive and scriptable workflow
-- `src/ArchHarness.Web/`: local ASP.NET Core host and browser-first control-room UI
-- `src/ArchHarness.Electron/`: Electron desktop wrapper that hosts the local web UI in a native window
-- `src/ArchHarness.App/Agents/`: agent implementations
-- `src/ArchHarness.App/Core/`: orchestration/runtime contracts and flow
-- `src/ArchHarness.App/Prompts/`: editable agent and orchestration prompt templates
-- `src/ArchHarness.App/Copilot/`: Copilot SDK session/client integration
-- `src/ArchHarness.App/Tui/`: terminal UI and screen rendering
-- `src/ArchHarness.App/Storage/`: artifact and run log persistence
-- `tests/ArchHarness.App.Tests/`: test project
+```
+src/
+  ArchHarness.App/          Shared runtime library
+    Agents/                  Agent implementations
+      Analyzers/             Static architecture analyzers (SRP, DIP, ISP, etc.)
+    Copilot/                 Copilot SDK session, client, governance, error handling
+    Core/                    Orchestration runtime, plan execution, validation
+    Guidelines/              Language-specific review guidelines (.NET, Vue 3)
+    Prompts/                 Editable agent and orchestration prompt templates
+    SourceControl/           Git, GitHub OAuth, Azure DevOps integration
+    Storage/                 Artifact and run log persistence
+    Tui/                     Terminal UI and screen rendering
+    Workspace/               File-system and git workspace adapters
+  ArchHarness.Console/       Console entry point
+  ArchHarness.Web/           ASP.NET Core web host and API
+  ArchHarness.Electron/      Electron desktop wrapper
+tests/
+  ArchHarness.App.Tests/     Unit and integration tests
+```
 
 ## Prerequisites
 
 - .NET SDK 10
-- GitHub Copilot CLI installed and available on `PATH` as `copilot`
-- Copilot authentication completed (the app checks this on startup)
+- GitHub Copilot CLI available on `PATH` as `copilot`, authenticated
 
-Preflight checks run automatically at startup:
-
-- `copilot --version` must succeed
-- Copilot SDK ping/authentication must succeed
+Preflight checks run automatically at startup and verify `copilot` availability and authentication state. Git operations use LibGit2Sharp and do not require the git CLI.
 
 ## Build
 
@@ -50,167 +69,144 @@ dotnet restore ArchHarness.App.sln
 dotnet build ArchHarness.App.sln
 ```
 
-Build tests:
+Run tests:
 
 ```bash
-dotnet build tests/ArchHarness.App.Tests/ArchHarness.App.Tests.csproj
+dotnet test tests/ArchHarness.App.Tests/ArchHarness.App.Tests.csproj
 ```
 
 ## Run
 
-Interactive mode (recommended):
+### Console (interactive)
 
 ```bash
 dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj
 ```
 
-In interactive setup:
+- `Up/Down` — move fields
+- `Left/Right` — toggle workspace mode
+- `Enter` — edit selected field
+- `F5` — submit and start run
+- `Esc` — cancel
 
-- `Up/Down`: move fields
-- `Left/Right`: toggle workspace mode
-- `Enter`: edit selected field
-- `F5`: submit and start run
-- `Esc`: cancel
-
-Non-interactive mode (scriptable):
+### Console (scriptable)
 
 ```bash
 dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj -- \
-	run "Add retry logic to Copilot session creation" \
-	"C:\\path\\to\\workspace" \
-	"existing-folder" \
-	"auto" \
-	"ArchHarness.App" \
-	"orchestration=gpt-5.3-codex,frontend-developer=claude-sonnet-4.6,backend-developer=gpt-5.3-codex" \
-	"dotnet build \"C:\\path\\to\\workspace\\ArchHarness.App.sln\" --nologo"
+  run "Add retry logic to session creation" \
+  "C:\path\to\workspace" \
+  "existing-git" \
+  "auto" \
+  "MyProject" \
+  "orchestration=claude-opus-4.6,backend-developer=gpt-5.4" \
+  "dotnet build MyProject.sln --nologo"
 ```
 
-`run` argument order:
+Argument order: `TaskPrompt`, `WorkspacePath`, `WorkspaceMode` (`existing-folder` | `new-project` | `existing-git`), `Workflow`, `ProjectName`, `ModelOverrides` (comma-delimited `role=model`), `BuildCommand`. From `Workflow` onward all arguments are optional. If `BuildCommand` is omitted, ArchHarness infers a suitable `dotnet build` target when possible.
 
-1. `TaskPrompt`
-2. `WorkspacePath`
-3. `WorkspaceMode`: `existing-folder` | `new-project` | `existing-git`
-4. `Workflow` (optional)
-5. `ProjectName` (optional)
-6. `ModelOverrides` (optional): comma-delimited `role=model`
-7. `BuildCommand` (optional)
-
-If `BuildCommand` is omitted, ArchHarness infers a suitable `dotnet build` target (`.sln`/`.csproj`) when possible.
-
-Browser host:
+### Web host
 
 ```bash
 dotnet run --project src/ArchHarness.Web/ArchHarness.Web.csproj
 ```
 
-The web host boots the same runtime service graph, runs startup preflight, serves the browser-first control room, and exposes the local APIs used to configure runs, stream agent output, and inspect prior runs stored under `.agent-harness/runs` for a chosen workspace. In development it listens on `http://127.0.0.1:5057`.
+Listens on `http://127.0.0.1:5057` (loopback only). Serves the browser control room and exposes REST APIs for project management, run lifecycle, agent streaming, settings, model listing, source control providers (including GitHub OAuth device flow and Azure DevOps), and run history.
 
-Electron wrapper:
-
-```bash
-cd src/ArchHarness.Electron
-npm install
-npm start
-```
-
-The Electron wrapper starts the local `ArchHarness.Web` host if it is not already running, waits for `/api/health`, and then opens the same control-room UI in a native window.
-
-To build the wrapper with a published local web host bundled into the app:
+### Electron
 
 ```bash
 cd src/ArchHarness.Electron
 npm install
-npm run pack:mac
-npm run pack:win
-npm run pack:linux
+npm start          # development
+npm run dev        # development with devtools
 ```
 
-That packaging flow first runs `dotnet publish` for `ArchHarness.Web` into `src/ArchHarness.Electron/build/web-host/`, then uses `electron-builder` to produce platform-specific artifacts under `src/ArchHarness.Electron/dist/`.
+The Electron wrapper starts the local web host if needed, waits for `/api/health`, and opens the control room in a native window.
 
-GitHub Actions release automation is defined in `.github/workflows/electron-release.yml`.
+#### Packaging
 
-- Pushing a tag that matches `v*` builds packaged Electron releases for Windows, macOS, and Linux.
-- Each matrix job bundles the published `ArchHarness.Web` host into the Electron app before packaging.
-- A release job collects the generated artifacts and uploads them to a GitHub Release for the tag.
-- You can also run it manually with `workflow_dispatch` and provide a `tag_name` to create or update a release.
+```bash
+npm run pack:win   # Windows (NSIS + ZIP)
+npm run pack:mac   # macOS (ZIP)
+npm run pack:linux # Linux (AppImage + ZIP)
+```
+
+Runs `dotnet publish` for `ArchHarness.Web` into `build/web-host/`, then `electron-builder` produces platform artifacts under `dist/`.
+
+Release automation: `.github/workflows/electron-release.yml` builds and publishes packaged releases for all platforms on `v*` tags (or via `workflow_dispatch`).
 
 ## Configuration
 
 Configuration is loaded from `src/ArchHarness.App/appsettings.json`.
 
-Top-level sections:
-
-- `agents`: default model per agent role
-- `copilot`: transport, tools, timeouts, model catalog, retry settings
-
-Prompt templates are stored under `src/ArchHarness.App/Prompts/` and copied to the build output. You can customize role instructions and orchestration templates there without editing C# source.
+| Section | Purpose |
+| --- | --- |
+| `agents` | Default model, reasoning effort, and review loop settings per agent role |
+| `agents.architecture.analyzers` | Which static analyzers to run (SRP, DIP, ISP, OCP/LSP, DRY, completeness, missing tests) |
+| `agents.security.analyzers` | Which security heuristics to enable (hardcoded secrets, insecure transport, SQL injection, XSS, TLS bypass) |
+| `copilot` | Transport mode, conversation model, session timeouts, prompt/completion limits, retry settings |
 
 Example (abbreviated):
 
 ```json
 {
-	"agents": {
-		"orchestration": { "model": "claude-sonnet-4.6" },
-		"frontendDeveloper": { "model": "claude-sonnet-4.6" },
-		"backendDeveloper": { "model": "gpt-5.3-codex" },
-		"build": { "model": "gpt-4.1" }
-	},
-	"copilot": {
-		"streamingResponses": true,
-		"sessionAbsoluteTimeoutSeconds": 900,
-		"maxRetries": 2
-	}
+  "agents": {
+    "orchestration": { "model": "claude-opus-4.6" },
+    "planning": { "model": "gpt-5.4", "reasoningEffort": "xhigh" },
+    "frontendDeveloper": { "model": "claude-sonnet-4.6" },
+    "backendDeveloper": { "model": "gpt-5.4" },
+    "build": { "model": "gpt-4.1" },
+    "codingStyle": { "model": "gpt-5.4" },
+    "security": { "model": "gpt-5.4" },
+    "architecture": { "model": "claude-opus-4.6" }
+  },
+  "copilot": {
+    "conversationModel": "gpt-5-mini",
+    "useStdio": true,
+    "streamingResponses": true,
+    "sessionAbsoluteTimeoutSeconds": 900,
+    "maxRetries": 2
+  }
 }
 ```
 
-ArchHarness no longer uses a configured model allow list. When Copilot exposes a runtime model catalog, requested models are validated against that discovered list. If discovery is unavailable, ArchHarness passes the configured model name through to Copilot without local allow-list blocking.
+Models are validated against Copilot's runtime model catalog when available. If discovery is unavailable, configured model names are passed through without local blocking.
+
+Prompt templates under `src/ArchHarness.App/Prompts/` and review guidelines under `src/ArchHarness.App/Guidelines/` (`.NET` and `Vue 3` variants for architecture, security, and style) can be customized without editing C# source.
 
 ## Run Artifacts
 
-Each run writes to:
+Each run writes to `<workspace>/.agent-harness/runs/<runId>/`:
 
-`<workspace>/.agent-harness/runs/<runId>/`
-
-Typical files:
-
-- `events.jsonl`: timeline of run events
-- `ExecutionPlan.json`: orchestrated plan
-- `ArchitectureReview.json`: architecture findings/actions
-- `BuildResult.json`: build execution result
-- `FinalSummary.md`: end summary
-- `run-log.json`: run metadata and model usage snapshot
-
-## TUI Navigation After Run
-
-The UI supports post-run screens for:
-
-- run monitor
-- logs
-- artifacts
-- review viewer
-- prompts
-
-Use the footer key hints in-app to navigate or quit.
+| File | Contents |
+| --- | --- |
+| `events.jsonl` | Timeline of run events |
+| `ExecutionPlan.json` | Orchestrated plan |
+| `ArchitectureReview.json` | Architecture findings and actions |
+| `BuildResult.json` | Build execution result |
+| `FinalSummary.md` | End summary |
+| `run-log.json` | Run metadata and model usage snapshot |
 
 ## Troubleshooting
 
-If startup preflight fails:
+**Startup preflight fails:**
 
-1. Run `copilot --version` and fix CLI installation issues.
-2. Run `copilot`, then `/login`, and complete browser auth.
-3. Retry ArchHarness.
+1. Verify `copilot --version` succeeds.
+2. Run `copilot` then `/login` to complete browser auth.
 
-If build validation fails:
+**Build validation fails:**
 
-1. Open the latest run directory under `.agent-harness/runs/`.
-2. Inspect `BuildResult.json` and `events.jsonl`.
-3. Re-run with an explicit `BuildCommand` if needed.
+1. Inspect `BuildResult.json` and `events.jsonl` in the run directory.
+2. Re-run with an explicit `BuildCommand`.
 
-## Development Notes
+## Development
 
-- Target framework: `net10.0`
-- Shared DI registration: `src/ArchHarness.App/Program.cs`
-- Console entry point: `src/ArchHarness.Console/Program.cs`
-- Web entry point: `src/ArchHarness.Web/Program.cs`
-- Electron entry point: `src/ArchHarness.Electron/main.js`
-- Main terminal flow: `src/ArchHarness.App/Tui/ChatTerminal.cs`
+| | Path |
+| --- | --- |
+| Target framework | `net10.0` |
+| Shared DI registration | `src/ArchHarness.App/Program.cs` |
+| Console entry point | `src/ArchHarness.Console/Program.cs` |
+| Web entry point | `src/ArchHarness.Web/Program.cs` |
+| Electron entry point | `src/ArchHarness.Electron/main.js` |
+| SDK integration | `src/ArchHarness.App/Copilot/` |
+| Key dependency | `GitHub.Copilot.SDK 0.2.1` |
