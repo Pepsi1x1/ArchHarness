@@ -270,10 +270,13 @@ public sealed class WebInteractionCoordinator
     /// <summary>
     /// Queues a plan-approval request and waits for the web client to respond.
     /// </summary>
+    /// <param name="request">The plan-approval request details.</param>
+    /// <param name="cancellationToken">Token that cancels the pending approval (e.g., host shutdown or request abort).</param>
     public async Task<ArchHarness.App.Core.PlanApprovalResponse> RequestPlanApprovalAsync(
-        ArchHarness.App.Core.PlanApprovalRequest request)
+        ArchHarness.App.Core.PlanApprovalRequest request,
+        CancellationToken cancellationToken = default)
     {
-        await this._interactionGate.WaitAsync().ConfigureAwait(false);
+        await this._interactionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             string question = $"Review and approve the execution plan:\n{request.SpecMarkdown}";
@@ -293,6 +296,10 @@ public sealed class WebInteractionCoordinator
             {
                 this._pending = new PendingInteraction("plan-approval", snapshot, responseSource);
             }
+
+            using CancellationTokenRegistration registration = cancellationToken.Register(
+                static state => ((TaskCompletionSource<object>)state!).TrySetCanceled(),
+                responseSource);
 
             object response = await responseSource.Task.ConfigureAwait(false);
             return (ArchHarness.App.Core.PlanApprovalResponse)response;

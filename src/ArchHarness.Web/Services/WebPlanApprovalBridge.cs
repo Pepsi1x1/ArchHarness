@@ -19,6 +19,6 @@ public sealed class WebPlanApprovalBridge : IPlanApprovalBridge
         PlanApprovalRequest request,
         CancellationToken cancellationToken)
     {
-        return await this._coordinator.RequestPlanApprovalAsync(request).ConfigureAwait(false);
+        return await this._coordinator.RequestPlanApprovalAsync(request, cancellationToken).ConfigureAwait(false);
     }
 }
