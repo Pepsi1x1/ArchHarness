@@ -51,6 +51,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
     private readonly OrchestrationAgent _orchestrationAgent;
     private readonly PlanningAgent _planningAgent;
     private readonly IRunVerificationWorkflow _verificationWorkflow;
+    private readonly WikiDocRunServices _wikiDocServices;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratedRunProcessor"/> class.
@@ -62,6 +63,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         OrchestrationAgent orchestrationAgent,
         PlanningAgent planningAgent,
         IRunVerificationWorkflow verificationWorkflow,
+        WikiDocRunServices wikiDocServices,
         IPlanApprovalBridge? approvalBridge = null,
         ICopilotUserInputBridge? userInputBridge = null)
     {
@@ -71,6 +73,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         this._orchestrationAgent = orchestrationAgent;
         this._planningAgent = planningAgent;
         this._verificationWorkflow = verificationWorkflow;
+        this._wikiDocServices = wikiDocServices;
         this._approvalBridge = approvalBridge;
         this._userInputBridge = userInputBridge;
     }
@@ -83,7 +86,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         CancellationToken cancellationToken)
     {
         IWorkspaceAdapter adapter = context.Adapter;
-        RunRequest request = context.Request;
+        RunRequest request = RunRequestWorkflowDefaults.Apply(context.Request);
         PersistedRunState? resumeState = context.ResumeState;
 
         string runDirectory = resumeState?.RunDirectory ?? this._services.RunInfrastructure.ArtifactWriter.CreateRunDirectory(adapter.RootPath);
@@ -112,7 +115,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                         Array.Empty<string>(),
                         new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
                         new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())),
-                    RunPhases.PLANNING,
+                    IsWikiDocWorkflow(request.Workflow) ? RunPhases.EXECUTING_PLAN : RunPhases.PLANNING,
                     null,
                     cancellationToken).ConfigureAwait(false);
                 progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_STARTED_MESSAGE));
@@ -121,6 +124,21 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             {
                 await this._services.RunInfrastructure.EventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = RUN_RESUMED_MESSAGE }, cancellationToken).ConfigureAwait(false);
                 progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_RESUMED_MESSAGE));
+            }
+
+            if (IsWikiDocWorkflow(request.Workflow))
+            {
+                await this.ExecuteWikiDocWorkflowAsync(
+                    checkpoint,
+                    request,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+
+                await sessionEventCts.CancelAsync().ConfigureAwait(false);
+                await agentEventCts.CancelAsync().ConfigureAwait(false);
+                await DrainPumpAsync(sessionEventPump).ConfigureAwait(false);
+                await DrainPumpAsync(agentEventPump).ConfigureAwait(false);
+                return new RunArtefacts(runId, runDirectory);
             }
 
             (ExecutionPlan plan, PlanExecutionResult planResult, ClarificationSpec? spec, IReadOnlyList<ClarificationAnswer> clarificationAnswers) = await this.ExecutePlanAsync(context, progress, runId, runDirectory, cancellationToken).ConfigureAwait(false);
@@ -992,6 +1010,131 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
     private static bool IsPlanningWorkflow(string? workflow)
         => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWikiDocWorkflow(string? workflow)
+        => string.Equals(workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase);
+
+    private async Task ExecuteWikiDocWorkflowAsync(
+        RunStateCheckpoint checkpoint,
+        RunRequest request,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        ExecutionPlan plan = new ExecutionPlan(
+            new[]
+            {
+                new ExecutionPlanStep(
+                    1,
+                    "BackendDeveloper",
+                    "Discover Git repositories under the scan root, generate one repository-local wiki Home.md per repository, and record deterministic fallback outputs when a repo-local wiki path cannot be used."),
+                new ExecutionPlanStep(
+                    2,
+                    "BackendDeveloper",
+                    "Synthesize a megawiki and shared cross-repository concept pages from the repository documentation outputs.",
+                    new[] { 1 },
+                    ParallelGroup: 2)
+            },
+            new IterationStrategy(1, false),
+            new[]
+            {
+                "Every discovered repository has a Home.md output under a repo-local wiki or deterministic fallback path.",
+                "A megawiki summary is generated for the scan root.",
+                "Cross-repository concept pages are synthesized."
+            });
+
+        await this._services.RunInfrastructure.ArtifactWriter.WriteExecutionPlanAsync(checkpoint.RunDirectory, plan, cancellationToken).ConfigureAwait(false);
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                Array.Empty<int>(),
+                0,
+                string.Empty,
+                Array.Empty<string>(),
+                new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())),
+            RunPhases.EXECUTING_PLAN,
+            null,
+            cancellationToken).ConfigureAwait(false);
+
+        WikiDocWorkflowResult result = await this._wikiDocServices.Workflow.ExecuteAsync(
+            request,
+            checkpoint.RunDirectory,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                plan.Steps.Select(step => step.Id).ToArray(),
+                0,
+                string.Empty,
+                result.FilesTouched,
+                new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>())),
+            RunPhases.FINALIZING,
+            null,
+            cancellationToken).ConfigureAwait(false);
+        await this._services.RunInfrastructure.ArtifactWriter.WriteCompletionValidationAsync(checkpoint.RunDirectory, result.ValidationResult, cancellationToken).ConfigureAwait(false);
+        await this._services.RunInfrastructure.ArtifactWriter.WriteFinalSummaryAsync(checkpoint.RunDirectory, BuildWikiDocSummary(result.Report, result.ValidationResult), cancellationToken).ConfigureAwait(false);
+
+        string[] modelOverrides = request.ModelOverrides?.Select(pair => $"{pair.Key}={pair.Value}").ToArray() ?? Array.Empty<string>();
+        IReadOnlyList<CopilotModelUsage> usage = this._services.SessionContext.CopilotClient.GetUsageSnapshot();
+        object[] agentModelUsage = this._agentModelUsageBuilder.Build(request.ModelOverrides);
+        bool completed = result.ValidationResult.Passed;
+
+        await this._services.RunInfrastructure.ArtifactWriter.WriteRunLogAsync(checkpoint.RunDirectory, new
+        {
+            status = completed ? RunStatuses.COMPLETED : RunStatuses.INCOMPLETE,
+            projectId = request.ProjectId,
+            projectName = request.ProjectName,
+            runTitle = request.RunTitle,
+            request.WorkspaceMode,
+            request.Workflow,
+            request.PermissionHandlerMode,
+            modelOverrides,
+            agents = agentModelUsage,
+            copilotUsage = usage,
+            wikiDoc = result.Report,
+            completionValidation = result.ValidationResult
+        }, cancellationToken).ConfigureAwait(false);
+
+        await this._services.RunInfrastructure.EventLogger.AppendEventAsync(checkpoint.RunDirectory, new { runId = checkpoint.RunId, source = WellKnownSources.WIKIDOC, message = RUN_COMPLETED_MESSAGE }, cancellationToken).ConfigureAwait(false);
+        await this.WriteRunStateAsync(
+            checkpoint,
+            new RunProgressSnapshot(
+                plan.Steps.Select(step => step.Id).ToArray(),
+                0,
+                string.Empty,
+                result.FilesTouched,
+                new ArchitectureReview(Array.Empty<ArchitectureFinding>(), Array.Empty<string>()),
+                new SecurityReview(Array.Empty<SecurityFinding>(), Array.Empty<string>()),
+                CompletionValidation: result.ValidationResult),
+            completed ? RunTerminalPhases.COMPLETED : RunTerminalPhases.INCOMPLETE,
+            null,
+            cancellationToken,
+            completed ? RunStatuses.COMPLETED : RunStatuses.INCOMPLETE).ConfigureAwait(false);
+        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, RUN_COMPLETED_MESSAGE));
+    }
+
+    private static string BuildWikiDocSummary(WikiDocExecutionReport report, CompletionValidationResult validationResult)
+    {
+        string fallbacks = report.Fallbacks.Count == 0
+            ? "(none)"
+            : string.Join(", ", report.Fallbacks.Select(fallback => $"{fallback.Scope}:{fallback.ReasonCode}"));
+        string conceptPages = report.AggregateOutput.ConceptPagePaths.Count == 0
+            ? "(none)"
+            : string.Join(", ", report.AggregateOutput.ConceptPagePaths.Select(Path.GetFileName));
+
+        return $"""
+            # WikiDoc Summary
+            - Completed: {validationResult.Passed}
+            - ScanRoot: {report.ScanRoot}
+            - RepositoriesDocumented: {report.RepositoryOutputs.Count}
+            - MegaWikiPath: {report.AggregateOutput.MegaWikiPath}
+            - ConceptPages: {conceptPages}
+            - Fallbacks: {fallbacks}
+            """;
+    }
 
     private static PlanExecutionResult CreatePlanningPlanExecutionResult(ExecutionPlan plan)
         => new(

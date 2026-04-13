@@ -56,6 +56,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
             orchestrationAgent,
             planningAgent,
             new StubRunVerificationWorkflow(),
+            new WikiDocRunServices(new StubWikiDocWorkflow()),
             approvalBridge: null,
             userInputBridge: null);
 
@@ -221,6 +222,26 @@ public sealed class OrchestratedRunProcessorPlanningTests
     {
         public Task<VerificationWorkflowResult> RunAsync(RunVerificationRequest request, IWorkspaceAdapter adapter, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
             => Task.FromResult(new VerificationWorkflowResult(new CompletionValidationResult(true, Array.Empty<CriterionResult>()), Array.Empty<string>(), null));
+    }
+
+    private sealed class StubWikiDocWorkflow : IWikiDocWorkflow
+    {
+        public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+        {
+            _ = request;
+            _ = runDirectory;
+            _ = progress;
+            _ = cancellationToken;
+            return Task.FromResult(new WikiDocWorkflowResult(
+                Array.Empty<string>(),
+                new CompletionValidationResult(true, Array.Empty<CriterionResult>()),
+                new WikiDocExecutionReport(
+                    "C:\\workspace",
+                    0,
+                    Array.Empty<WikiDocRepositoryOutput>(),
+                    new WikiDocAggregateOutput("C:\\workspace\\wiki", "C:\\workspace\\wiki\\MegaWiki.md", Array.Empty<string>(), false, null, null, null),
+                    Array.Empty<WikiDocFallbackRecord>())));
+        }
     }
 
     private sealed class StubRunArtifactWriter : IRunArtifactWriter
