@@ -90,14 +90,14 @@ public static class RunMonitor
     /// bottom half shows a scrollable buffer of the selected agent's stream output.
     /// </summary>
     /// <param name="events">The thread-safe list of progress events.</param>
-    /// <param name="agentEvents">The thread-safe list of agent stream delta events.</param>
+    /// <param name="agentSnapshot">A pre-filtered snapshot of the selected agent's events, or null.</param>
     /// <param name="selectedAgentId">The currently selected agent ID, or null if none selected.</param>
     /// <param name="availableAgents">The available agents to display in the selector.</param>
     /// <param name="spinnerChar">The current spinner character.</param>
     /// <param name="firstRender">Tracks whether the console has been cleared for the first frame.</param>
     public static void RenderLiveWithAgentView(
         List<RuntimeProgressEvent> events,
-        List<AgentStreamDeltaEvent> agentEvents,
+        List<AgentStreamDeltaEvent>? agentSnapshot,
         string? selectedAgentId,
         IEnumerable<(string Id, string Role)> availableAgents,
         char spinnerChar,
@@ -169,7 +169,7 @@ public static class RunMonitor
         List<(string Id, string Role)> agentList = availableAgents.ToList();
         (int agentSelectorRow, int outputStartRow, int outputRows) = AgentStreamPane.CalculateLayout(midRow, contentRows);
         AgentStreamPane.RenderAgentSelector(agentSelectorRow, width, selectedAgentId, agentList);
-        AgentStreamPane.RenderAgentOutput(outputStartRow, outputRows, width, selectedAgentId, agentEvents, agentList);
+        AgentStreamPane.RenderAgentOutput(outputStartRow, outputRows, width, selectedAgentId, agentSnapshot, agentList);
 
         // ── Footer ────────────────────────────────────────────────────────────────────
         if (footerRow < totalRows)

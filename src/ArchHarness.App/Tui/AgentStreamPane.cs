@@ -72,14 +72,14 @@ public static class AgentStreamPane
     /// <param name="outputRows">The number of rows available for output.</param>
     /// <param name="width">The available console width.</param>
     /// <param name="selectedAgentId">The currently selected agent ID, or null if none selected.</param>
-    /// <param name="agentEvents">The thread-safe list of agent stream delta events.</param>
+    /// <param name="agentSnapshot">A pre-filtered snapshot of the selected agent's events, or null.</param>
     /// <param name="agentList">The available agents.</param>
     public static void RenderAgentOutput(
         int startRow,
         int outputRows,
         int width,
         string? selectedAgentId,
-        List<AgentStreamDeltaEvent> agentEvents,
+        List<AgentStreamDeltaEvent>? agentSnapshot,
         List<(string Id, string Role)> agentList)
     {
         if (outputRows <= 0)
@@ -87,13 +87,13 @@ public static class AgentStreamPane
             return;
         }
 
-        if (string.IsNullOrEmpty(selectedAgentId) || agentList.Count == 0)
+        if (string.IsNullOrEmpty(selectedAgentId) || agentList.Count == 0 || agentSnapshot == null)
         {
             RenderNoAgentPrompt(startRow, outputRows, width);
             return;
         }
 
-        RenderSelectedAgentContent(startRow, outputRows, width, selectedAgentId, agentEvents);
+        RenderSelectedAgentContent(startRow, outputRows, width, agentSnapshot);
     }
 
     private static void RenderNoAgentPrompt(int startRow, int outputRows, int width)
@@ -123,15 +123,8 @@ public static class AgentStreamPane
         int startRow,
         int outputRows,
         int width,
-        string selectedAgentId,
-        List<AgentStreamDeltaEvent> agentEvents)
+        List<AgentStreamDeltaEvent> agentSnapshot)
     {
-        List<AgentStreamDeltaEvent> agentSnapshot;
-        lock (agentEvents)
-        {
-            agentSnapshot = agentEvents.Where(e => e.AgentId == selectedAgentId).ToList();
-        }
-
         IReadOnlyList<string> formattedLines = AgentOutputFormatter.FormatDeltaContent(agentSnapshot, width);
         IReadOnlyList<string> visibleLines = formattedLines.TakeLast(outputRows).ToArray();
 

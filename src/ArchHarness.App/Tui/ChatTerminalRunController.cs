@@ -173,10 +173,15 @@ public sealed class ChatTerminalRunController : IChatTerminalRunController
         ref bool liveScreenInitialized)
     {
         IEnumerable<(string Id, string Role)> availableAgents = agentStreamState.GetAvailableAgents();
+        string? selectedAgentId = agentStreamState.SelectedAgentId;
+        List<AgentStreamDeltaEvent>? agentSnapshot = selectedAgentId != null
+            ? agentStreamState.SnapshotForAgent(selectedAgentId)
+            : null;
+
         RunMonitor.RenderLiveWithAgentView(
             runEvents,
-            agentStreamState.Events,
-            agentStreamState.SelectedAgentId,
+            agentSnapshot,
+            selectedAgentId,
             availableAgents,
             spinner,
             ref liveScreenInitialized);

@@ -231,6 +231,46 @@ export function showStreamCompleted() {
   scrollStreamToBottom();
 }
 
+let _pendingRenderAgentIds = new Set();
+let _pendingRenderFrame = null;
+
+function flushPendingRenders() {
+  _pendingRenderFrame = null;
+  const agentIds = _pendingRenderAgentIds;
+  _pendingRenderAgentIds = new Set();
+
+  let needsFullRender = false;
+  for (const agentId of agentIds) {
+    const section = state.streamSections[agentId];
+    if (!section) continue;
+    const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
+    if (!container) {
+      needsFullRender = true;
+      break;
+    }
+    setSanitizedHtml(container, buildSectionBodyHtml(section));
+  }
+
+  if (needsFullRender) {
+    renderStream();
+  }
+
+  scrollStreamToBottom();
+
+  for (const agentId of agentIds) {
+    scheduleStreamRender(agentId);
+  }
+}
+
+export function scheduleIncrementalRender(agentId) {
+  _pendingRenderAgentIds.add(agentId);
+  if (!_pendingRenderFrame) {
+    _pendingRenderFrame = globalThis.requestAnimationFrame
+      ? globalThis.requestAnimationFrame(flushPendingRenders)
+      : globalThis.setTimeout(flushPendingRenders, 16);
+  }
+}
+
 export function scheduleStreamRender(agentId) {
   const section = state.streamSections[agentId];
   if (!section) {
@@ -312,7 +352,7 @@ export function recordStreamEvent(entry, options = {}) {
     section.segmentCount += 1;
     section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
     if (!deferRender) {
-      renderStream();
+      scheduleIncrementalRender(agentId);
     }
     return;
   }
@@ -324,8 +364,7 @@ export function recordStreamEvent(entry, options = {}) {
     section.streamKind = streamKind;
 
     if (!deferRender) {
-      renderStream();
-      scheduleStreamRender(agentId);
+      scheduleIncrementalRender(agentId);
     }
     return;
   }
@@ -337,8 +376,7 @@ export function recordStreamEvent(entry, options = {}) {
   section.streamKind = streamKind;
 
   if (!deferRender) {
-    renderStream();
-    scheduleStreamRender(agentId);
+    scheduleIncrementalRender(agentId);
   }
 }
 
@@ -348,6 +386,11 @@ export function resetStream() {
       globalThis.clearTimeout(section.renderHandle);
     }
   });
+  if (_pendingRenderFrame) {
+    (globalThis.cancelAnimationFrame || globalThis.clearTimeout)(_pendingRenderFrame);
+    _pendingRenderFrame = null;
+    _pendingRenderAgentIds.clear();
+  }
   state.streamSections = {};
   state.streamOrder = [];
   Object.keys(state.agentSpinningUp).forEach(key => {
@@ -416,8 +459,32 @@ export function connectEventStream() {
   const eventSource = new EventSource("/api/runs/active/events");
   state.eventSource = eventSource;
   let sidebarRefreshed = false;
+  let refreshHandle = null;
+  let refreshInFlight = false;
 
-  const onEvent = async event => {
+  const throttledRefresh = () => {
+    if (refreshHandle || refreshInFlight) return;
+    refreshHandle = globalThis.setTimeout(async () => {
+      refreshHandle = null;
+      refreshInFlight = true;
+      try {
+        const snapshot = await refreshActiveRun();
+        if (!snapshot?.isRunning) {
+          closeEventStream(STREAM_CONNECTION_STATES.IDLE);
+          await loadProjects();
+          await syncSelectedRunStateToCurrentSelection();
+        } else if (!sidebarRefreshed && snapshot?.runId) {
+          sidebarRefreshed = true;
+          await loadProjects();
+          await syncSelectedRunStateToCurrentSelection();
+        }
+      } finally {
+        refreshInFlight = false;
+      }
+    }, 500);
+  };
+
+  const onEvent = event => {
     const payload = JSON.parse(event.data);
     const kind = readEventField(payload, "kind") || "";
     if (kind === "agent-delta") {
@@ -430,16 +497,7 @@ export function connectEventStream() {
       }
     }
 
-    const snapshot = await refreshActiveRun();
-    if (!snapshot?.isRunning) {
-      closeEventStream(STREAM_CONNECTION_STATES.IDLE);
-      await loadProjects();
-      await syncSelectedRunStateToCurrentSelection();
-    } else if (!sidebarRefreshed && snapshot?.runId) {
-      sidebarRefreshed = true;
-      await loadProjects();
-      await syncSelectedRunStateToCurrentSelection();
-    }
+    throttledRefresh();
   };
 
   eventSource.onmessage = onEvent;

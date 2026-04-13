@@ -16,11 +16,13 @@ internal interface IAgentStreamAccumulator
 }
 
 /// <summary>
-/// Thread-safe accumulator that locks and appends events to a shared list.
+/// Thread-safe accumulator that locks and appends events to a shared list,
+/// maintaining a per-agent index for fast filtering.
 /// </summary>
 internal sealed class AgentStreamAccumulator : IAgentStreamAccumulator
 {
     private readonly List<AgentStreamDeltaEvent> _events;
+    private readonly Dictionary<string, List<AgentStreamDeltaEvent>> _byAgent = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AgentStreamAccumulator"/> class.
@@ -37,6 +39,53 @@ internal sealed class AgentStreamAccumulator : IAgentStreamAccumulator
         lock (this._events)
         {
             this._events.Add(evt);
+            if (!this._byAgent.TryGetValue(evt.AgentId, out List<AgentStreamDeltaEvent>? agentList))
+            {
+                agentList = new List<AgentStreamDeltaEvent>();
+                this._byAgent[evt.AgentId] = agentList;
+            }
+
+            agentList.Add(evt);
+        }
+    }
+
+    /// <summary>
+    /// Returns a snapshot of events for the given agent, or an empty list if none exist.
+    /// </summary>
+    internal List<AgentStreamDeltaEvent> SnapshotForAgent(string agentId)
+    {
+        lock (this._events)
+        {
+            return this._byAgent.TryGetValue(agentId, out List<AgentStreamDeltaEvent>? agentList)
+                ? agentList.ToList()
+                : new List<AgentStreamDeltaEvent>();
+        }
+    }
+
+    /// <summary>
+    /// Returns the list of distinct agents that have produced stream events.
+    /// </summary>
+    internal List<(string Id, string Role)> GetAvailableAgents()
+    {
+        lock (this._events)
+        {
+            return this._byAgent
+                .Select(kvp => (kvp.Key, kvp.Value[0].AgentRole))
+                .OrderBy(a => a.Key)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Returns the sorted list of distinct agent IDs.
+    /// </summary>
+    internal List<string> GetAgentIds()
+    {
+        lock (this._events)
+        {
+            List<string> ids = new List<string>(this._byAgent.Keys);
+            ids.Sort(StringComparer.Ordinal);
+            return ids;
         }
     }
 }
@@ -78,14 +127,15 @@ public sealed class AgentStreamState
     /// <returns>A list of agent ID and role pairs, ordered by agent ID.</returns>
     public List<(string Id, string Role)> GetAvailableAgents()
     {
-        lock (this._events)
-        {
-            return this._events
-                .Select(e => (e.AgentId, e.AgentRole))
-                .Distinct()
-                .OrderBy(a => a.AgentId)
-                .ToList();
-        }
+        return ((AgentStreamAccumulator)this._accumulator).GetAvailableAgents();
+    }
+
+    /// <summary>
+    /// Returns a snapshot of events for the given agent.
+    /// </summary>
+    public List<AgentStreamDeltaEvent> SnapshotForAgent(string agentId)
+    {
+        return ((AgentStreamAccumulator)this._accumulator).SnapshotForAgent(agentId);
     }
 
     /// <summary>
@@ -93,15 +143,7 @@ public sealed class AgentStreamState
     /// </summary>
     public void CycleSelectedAgent()
     {
-        List<string> agentIds;
-        lock (this._events)
-        {
-            agentIds = this._events
-                .Select(e => e.AgentId)
-                .Distinct()
-                .OrderBy(id => id)
-                .ToList();
-        }
+        List<string> agentIds = ((AgentStreamAccumulator)this._accumulator).GetAgentIds();
 
         if (agentIds.Count > 0)
         {
