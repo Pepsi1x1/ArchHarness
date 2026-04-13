@@ -167,6 +167,11 @@ internal sealed class ExecutionPlanBuilder
     private List<ExecutionPlanStep> BuildReorderedList(
         (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorized)
     {
+        int maxImplGroup = categorized.NonReview.Count > 0
+            ? categorized.NonReview.Max(s => s.ParallelGroup)
+            : 0;
+        int nextGroup = maxImplGroup + 1;
+
         List<ExecutionPlanStep> reviewSteps = new List<ExecutionPlanStep>();
         
         if (categorized.CodeStyle.Count > 0)
@@ -175,8 +180,10 @@ internal sealed class ExecutionPlanBuilder
             {
                 Languages = categorized.CodeStyle[^1].Languages is { Count: > 0 } ? categorized.CodeStyle[^1].Languages : new List<string>(),
                 Id = -1,
-                DependsOnStepIds = null
+                DependsOnStepIds = null,
+                ParallelGroup = nextGroup
             });
+            nextGroup++;
         }
 
         if (categorized.Security.Count > 0)
@@ -185,8 +192,10 @@ internal sealed class ExecutionPlanBuilder
             {
                 Languages = categorized.Security[^1].Languages is { Count: > 0 } ? categorized.Security[^1].Languages : new List<string>(),
                 Id = -2,
-                DependsOnStepIds = null
+                DependsOnStepIds = null,
+                ParallelGroup = nextGroup
             });
+            nextGroup++;
         }
 
         if (categorized.Architecture.Count > 0)
@@ -195,13 +204,15 @@ internal sealed class ExecutionPlanBuilder
             {
                 Languages = categorized.Architecture[^1].Languages is { Count: > 0 } ? categorized.Architecture[^1].Languages : new List<string>(),
                 Id = -3,
-                DependsOnStepIds = null
+                DependsOnStepIds = null,
+                ParallelGroup = nextGroup
             });
+            nextGroup++;
         }
 
         return categorized.NonReview
             .Concat(reviewSteps)
-            .Concat(categorized.TerminalValidationBuilds.Select((step, index) => step with { Id = -100 - index, DependsOnStepIds = null }))
+            .Concat(categorized.TerminalValidationBuilds.Select((step, index) => step with { Id = -100 - index, DependsOnStepIds = null, ParallelGroup = nextGroup + index }))
             .ToList();
     }
 
@@ -448,7 +459,7 @@ internal sealed class ExecutionPlanBuilder
         }
 
         string sanitizedObjective = this._workspaceContext.EnforceWorkspaceRootInObjective(objective, workspaceRoot);
-        parsed = new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, ParseDependsOn(step), ParseLanguages(step));
+        parsed = new ExecutionPlanStep(parsedId, normalizedAgent, sanitizedObjective, ParseDependsOn(step), ParseLanguages(step), ParseParallelGroup(step));
         return true;
     }
 
@@ -516,6 +527,16 @@ internal sealed class ExecutionPlanBuilder
             .ToArray();
 
         return languages.Length == 0 ? null : languages;
+    }
+
+    private static int ParseParallelGroup(JsonElement step)
+    {
+        if (step.TryGetProperty("parallelGroup", out JsonElement groupEl) && groupEl.TryGetInt32(out int group) && group >= 1)
+        {
+            return group;
+        }
+
+        return 1;
     }
 
     private static void EnsureCriteriaContains(ICollection<string> criteria, string token, string requiredCriterion)

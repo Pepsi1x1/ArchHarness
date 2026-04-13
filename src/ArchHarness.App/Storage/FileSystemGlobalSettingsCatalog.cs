@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 using System.Text.Json;
 using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
@@ -92,16 +94,16 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 
     private PersistedGlobalSettings BuildDefaultSettings()
         => new PersistedGlobalSettings(
-            NormalizeModel(this._copilotOptions.ConversationModel, "gpt-5-mini"),
-            NormalizeModel(this._agentsOptions.Orchestration.Model, "claude-sonnet-4.6"),
-            NormalizeModel(this._agentsOptions.Planning.Model, "gpt-5.4"),
+            NormalizeModel(this._copilotOptions.ConversationModel, WellKnownModelNames.GPT_5_MINI),
+            NormalizeModel(this._agentsOptions.Orchestration.Model, WellKnownModelNames.CLAUDE_SONNET_4_6),
+            NormalizeModel(this._agentsOptions.Planning.Model, WellKnownModelNames.GPT_5_4),
             NormalizeReasoningEffort(this._agentsOptions.Planning.ReasoningEffort),
-            NormalizeModel(this._agentsOptions.FrontendDeveloper.Model, "claude-sonnet-4.6"),
-            NormalizeModel(this._agentsOptions.BackendDeveloper.Model, "gpt-5.3-codex"),
-            NormalizeModel(this._agentsOptions.Build.Model, "gpt-4.1"),
-            NormalizeModel(this._agentsOptions.CodingStyle.Model, "claude-opus-4.6"),
-            NormalizeModel(this._agentsOptions.Security.Model, "claude-opus-4.6"),
-            NormalizeModel(this._agentsOptions.Architecture.Model, "claude-opus-4.6"),
+            NormalizeModel(this._agentsOptions.FrontendDeveloper.Model, WellKnownModelNames.CLAUDE_SONNET_4_6),
+            NormalizeModel(this._agentsOptions.BackendDeveloper.Model, WellKnownModelNames.GPT_5_4),
+            NormalizeModel(this._agentsOptions.Build.Model, WellKnownModelNames.GPT_4_1),
+            NormalizeModel(this._agentsOptions.CodingStyle.Model, WellKnownModelNames.CLAUDE_SONNET_4_6),
+            NormalizeModel(this._agentsOptions.Security.Model, WellKnownModelNames.CLAUDE_OPUS_4_6),
+            NormalizeModel(this._agentsOptions.Architecture.Model, WellKnownModelNames.CLAUDE_OPUS_4_6),
             PermissionHandlerModes.APPROVE_ALL,
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             string.IsNullOrWhiteSpace(this._agentsOptions.Architecture.ArchitectureLoopPrompt)

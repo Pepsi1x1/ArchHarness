@@ -139,8 +139,15 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         IReadOnlyDictionary<int, ExecutionPlanStep> pendingSteps,
         ISet<int> completedStepIds)
     {
+        if (pendingSteps.Count == 0)
+        {
+            return new List<ExecutionPlanStep>();
+        }
+
+        int lowestGroup = pendingSteps.Values.Min(s => s.ParallelGroup);
         return pendingSteps.Values
-            .Where(candidate => DependenciesSatisfied(candidate, completedStepIds, pendingSteps))
+            .Where(candidate => candidate.ParallelGroup == lowestGroup
+                && DependenciesSatisfied(candidate, completedStepIds, pendingSteps))
             .OrderBy(candidate => candidate.Id)
             .ToList();
     }

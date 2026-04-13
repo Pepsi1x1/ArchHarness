@@ -16,11 +16,11 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
-            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
-            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
-            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4"),
-            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
+            new DiscoveredModel(WellKnownModelNames.GPT_5_MINI, 0.5, "GPT-5 Mini"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_OPUS_4_6, 3, "Claude Opus 4.6"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_SONNET_4_6, 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel(WellKnownModelNames.GPT_5_4, 1, "GPT-5.4"),
+            new DiscoveredModel(WellKnownModelNames.GPT_4_1, 1, "GPT-4.1")
         });
 
         Exception? exception = Record.Exception(() => resolver.ValidateConfiguredModelsOrThrow());
@@ -36,15 +36,15 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
-            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
-            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
-            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
+            new DiscoveredModel(WellKnownModelNames.GPT_5_MINI, 0.5, "GPT-5 Mini"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_OPUS_4_6, 3, "Claude Opus 4.6"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_SONNET_4_6, 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel(WellKnownModelNames.GPT_4_1, 1, "GPT-4.1")
         });
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => resolver.ValidateConfiguredModelsOrThrow());
 
-        Assert.Contains("backend-developer=gpt-5.4", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains($"backend-developer={WellKnownModelNames.GPT_5_4}", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CliPath: copilot", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -56,11 +56,11 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
-            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
-            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
-            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4"),
-            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
+            new DiscoveredModel(WellKnownModelNames.GPT_5_MINI, 0.5, "GPT-5 Mini"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_OPUS_4_6, 3, "Claude Opus 4.6"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_SONNET_4_6, 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel(WellKnownModelNames.GPT_5_4, 1, "GPT-5.4"),
+            new DiscoveredModel(WellKnownModelNames.GPT_4_1, 1, "GPT-4.1")
         });
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => resolver.ValidateConfiguredModelsOrThrow(
@@ -94,11 +94,11 @@ public sealed class ModelResolverTests
     {
         ModelResolver resolver = CreateResolver(new[]
         {
-            new DiscoveredModel("gpt-5-mini", 0.5, "GPT-5 Mini"),
-            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
-            new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
-            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4"),
-            new DiscoveredModel("gpt-4.1", 1, "GPT-4.1")
+            new DiscoveredModel(WellKnownModelNames.GPT_5_MINI, 0.5, "GPT-5 Mini"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_OPUS_4_6, 3, "Claude Opus 4.6"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_SONNET_4_6, 1, "Claude Sonnet 4.6"),
+            new DiscoveredModel(WellKnownModelNames.GPT_5_4, 1, "GPT-5.4"),
+            new DiscoveredModel(WellKnownModelNames.GPT_4_1, 1, "GPT-4.1")
         });
 
         Assert.Equal("xhigh", resolver.ResolveReasoningEffort("planning"));
@@ -109,19 +109,19 @@ public sealed class ModelResolverTests
     {
         AgentsOptions agentsOptions = new AgentsOptions
         {
-            Orchestration = new AgentModelOptions { Model = "claude-opus-4.6" },
-            Planning = new AgentModelOptions { Model = "gpt-5.4", ReasoningEffort = "xhigh" },
-            FrontendDeveloper = new AgentModelOptions { Model = "claude-sonnet-4.6" },
-            BackendDeveloper = new AgentModelOptions { Model = "gpt-5.4" },
-            Build = new AgentModelOptions { Model = "gpt-4.1" },
-            CodingStyle = new AgentModelOptions { Model = "gpt-5.4" },
-            Security = new AgentModelOptions { Model = "gpt-5.4" },
-            Architecture = new AgentModelOptions { Model = "claude-opus-4.6" }
+            Orchestration = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 },
+            Planning = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4, ReasoningEffort = "xhigh" },
+            FrontendDeveloper = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_SONNET_4_6 },
+            BackendDeveloper = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4 },
+            Build = new AgentModelOptions { Model = WellKnownModelNames.GPT_4_1 },
+            CodingStyle = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4 },
+            Security = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4 },
+            Architecture = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 }
         };
 
         CopilotOptions copilotOptions = new CopilotOptions
         {
-            ConversationModel = "gpt-5-mini"
+            ConversationModel = WellKnownModelNames.GPT_5_MINI
         };
 
         DiscoveredModelCatalog catalog = new DiscoveredModelCatalog();

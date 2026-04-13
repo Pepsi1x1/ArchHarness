@@ -106,16 +106,16 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
             AgentsOptions agentsOptions = new AgentsOptions
             {
-                Orchestration = new AgentModelOptions { Model = "claude-sonnet-4.6" },
-                Planning = new AgentModelOptions { Model = "gpt-5.4", ReasoningEffort = "xhigh" },
-                FrontendDeveloper = new AgentModelOptions { Model = "claude-sonnet-4.6" },
-                BackendDeveloper = new AgentModelOptions { Model = "gpt-5.3-codex" },
-                Build = new AgentModelOptions { Model = "gpt-4.1" },
-                CodingStyle = new AgentModelOptions { Model = "claude-opus-4.6" },
-                Security = new AgentModelOptions { Model = "claude-opus-4.6" },
-                Architecture = new AgentModelOptions { Model = "claude-opus-4.6", ArchitectureLoopMode = false }
+                Orchestration = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_SONNET_4_6 },
+                Planning = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4, ReasoningEffort = "xhigh" },
+                FrontendDeveloper = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_SONNET_4_6 },
+                BackendDeveloper = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_3_CODEX },
+                Build = new AgentModelOptions { Model = WellKnownModelNames.GPT_4_1 },
+                CodingStyle = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 },
+                Security = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 },
+                Architecture = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6, ArchitectureLoopMode = false }
             };
-            CopilotOptions copilotOptions = new CopilotOptions { ConversationModel = "gpt-5-mini" };
+            CopilotOptions copilotOptions = new CopilotOptions { ConversationModel = WellKnownModelNames.GPT_5_MINI };
 
             services.AddSingleton<IGlobalSettingsCatalog>(_ => new FileSystemGlobalSettingsCatalog(
                 Path.Combine(this._tempRoot, "settings.json"),
@@ -132,12 +132,12 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
                 DiscoveredModelCatalog catalog = new DiscoveredModelCatalog();
                 catalog.ReplaceModels(new[]
                 {
-                    new DiscoveredModel("gpt-5-mini", 0.25, "GPT-5 Mini"),
-                    new DiscoveredModel("gpt-5.4", 1, "GPT-5.4", new[] { "low", "medium", "high", "xhigh" }, "medium"),
-                    new DiscoveredModel("claude-sonnet-4.6", 1, "Claude Sonnet 4.6"),
-                    new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6"),
-                    new DiscoveredModel("gpt-4.1", 1, "GPT-4.1"),
-                    new DiscoveredModel("gpt-5.3-codex", 1, "GPT-5.3 Codex")
+                        new DiscoveredModel(WellKnownModelNames.GPT_5_MINI, 0.25, "GPT-5 Mini"),
+                        new DiscoveredModel(WellKnownModelNames.GPT_5_4, 1, "GPT-5.4", new[] { "low", "medium", "high", "xhigh" }, "medium"),
+                        new DiscoveredModel(WellKnownModelNames.CLAUDE_SONNET_4_6, 1, "Claude Sonnet 4.6"),
+                        new DiscoveredModel(WellKnownModelNames.CLAUDE_OPUS_4_6, 3, "Claude Opus 4.6"),
+                        new DiscoveredModel(WellKnownModelNames.GPT_4_1, 1, "GPT-4.1"),
+                        new DiscoveredModel(WellKnownModelNames.GPT_5_3_CODEX, 1, "GPT-5.3 Codex")
             });
                 return catalog;
             });

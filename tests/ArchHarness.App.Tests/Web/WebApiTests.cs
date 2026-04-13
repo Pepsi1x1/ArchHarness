@@ -617,8 +617,8 @@ public sealed class WebApiTests
         using HttpClient client = factory.CreateClient();
 
         JsonDocument settingsDocument = JsonDocument.Parse(await client.GetStringAsync("/api/settings"));
-        Assert.Equal("gpt-5-mini", settingsDocument.RootElement.GetProperty("agentModels").GetProperty("conversation").GetString());
-        Assert.Equal("gpt-5.4", settingsDocument.RootElement.GetProperty("agentModels").GetProperty("planning").GetString());
+        Assert.Equal(WellKnownModelNames.GPT_5_MINI, settingsDocument.RootElement.GetProperty("agentModels").GetProperty("conversation").GetString());
+        Assert.Equal(WellKnownModelNames.GPT_5_4, settingsDocument.RootElement.GetProperty("agentModels").GetProperty("planning").GetString());
         Assert.Equal("xhigh", settingsDocument.RootElement.GetProperty("agentReasoningEfforts").GetProperty("planning").GetString());
         Assert.False(settingsDocument.RootElement.TryGetProperty("sourceControl", out _));
 
@@ -626,15 +626,15 @@ public sealed class WebApiTests
         {
             agentModels = new
             {
-                conversation = "gpt-5.4",
-                orchestration = "claude-sonnet-4.6",
-                planning = "gpt-5.4",
-                frontendDeveloper = "claude-sonnet-4.6",
-                backendDeveloper = "gpt-5.3-codex",
-                build = "gpt-4.1",
-                codingStyle = "claude-opus-4.6",
-                security = "claude-opus-4.6",
-                architecture = "claude-opus-4.6"
+                conversation = WellKnownModelNames.GPT_5_4,
+                orchestration = WellKnownModelNames.CLAUDE_SONNET_4_6,
+                planning = WellKnownModelNames.GPT_5_4,
+                frontendDeveloper = WellKnownModelNames.CLAUDE_SONNET_4_6,
+                backendDeveloper = WellKnownModelNames.GPT_5_3_CODEX,
+                build = WellKnownModelNames.GPT_4_1,
+                codingStyle = WellKnownModelNames.CLAUDE_OPUS_4_6,
+                security = WellKnownModelNames.CLAUDE_OPUS_4_6,
+                architecture = WellKnownModelNames.CLAUDE_OPUS_4_6
             },
             agentReasoningEfforts = new
             {
@@ -651,18 +651,18 @@ public sealed class WebApiTests
         Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
 
         JsonDocument updatedSettings = JsonDocument.Parse(await updateResponse.Content.ReadAsStringAsync());
-        Assert.Equal("gpt-5.4", updatedSettings.RootElement.GetProperty("agentModels").GetProperty("conversation").GetString());
-        Assert.Equal("gpt-5.4", updatedSettings.RootElement.GetProperty("agentModels").GetProperty("planning").GetString());
+        Assert.Equal(WellKnownModelNames.GPT_5_4, updatedSettings.RootElement.GetProperty("agentModels").GetProperty("conversation").GetString());
+        Assert.Equal(WellKnownModelNames.GPT_5_4, updatedSettings.RootElement.GetProperty("agentModels").GetProperty("planning").GetString());
         Assert.Equal("high", updatedSettings.RootElement.GetProperty("agentReasoningEfforts").GetProperty("planning").GetString());
         Assert.Equal("prompt", updatedSettings.RootElement.GetProperty("defaults").GetProperty("permissionHandlerMode").GetString());
         Assert.False(updatedSettings.RootElement.TryGetProperty("sourceControl", out _));
 
         JsonDocument modelsDocument = JsonDocument.Parse(await client.GetStringAsync("/api/models"));
         Assert.Contains(modelsDocument.RootElement.GetProperty("models").EnumerateArray(),
-            model => model.GetProperty("modelId").GetString() == "claude-opus-4.6"
+            model => model.GetProperty("modelId").GetString() == WellKnownModelNames.CLAUDE_OPUS_4_6
                 && model.GetProperty("costBand").GetString() == "3x");
         Assert.Contains(modelsDocument.RootElement.GetProperty("models").EnumerateArray(),
-            model => model.GetProperty("modelId").GetString() == "gpt-5.4"
+            model => model.GetProperty("modelId").GetString() == WellKnownModelNames.GPT_5_4
                 && model.GetProperty("defaultReasoningEffort").GetString() == "medium"
                 && model.GetProperty("supportedReasoningEfforts").EnumerateArray().Select(value => value.GetString()).SequenceEqual(new[] { "low", "medium", "high", "xhigh" }));
     }

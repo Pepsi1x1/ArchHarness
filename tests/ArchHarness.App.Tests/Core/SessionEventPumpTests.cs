@@ -47,7 +47,7 @@ public sealed class SessionEventPumpTests
         sdkEventStream.Enqueue(new CopilotSdkRawEvent(
             DateTimeOffset.UtcNow,
             "session-1",
-            "gpt-5.4",
+            WellKnownModelNames.GPT_5_4,
             "tool.execution.start",
             "GitHub.Copilot.SDK.ToolExecutionStartEvent",
             "{\"type\":\"tool.execution.start\"}",

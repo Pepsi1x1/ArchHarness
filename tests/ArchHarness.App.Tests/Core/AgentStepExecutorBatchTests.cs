@@ -9,9 +9,9 @@ public sealed class AgentStepExecutorBatchTests
     {
         Dictionary<int, ExecutionPlanStep> pending = new Dictionary<int, ExecutionPlanStep>()
         {
-            [1] = new ExecutionPlanStep(1, "backend-developer", "Implement A", null, null),
-            [2] = new ExecutionPlanStep(2, "frontend-developer", "Implement B", null, null),
-            [3] = new ExecutionPlanStep(3, "build", "Build project", null, null)
+            [1] = new ExecutionPlanStep(1, "backend-developer", "Implement A", null, null, ParallelGroup: 1),
+            [2] = new ExecutionPlanStep(2, "frontend-developer", "Implement B", null, null, ParallelGroup: 1),
+            [3] = new ExecutionPlanStep(3, "build", "Build project", null, null, ParallelGroup: 1)
         };
         HashSet<int> completed = new HashSet<int>();
 
@@ -22,13 +22,13 @@ public sealed class AgentStepExecutorBatchTests
     }
 
     [Fact]
-    public void ResolveDependencyReadyBatch_WithDependencies_ReturnsOnlyReadySteps()
+    public void ResolveDependencyReadyBatch_DifferentParallelGroups_ReturnsOnlyLowestGroup()
     {
         Dictionary<int, ExecutionPlanStep> pending = new Dictionary<int, ExecutionPlanStep>()
         {
-            [1] = new ExecutionPlanStep(1, "backend-developer", "Implement A", null, null),
-            [2] = new ExecutionPlanStep(2, "frontend-developer", "Implement B", null, null),
-            [3] = new ExecutionPlanStep(3, "build", "Build project", new List<int> { 1, 2 }, null)
+            [1] = new ExecutionPlanStep(1, "backend-developer", "Implement A", null, null, ParallelGroup: 1),
+            [2] = new ExecutionPlanStep(2, "frontend-developer", "Implement B", null, null, ParallelGroup: 1),
+            [3] = new ExecutionPlanStep(3, "build", "Build project", null, null, ParallelGroup: 2)
         };
         HashSet<int> completed = new HashSet<int>();
 
@@ -39,11 +39,11 @@ public sealed class AgentStepExecutorBatchTests
     }
 
     [Fact]
-    public void ResolveDependencyReadyBatch_AllDependenciesMet_ReleasesDependentStep()
+    public void ResolveDependencyReadyBatch_Group1Complete_ReturnsGroup2()
     {
         Dictionary<int, ExecutionPlanStep> pending = new Dictionary<int, ExecutionPlanStep>()
         {
-            [3] = new ExecutionPlanStep(3, "build", "Build project", new List<int> { 1, 2 }, null)
+            [3] = new ExecutionPlanStep(3, "build", "Build project", null, null, ParallelGroup: 2)
         };
         HashSet<int> completed = new HashSet<int>() { 1, 2 };
 
@@ -54,12 +54,12 @@ public sealed class AgentStepExecutorBatchTests
     }
 
     [Fact]
-    public void ResolveDependencyReadyBatch_Deadlock_ReturnsEmptyBatch()
+    public void ResolveDependencyReadyBatch_SameGroupWithUnsatisfiedDependency_ExcludesBlockedStep()
     {
         Dictionary<int, ExecutionPlanStep> pending = new Dictionary<int, ExecutionPlanStep>()
         {
-            [1] = new ExecutionPlanStep(1, "backend-developer", "A", new List<int> { 2 }, null),
-            [2] = new ExecutionPlanStep(2, "frontend-developer", "B", new List<int> { 1 }, null)
+            [1] = new ExecutionPlanStep(1, "backend-developer", "A", new List<int> { 2 }, null, ParallelGroup: 1),
+            [2] = new ExecutionPlanStep(2, "frontend-developer", "B", new List<int> { 1 }, null, ParallelGroup: 1)
         };
         HashSet<int> completed = new HashSet<int>();
 
@@ -69,12 +69,12 @@ public sealed class AgentStepExecutorBatchTests
     }
 
     [Fact]
-    public void ResolveDependencyReadyBatch_PartialCompletion_ReturnsNewlyReadySteps()
+    public void ResolveDependencyReadyBatch_MultipleGroupsPartialCompletion_ReturnsNextGroup()
     {
         Dictionary<int, ExecutionPlanStep> pending = new Dictionary<int, ExecutionPlanStep>()
         {
-            [2] = new ExecutionPlanStep(2, "frontend-developer", "B", new List<int> { 1 }, null),
-            [3] = new ExecutionPlanStep(3, "build", "C", new List<int> { 1, 2 }, null)
+            [2] = new ExecutionPlanStep(2, "frontend-developer", "B", null, null, ParallelGroup: 2),
+            [3] = new ExecutionPlanStep(3, "build", "C", null, null, ParallelGroup: 3)
         };
         HashSet<int> completed = new HashSet<int>() { 1 };
 
@@ -82,6 +82,23 @@ public sealed class AgentStepExecutorBatchTests
 
         Assert.Single(batch);
         Assert.Equal(2, batch[0].Id);
+    }
+
+    [Fact]
+    public void ResolveDependencyReadyBatch_ParallelWriteAgents_BatchesTogether()
+    {
+        Dictionary<int, ExecutionPlanStep> pending = new Dictionary<int, ExecutionPlanStep>()
+        {
+            [1] = new ExecutionPlanStep(1, "backend-developer", "Implement API controllers", null, null, ParallelGroup: 1),
+            [2] = new ExecutionPlanStep(2, "backend-developer", "Implement data layer", null, null, ParallelGroup: 1),
+            [3] = new ExecutionPlanStep(3, "frontend-developer", "Implement UI components", null, null, ParallelGroup: 1)
+        };
+        HashSet<int> completed = new HashSet<int>();
+
+        List<ExecutionPlanStep> batch = AgentStepExecutor.ResolveDependencyReadyBatch(pending, completed);
+
+        Assert.Equal(3, batch.Count);
+        Assert.Equal(new[] { 1, 2, 3 }, batch.Select(s => s.Id));
     }
 
     [Fact]

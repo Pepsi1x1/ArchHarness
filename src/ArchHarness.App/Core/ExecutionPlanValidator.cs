@@ -111,7 +111,8 @@ internal static class ExecutionPlanValidator
             return false;
         }
 
-        return ValidateDependencies(step, index, out error);
+        return ValidateDependencies(step, index, out error)
+            && ValidateParallelGroup(step, index, out error);
     }
 
     private static bool ValidateDependencies(JsonElement step, int index, out string? error)
@@ -129,6 +130,24 @@ internal static class ExecutionPlanValidator
                 error = $"Step {index}: dependsOn contains invalid ID. All dependency IDs must be positive integers (references to prior step IDs).";
                 return false;
             }
+        }
+
+        error = null;
+        return true;
+    }
+
+    private static bool ValidateParallelGroup(JsonElement step, int index, out string? error)
+    {
+        if (!step.TryGetProperty("parallelGroup", out JsonElement groupEl))
+        {
+            error = null;
+            return true;
+        }
+
+        if (!groupEl.TryGetInt32(out int group) || group < 1)
+        {
+            error = $"Step {index}: parallelGroup must be a positive integer (1 or higher).";
+            return false;
         }
 
         error = null;

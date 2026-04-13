@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -6,7 +8,7 @@ namespace ArchHarness.App.Core;
 public sealed class CopilotOptions
 {
     /// <summary>Gets or sets the default model for conversation-mode completions.</summary>
-    public string ConversationModel { get; set; } = "gpt-5-mini";
+    public string ConversationModel { get; set; } = WellKnownModelNames.GPT_5_MINI;
 
     /// <summary>Gets or sets the environment variable name that holds the API token.</summary>
     public string ApiTokenEnvironmentVariable { get; set; } = "GITHUB_COPILOT_TOKEN";

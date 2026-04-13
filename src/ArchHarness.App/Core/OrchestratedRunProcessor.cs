@@ -897,15 +897,11 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
     private async Task WriteTerminalRunStateAsync(string runDirectory, string status, string phase, string failureMessage)
     {
-        PersistedRunState? existingState = this._services.SessionContext.RunStateStore.GetState(runDirectory);
-        if (existingState is null)
-        {
-            return;
-        }
-
-        await this._services.SessionContext.RunStateStore.WriteStateAsync(
+        await this._services.SessionContext.RunStateStore.UpdateStateAsync(
             runDirectory,
-            existingState with
+            existingState => existingState is null
+                ? null
+                : existingState with
             {
                 Status = status,
                 Phase = phase,
@@ -923,10 +919,9 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         CancellationToken cancellationToken,
         string status = RunStatuses.RUNNING)
     {
-        PersistedRunState? existingState = this._services.SessionContext.RunStateStore.GetState(checkpoint.RunDirectory);
-        return this._services.SessionContext.RunStateStore.WriteStateAsync(
+        return this._services.SessionContext.RunStateStore.UpdateStateAsync(
             checkpoint.RunDirectory,
-            new PersistedRunState(
+            existingState => new PersistedRunState(
                 checkpoint.RunId,
                 checkpoint.RunDirectory,
                 checkpoint.WorkspaceRoot,

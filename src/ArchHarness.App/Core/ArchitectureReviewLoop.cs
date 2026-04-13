@@ -264,10 +264,9 @@ public sealed class ArchitectureReviewLoop : IArchitectureReviewLoop
             return Task.CompletedTask;
         }
 
-        PersistedRunState? existingState = this._runStateStore.GetState(runContext.RunDirectory);
-        return this._runStateStore.WriteStateAsync(
+        return this._runStateStore.UpdateStateAsync(
             runContext.RunDirectory,
-            new PersistedRunState(
+            existingState => new PersistedRunState(
                 runContext.RunId,
                 runContext.RunDirectory,
                 workspaceRoot,

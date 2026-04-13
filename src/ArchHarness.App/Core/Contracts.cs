@@ -40,14 +40,16 @@ public sealed record RunRequest(
 /// <param name="Id">The unique numeric identifier of this step within the plan.</param>
 /// <param name="Agent">The agent role responsible for executing this step (e.g., "BackendDeveloper", "Architecture").</param>
 /// <param name="Objective">The delegated prompt that the target agent will execute.</param>
-/// <param name="DependsOnStepIds">Optional list of step IDs that must complete before this step can start.</param>
+/// <param name="DependsOnStepIds">Optional list of step IDs that must complete before this step can start. Used internally by the harness for review-chain ordering.</param>
 /// <param name="Languages">Optional language scope for review/enforcement steps (e.g., "dotnet", "vue3").</param>
+/// <param name="ParallelGroup">Execution batch group. Steps with the same ParallelGroup execute concurrently. Lower groups complete before higher groups start.</param>
 public sealed record ExecutionPlanStep(
     int Id,
     string Agent,
     string Objective,
     IReadOnlyList<int>? DependsOnStepIds = null,
-    IReadOnlyList<string>? Languages = null);
+    IReadOnlyList<string>? Languages = null,
+    int ParallelGroup = 1);
 
 /// <summary>
 /// Controls how many remediation iterations are allowed and whether review is required.

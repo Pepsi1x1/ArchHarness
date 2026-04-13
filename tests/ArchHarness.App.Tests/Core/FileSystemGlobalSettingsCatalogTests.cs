@@ -17,10 +17,10 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
 
         PersistedGlobalSettings settings = catalog.GetSettings();
 
-        Assert.Equal("gpt-5-mini", settings.ConversationModel);
-        Assert.Equal("gpt-5.4", settings.PlanningModel);
+        Assert.Equal(WellKnownModelNames.GPT_5_MINI, settings.ConversationModel);
+        Assert.Equal(WellKnownModelNames.GPT_5_4, settings.PlanningModel);
         Assert.Equal("xhigh", settings.PlanningReasoningEffort);
-        Assert.Equal("claude-opus-4.6", settings.ArchitectureModel);
+        Assert.Equal(WellKnownModelNames.CLAUDE_OPUS_4_6, settings.ArchitectureModel);
         Assert.Equal("approve-all", settings.DefaultPermissionHandlerMode);
         Assert.True(settings.DefaultArchitectureReviewMode);
         Assert.Equal("Review the architecture", settings.DefaultArchitectureReviewPrompt);
@@ -35,16 +35,16 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
         FileSystemGlobalSettingsCatalog catalog = CreateCatalog();
 
         PersistedGlobalSettings updated = catalog.UpdateSettings(new UpdatePersistedGlobalSettings(
-            ConversationModel: "gpt-5.4",
-            OrchestrationModel: "claude-opus-4.6",
-            PlanningModel: "gpt-5.4",
+            ConversationModel: WellKnownModelNames.GPT_5_4,
+            OrchestrationModel: WellKnownModelNames.CLAUDE_OPUS_4_6,
+            PlanningModel: WellKnownModelNames.GPT_5_4,
             PlanningReasoningEffort: "high",
-            FrontendDeveloperModel: "claude-sonnet-4.6",
-            BackendDeveloperModel: "gpt-5.4",
-            BuildModel: "gpt-4.1",
-            CodingStyleModel: "gpt-5.4",
-            SecurityModel: "gpt-5.4",
-            ArchitectureModel: "claude-opus-4.6",
+            FrontendDeveloperModel: WellKnownModelNames.CLAUDE_SONNET_4_6,
+            BackendDeveloperModel: WellKnownModelNames.GPT_5_4,
+            BuildModel: WellKnownModelNames.GPT_4_1,
+            CodingStyleModel: WellKnownModelNames.GPT_5_4,
+            SecurityModel: WellKnownModelNames.GPT_5_4,
+            ArchitectureModel: WellKnownModelNames.CLAUDE_OPUS_4_6,
             DefaultPermissionHandlerMode: "prompt",
             DefaultArchitectureReviewMode: false,
             DefaultArchitectureReviewPrompt: null));
@@ -52,9 +52,9 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
         FileSystemGlobalSettingsCatalog reloaded = CreateCatalog();
         PersistedGlobalSettings reloadedSettings = reloaded.GetSettings();
 
-        Assert.Equal("gpt-5.4", updated.ConversationModel);
-        Assert.Equal("gpt-5.4", reloadedSettings.ConversationModel);
-        Assert.Equal("gpt-5.4", reloadedSettings.PlanningModel);
+        Assert.Equal(WellKnownModelNames.GPT_5_4, updated.ConversationModel);
+        Assert.Equal(WellKnownModelNames.GPT_5_4, reloadedSettings.ConversationModel);
+        Assert.Equal(WellKnownModelNames.GPT_5_4, reloadedSettings.PlanningModel);
         Assert.Equal("high", reloadedSettings.PlanningReasoningEffort);
         Assert.Equal("prompt", reloadedSettings.DefaultPermissionHandlerMode);
         Assert.False(reloadedSettings.DefaultArchitectureReviewMode);
@@ -64,18 +64,18 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
     {
         AgentsOptions agentsOptions = new AgentsOptions
         {
-            Orchestration = new AgentModelOptions { Model = "claude-opus-4.6" },
-            Planning = new AgentModelOptions { Model = "gpt-5.4", ReasoningEffort = "xhigh" },
-            FrontendDeveloper = new AgentModelOptions { Model = "claude-sonnet-4.6" },
-            BackendDeveloper = new AgentModelOptions { Model = "gpt-5.4" },
-            Build = new AgentModelOptions { Model = "gpt-4.1" },
-            CodingStyle = new AgentModelOptions { Model = "gpt-5.4" },
-            Security = new AgentModelOptions { Model = "gpt-5.4" },
-            Architecture = new AgentModelOptions { Model = "claude-opus-4.6", ArchitectureLoopMode = true, ArchitectureLoopPrompt = "Review the architecture" }
+            Orchestration = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 },
+            Planning = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4, ReasoningEffort = "xhigh" },
+            FrontendDeveloper = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_SONNET_4_6 },
+            BackendDeveloper = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4 },
+            Build = new AgentModelOptions { Model = WellKnownModelNames.GPT_4_1 },
+            CodingStyle = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4 },
+            Security = new AgentModelOptions { Model = WellKnownModelNames.GPT_5_4 },
+            Architecture = new AgentModelOptions { Model = WellKnownModelNames.CLAUDE_OPUS_4_6, ArchitectureLoopMode = true, ArchitectureLoopPrompt = "Review the architecture" }
         };
         CopilotOptions copilotOptions = new CopilotOptions
         {
-            ConversationModel = "gpt-5-mini"
+            ConversationModel = WellKnownModelNames.GPT_5_MINI
         };
         return new FileSystemGlobalSettingsCatalog(Path.Combine(this._root, "settings.json"), agentsOptions, copilotOptions);
     }

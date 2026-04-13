@@ -580,4 +580,139 @@ public sealed class ExecutionPlanParserTests
         configure(options);
         return new ExecutionPlanParser(new WorkspaceContextAnalyzer(), Options.Create(options));
     }
+
+    /// <summary>
+    /// Steps with parallelGroup should have the value parsed and preserved.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_ParallelGroup_ParsedCorrectly()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement API","parallelGroup":1},
+                        {"id":2,"agent":"FrontendDeveloper","objective":"Implement UI","parallelGroup":1},
+                        {"id":3,"agent":"Build","objective":"Run build","parallelGroup":2}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["No high severity coding style findings","No high severity security findings","No high severity architecture findings","Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            ExecutionPlanStep backendStep = plan.Steps.First(s => s.Agent == "BackendDeveloper");
+            ExecutionPlanStep frontendStep = plan.Steps.First(s => s.Agent == "FrontendDeveloper");
+            Assert.Equal(1, backendStep.ParallelGroup);
+            Assert.Equal(1, frontendStep.ParallelGroup);
+            ExecutionPlanStep firstBuild = plan.Steps.First(s => s.Agent == "Build");
+            Assert.Equal(2, firstBuild.ParallelGroup);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
+    /// Review steps injected by the harness should receive ParallelGroup values after all implementation groups.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_ReviewSteps_GetSequentialParallelGroups()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature","parallelGroup":1},
+                        {"id":2,"agent":"FrontendDeveloper","objective":"Implement UI","parallelGroup":1}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["No high severity coding style findings","No high severity security findings","No high severity architecture findings","Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            ExecutionPlanStep codingStyle = plan.Steps.First(s => s.Agent == "CodingStyle");
+            ExecutionPlanStep security = plan.Steps.First(s => s.Agent == "Security");
+            ExecutionPlanStep architecture = plan.Steps.First(s => s.Agent == "Architecture");
+            Assert.True(codingStyle.ParallelGroup > 1);
+            Assert.True(security.ParallelGroup > codingStyle.ParallelGroup);
+            Assert.True(architecture.ParallelGroup > security.ParallelGroup);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
+    /// Steps without parallelGroup should default to group 1.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_MissingParallelGroup_DefaultsToGroup1()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["No high severity coding style findings","No high severity security findings","No high severity architecture findings","Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            ExecutionPlanStep backendStep = plan.Steps.First(s => s.Agent == "BackendDeveloper");
+            Assert.Equal(1, backendStep.ParallelGroup);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
+    /// <summary>
+    /// Invalid parallelGroup value (zero or negative) should cause a parse failure.
+    /// </summary>
+    [Fact]
+    public void TryBuildExecutionPlan_InvalidParallelGroup_ReturnsFailure()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature","parallelGroup":0}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out _, out string? error);
+
+            Assert.False(result);
+            Assert.NotNull(error);
+            Assert.Contains("parallelGroup", error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
 }

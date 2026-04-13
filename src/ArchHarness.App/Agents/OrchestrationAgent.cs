@@ -48,7 +48,7 @@ public class OrchestrationAgent : AgentBase
     private const string ORCHESTRATION_PLANNING_PROMPT_FALLBACK = """
         You are the orchestration planner. Return ONLY strict JSON with this schema:
         {
-            "steps": [{"id":1,"agent":"FrontendDeveloper|BackendDeveloper|Build|CodingStyle|Security|Architecture","objective":"string","dependsOn":[1],"languages":["dotnet","vue3"]}],
+            "steps": [{"id":1,"agent":"FrontendDeveloper|BackendDeveloper|Build|CodingStyle|Security|Architecture","objective":"string","parallelGroup":1,"languages":["dotnet","vue3"]}],
             "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
             "completionCriteria": ["string"]
         }
@@ -66,13 +66,14 @@ public class OrchestrationAgent : AgentBase
         - When CodingStyle and Security are both enabled, CodingStyle must execute before Security.
         - When Security and Architecture are both enabled, Security must execute before Architecture.
         - When Architecture is enabled, it must be a single final review/enforcement step only.
-        - When a final validation build is needed, represent it as a Build step that depends on the last enabled review/enforcement step and runs after all enabled review/enforcement steps.
+        - When a final validation build is needed, represent it as a Build step that runs after all enabled review/enforcement steps.
         - Never use Architecture for solution design/spec generation/planning.
         - Never use CodingStyle for solution design/spec generation/planning.
         - Never use Security for solution design/spec generation/planning.
         - Never use Build for source-code implementation work.
-        - Use dependsOn to encode step dependencies when a step requires outputs from prior steps.
-        - If a step has no dependencies, omit dependsOn or set it to []. Do NOT use 0.
+        - Use parallelGroup to control execution batching. Steps with the same parallelGroup execute concurrently. Lower groups complete before higher groups start.
+        - Assign the same parallelGroup to steps that can safely run at the same time, including steps that write to independent files or modules.
+        - Assign a higher parallelGroup to steps that depend on output from earlier groups.
         - Use languages on CodingStyle/Security/Architecture steps to declare review scope (dotnet and/or vue3).
         - All filesystem paths in objectives must be under WorkspaceRoot.
         - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.

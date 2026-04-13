@@ -9,6 +9,13 @@ namespace ArchHarness.App.Storage;
 /// </summary>
 internal static class FileSystemStorageHelper
 {
+    private static readonly TimeSpan[] AtomicReplaceRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(20),
+        TimeSpan.FromMilliseconds(50),
+        TimeSpan.FromMilliseconds(100)
+    ];
+
     /// <summary>
     /// Returns the default per-user file path for the given storage file name
     /// under <c>%APPDATA%\ArchHarness\</c> (or the platform equivalent).
@@ -71,6 +78,21 @@ internal static class FileSystemStorageHelper
     internal static Task WriteJsonFileAsync<T>(string filePath, T value, JsonSerializerOptions options, CancellationToken cancellationToken)
         => WriteJsonFileInternalAsync(filePath, value, options, cancellationToken);
 
+    /// <summary>
+    /// Opens a file for shared reads without blocking atomic replacement by writers.
+    /// </summary>
+    internal static FileStream OpenReadStreamShared(string filePath)
+    {
+        string normalizedPath = NormalizePath(filePath);
+        return new FileStream(
+            normalizedPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            4096,
+            FileOptions.SequentialScan);
+    }
+
     private static async Task WriteJsonFileInternalAsync<T>(string filePath, T value, JsonSerializerOptions options, CancellationToken cancellationToken)
     {
         string normalizedPath = NormalizePath(filePath);
@@ -81,7 +103,7 @@ internal static class FileSystemStorageHelper
         try
         {
             await File.WriteAllTextAsync(tempPath, json, cancellationToken);
-            ReplaceFileAtomically(tempPath, normalizedPath);
+            await ReplaceFileAtomicallyAsync(tempPath, normalizedPath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -106,6 +128,42 @@ internal static class FileSystemStorageHelper
 
     private static void ReplaceFileAtomically(string tempPath, string destinationPath)
     {
+        int attempt = 0;
+        while (true)
+        {
+            try
+            {
+                ReplaceFileAtomicallyCore(tempPath, destinationPath);
+                return;
+            }
+            catch (Exception ex) when (ShouldRetryAtomicReplace(ex, attempt))
+            {
+                Thread.Sleep(AtomicReplaceRetryDelays[attempt]);
+                attempt++;
+            }
+        }
+    }
+
+    private static async Task ReplaceFileAtomicallyAsync(string tempPath, string destinationPath, CancellationToken cancellationToken)
+    {
+        int attempt = 0;
+        while (true)
+        {
+            try
+            {
+                ReplaceFileAtomicallyCore(tempPath, destinationPath);
+                return;
+            }
+            catch (Exception ex) when (ShouldRetryAtomicReplace(ex, attempt))
+            {
+                await Task.Delay(AtomicReplaceRetryDelays[attempt], cancellationToken).ConfigureAwait(false);
+                attempt++;
+            }
+        }
+    }
+
+    private static void ReplaceFileAtomicallyCore(string tempPath, string destinationPath)
+    {
         if (!File.Exists(destinationPath))
         {
             File.Move(tempPath, destinationPath);
@@ -121,6 +179,10 @@ internal static class FileSystemStorageHelper
             File.Move(tempPath, destinationPath, overwrite: true);
         }
     }
+
+    private static bool ShouldRetryAtomicReplace(Exception exception, int attempt)
+        => attempt < AtomicReplaceRetryDelays.Length
+            && (exception is IOException || exception is UnauthorizedAccessException);
 
     private static void DeleteTempFileIfPresent(string tempPath)
     {

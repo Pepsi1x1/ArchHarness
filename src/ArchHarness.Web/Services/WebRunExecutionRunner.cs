@@ -153,15 +153,11 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
             return false;
         }
 
-        PersistedRunState? existingState = this._runStateStore.GetState(snapshot.RunDirectory);
-        if (existingState is null)
-        {
-            return false;
-        }
-
-        await this._runStateStore.WriteStateAsync(
+        bool updated = await this._runStateStore.UpdateStateAsync(
             snapshot.RunDirectory,
-            existingState with
+            existingState => existingState is null
+                ? null
+                : existingState with
             {
                 Status = RunStatuses.PAUSED,
                 Phase = RunTerminalPhases.PAUSED,
@@ -169,6 +165,11 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
                 FailureMessage = null
             },
             CancellationToken.None).ConfigureAwait(false);
+
+        if (!updated)
+        {
+            return false;
+        }
 
         this._snapshotStore.PauseRun();
         this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_PAUSED_MESSAGE));
@@ -194,15 +195,11 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
             return;
         }
 
-        PersistedRunState? existingState = this._runStateStore.GetState(runDirectory);
-        if (existingState is null)
-        {
-            return;
-        }
-
-        await this._runStateStore.WriteStateAsync(
+        await this._runStateStore.UpdateStateAsync(
             runDirectory,
-            existingState with
+            existingState => existingState is null
+                ? null
+                : existingState with
             {
                 Status = status,
                 Phase = phase,

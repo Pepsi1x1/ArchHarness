@@ -17,11 +17,11 @@ public sealed class FileSystemStorageHelperTests : IDisposable
         FileSystemStorageHelper.WriteJsonFile(filePath, new TestPayload("updated"), JsonSerializerOptions.Web);
 
         Assert.Equal("{\"value\":\"updated\"}", File.ReadAllText(filePath));
-        AssertNoTempFiles();
+        this.AssertNoTempFiles();
     }
 
     [Fact]
-    public async Task WriteJsonFileAsync_OverwritesExistingFileWithoutLeavingTempFiles()
+    public async Task WriteJsonFileAsync_OverwritesExistingFileWithoutLeavingTempFilesAsync()
     {
         string filePath = Path.Combine(this._root, "settings.json");
         Directory.CreateDirectory(this._root);
@@ -30,7 +30,37 @@ public sealed class FileSystemStorageHelperTests : IDisposable
         await FileSystemStorageHelper.WriteJsonFileAsync(filePath, new TestPayload("updated"), JsonSerializerOptions.Web, CancellationToken.None);
 
         Assert.Equal("{\"value\":\"updated\"}", await File.ReadAllTextAsync(filePath));
-        AssertNoTempFiles();
+        this.AssertNoTempFiles();
+    }
+
+    [Fact]
+    public async Task WriteJsonFileAsync_RetriesWhileDestinationFileIsTemporarilyLockedAsync()
+    {
+        string filePath = Path.Combine(this._root, "settings.json");
+        Directory.CreateDirectory(this._root);
+        await File.WriteAllTextAsync(filePath, "stale");
+
+        FileStream lockStream = new(
+            filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+
+        try
+        {
+            Task writeTask = FileSystemStorageHelper.WriteJsonFileAsync(filePath, new TestPayload("updated"), JsonSerializerOptions.Web, CancellationToken.None);
+            await Task.Delay(60);
+            await lockStream.DisposeAsync();
+
+            await writeTask;
+        }
+        finally
+        {
+            await lockStream.DisposeAsync();
+        }
+
+        Assert.Equal("{\"value\":\"updated\"}", await File.ReadAllTextAsync(filePath));
+        this.AssertNoTempFiles();
     }
 
     [Fact]
@@ -42,7 +72,7 @@ public sealed class FileSystemStorageHelperTests : IDisposable
 
         Assert.True(File.Exists(filePath));
         Assert.Equal("{\"value\":\"created\"}", File.ReadAllText(filePath));
-        AssertNoTempFiles();
+        this.AssertNoTempFiles();
     }
 
     public void Dispose()

@@ -25,7 +25,7 @@ public sealed class CopilotClientTests
                 BaseRetryDelayMilliseconds = 0
             }));
 
-        string completion = await client.CompleteAsync("claude-opus-4.6", "Review the architecture.");
+        string completion = await client.CompleteAsync(WellKnownModelNames.CLAUDE_OPUS_4_6, "Review the architecture.");
 
         Assert.Equal("Recovered completion", completion);
         Assert.Equal(2, sessionFactory.CreateCount);
@@ -54,11 +54,11 @@ public sealed class CopilotClientTests
         await cancellationSource.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.CompleteAsync(
-            "claude-opus-4.6",
+            WellKnownModelNames.CLAUDE_OPUS_4_6,
             "Review the architecture.",
             cancellationToken: cancellationSource.Token));
 
-        string completion = await client.CompleteAsync("claude-opus-4.6", "Review the architecture.");
+        string completion = await client.CompleteAsync(WellKnownModelNames.CLAUDE_OPUS_4_6, "Review the architecture.");
 
         Assert.Equal("Recovered completion", completion);
         Assert.Equal(2, sessionFactory.CreateCount);
@@ -84,7 +84,7 @@ public sealed class CopilotClientTests
                 BaseRetryDelayMilliseconds = 0
             }));
 
-        string completion = await client.CompleteAsync("gpt-5.4", "Implement the backend change.");
+        string completion = await client.CompleteAsync(WellKnownModelNames.GPT_5_4, "Implement the backend change.");
 
         Assert.Equal("Recovered completion", completion);
         Assert.Equal(2, sessionFactory.CreateCount);
@@ -112,7 +112,7 @@ public sealed class CopilotClientTests
                 BaseRetryDelayMilliseconds = 0
             }));
 
-        string completion = await client.CompleteAsync("gpt-5.4", "Implement the backend change.");
+        string completion = await client.CompleteAsync(WellKnownModelNames.GPT_5_4, "Implement the backend change.");
 
         Assert.Equal("Recovered completion", completion);
         Assert.Equal(2, sessionFactory.CreateCount);
@@ -221,7 +221,7 @@ public sealed class CopilotClientTests
         {
             _ = prompt;
             _ = cancellationToken;
-            throw new TimeoutException("Copilot SDK timed out (absolute timeout 900s) for model 'gpt-5.4'. LastEvent='report_intent' at 18:57:59. AwaitingUserInput=False.");
+            throw new TimeoutException($"Copilot SDK timed out (absolute timeout 900s) for model '{WellKnownModelNames.GPT_5_4}'. LastEvent='report_intent' at 18:57:59. AwaitingUserInput=False.");
         }
     }
 
@@ -287,7 +287,7 @@ public sealed class CopilotClientTests
         {
             _ = role;
             _ = overrides;
-            return "claude-opus-4.6";
+            return WellKnownModelNames.CLAUDE_OPUS_4_6;
         }
 
         public string? ResolveReasoningEffort(string role)

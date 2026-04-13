@@ -1118,9 +1118,9 @@ internal static class ProgramHandlers
         try
         {
             WebRunSnapshot snapshot = await sessionManager.StartRunAsync(handoffRequest, cancellationToken);
-            await runStateStore.WriteStateAsync(
+            await runStateStore.UpdateStateAsync(
                 planningRunDirectory,
-                planningState with
+                existingState => (existingState ?? planningState) with
                 {
                     UpdatedAtUtc = DateTimeOffset.UtcNow,
                     HandoffRunId = snapshot.RunId

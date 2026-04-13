@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -182,28 +184,28 @@ public sealed record ReviewLoopAgentSelection(bool CodingStyleEnabled, bool Secu
 public sealed class AgentsOptions
 {
     /// <summary>Gets or sets the orchestration agent options.</summary>
-    public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
+    public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 };
 
     /// <summary>Gets or sets the planning agent options.</summary>
-    public AgentModelOptions Planning { get; set; } = new AgentModelOptions() { Model = "gpt-5.4", ReasoningEffort = "xhigh" };
+    public AgentModelOptions Planning { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_5_4, ReasoningEffort = "xhigh" };
 
     /// <summary>Gets or sets the frontend developer agent options.</summary>
-    public AgentModelOptions FrontendDeveloper { get; set; } = new AgentModelOptions() { Model = "claude-sonnet-4.6" };
+    public AgentModelOptions FrontendDeveloper { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.CLAUDE_SONNET_4_6 };
 
     /// <summary>Gets or sets the backend developer agent options.</summary>
-    public AgentModelOptions BackendDeveloper { get; set; } = new AgentModelOptions() { Model = "gpt-5.4" };
+    public AgentModelOptions BackendDeveloper { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_5_4 };
 
     /// <summary>Gets or sets the build agent options.</summary>
-    public AgentModelOptions Build { get; set; } = new AgentModelOptions() { Model = "gpt-4.1" };
+    public AgentModelOptions Build { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_4_1 };
 
     /// <summary>Gets or sets the coding style agent options.</summary>
-    public AgentModelOptions CodingStyle { get; set; } = new AgentModelOptions() { Model = "gpt-5.4" };
+    public AgentModelOptions CodingStyle { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_5_4 };
 
     /// <summary>Gets or sets the security agent options.</summary>
-    public AgentModelOptions Security { get; set; } = new AgentModelOptions() { Model = "gpt-5.4" };
+    public AgentModelOptions Security { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_5_4 };
 
     /// <summary>Gets or sets the architecture agent options.</summary>
-    public AgentModelOptions Architecture { get; set; } = new AgentModelOptions() { Model = "claude-opus-4.6" };
+    public AgentModelOptions Architecture { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 };
 
     /// <summary>
     /// Returns the agent model options for the specified role.

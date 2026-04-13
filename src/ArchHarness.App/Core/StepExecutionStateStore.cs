@@ -67,10 +67,9 @@ public sealed class StepExecutionStateStore : IStepExecutionStateStore
         string? failureMessage,
         CancellationToken cancellationToken)
     {
-        PersistedRunState? existingState = this._runStateStore.GetState(runDirectory);
-        return this._runStateStore.WriteStateAsync(
+        return this._runStateStore.UpdateStateAsync(
             runDirectory,
-            new PersistedRunState(
+            existingState => new PersistedRunState(
                 runId,
                 runDirectory,
                 workspaceRoot,

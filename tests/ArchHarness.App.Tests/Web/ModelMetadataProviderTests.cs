@@ -18,9 +18,9 @@ public sealed class ModelMetadataProviderTests : IDisposable
         DiscoveredModelCatalog discovered = new DiscoveredModelCatalog();
         discovered.ReplaceModels(new[]
         {
-            new DiscoveredModel("gpt-5-mini", 0.25, "GPT-5 Mini"),
-            new DiscoveredModel("gpt-5.4", 1, "GPT-5.4", new[] { "low", "medium", "high", "xhigh" }, "medium"),
-            new DiscoveredModel("claude-opus-4.6", 3, "Claude Opus 4.6")
+            new DiscoveredModel(WellKnownModelNames.GPT_5_MINI, 0.25, "GPT-5 Mini"),
+            new DiscoveredModel(WellKnownModelNames.GPT_5_4, 1, "GPT-5.4", new[] { "low", "medium", "high", "xhigh" }, "medium"),
+            new DiscoveredModel(WellKnownModelNames.CLAUDE_OPUS_4_6, 3, "Claude Opus 4.6")
         });
 
         FileSystemGlobalSettingsCatalog settingsCatalog = new FileSystemGlobalSettingsCatalog(
@@ -28,16 +28,16 @@ public sealed class ModelMetadataProviderTests : IDisposable
             new AgentsOptions(),
             new CopilotOptions());
         settingsCatalog.UpdateSettings(new UpdatePersistedGlobalSettings(
-            ConversationModel: "gpt-5-mini",
-            OrchestrationModel: "claude-sonnet-4.6",
-            PlanningModel: "gpt-5.4",
+            ConversationModel: WellKnownModelNames.GPT_5_MINI,
+            OrchestrationModel: WellKnownModelNames.CLAUDE_SONNET_4_6,
+            PlanningModel: WellKnownModelNames.GPT_5_4,
             PlanningReasoningEffort: "xhigh",
-            FrontendDeveloperModel: "claude-sonnet-4.6",
-            BackendDeveloperModel: "gpt-5.4",
-            BuildModel: "gpt-4.1",
-            CodingStyleModel: "gpt-5.4",
-            SecurityModel: "gpt-5.4",
-            ArchitectureModel: "claude-opus-4.6",
+            FrontendDeveloperModel: WellKnownModelNames.CLAUDE_SONNET_4_6,
+            BackendDeveloperModel: WellKnownModelNames.GPT_5_4,
+            BuildModel: WellKnownModelNames.GPT_4_1,
+            CodingStyleModel: WellKnownModelNames.GPT_5_4,
+            SecurityModel: WellKnownModelNames.GPT_5_4,
+            ArchitectureModel: WellKnownModelNames.CLAUDE_OPUS_4_6,
             DefaultPermissionHandlerMode: "approve-all",
             DefaultArchitectureReviewMode: false,
             DefaultArchitectureReviewPrompt: null));
@@ -46,10 +46,10 @@ public sealed class ModelMetadataProviderTests : IDisposable
 
         IReadOnlyList<AvailableModelViewModel> models = provider.GetAvailableModels();
 
-        Assert.Contains(models, model => model.ModelId == "claude-opus-4.6" && model.DisplayName == "Claude Opus 4.6" && model.CostBand == "3x" && model.Discovered);
-        Assert.Contains(models, model => model.ModelId == "claude-sonnet-4.6" && model.CostBand == string.Empty && model.ConfiguredFallback);
-        Assert.Contains(models, model => model.ModelId == "gpt-5-mini" && model.DisplayName == "GPT-5 Mini" && model.CostBand == "0.25x");
-        Assert.Contains(models, model => model.ModelId == "gpt-5.4"
+        Assert.Contains(models, model => model.ModelId == WellKnownModelNames.CLAUDE_OPUS_4_6 && model.DisplayName == "Claude Opus 4.6" && model.CostBand == "3x" && model.Discovered);
+        Assert.Contains(models, model => model.ModelId == WellKnownModelNames.CLAUDE_SONNET_4_6 && model.CostBand == string.Empty && model.ConfiguredFallback);
+        Assert.Contains(models, model => model.ModelId == WellKnownModelNames.GPT_5_MINI && model.DisplayName == "GPT-5 Mini" && model.CostBand == "0.25x");
+        Assert.Contains(models, model => model.ModelId == WellKnownModelNames.GPT_5_4
             && model.DefaultReasoningEffort == "medium"
             && model.SupportedReasoningEfforts is not null
             && model.SupportedReasoningEfforts.SequenceEqual(new[] { "low", "medium", "high", "xhigh" }));

@@ -179,10 +179,10 @@ public sealed class RunHistoryServiceTests : IDisposable
     {
         string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121900000");
         Directory.CreateDirectory(runDirectory);
-        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), """
+        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), $$"""
             {"runId":"20260314T121900000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Second chunk","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-14T12:19:02Z"}
             {"runId":"20260314T121900000","source":"request","message":"Run request received","taskPrompt":"Review the architecture boundary changes","timestampUtc":"2026-03-14T12:19:00Z"}
-            {"runId":"20260314T121900000","source":"copilot.session","eventType":"session.resume","sessionId":"session-123","model":"gpt-5.4","details":"resumed","timestampUtc":"2026-03-14T12:19:03Z"}
+            {"runId":"20260314T121900000","source":"copilot.session","eventType":"session.resume","sessionId":"session-123","model":"{{WellKnownModelNames.GPT_5_4}}","details":"resumed","timestampUtc":"2026-03-14T12:19:03Z"}
             {"runId":"20260314T121900000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"First chunk","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"2026-03-14T12:19:01Z"}
             """);
 
@@ -224,11 +224,11 @@ public sealed class RunHistoryServiceTests : IDisposable
     {
         string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121910000");
         Directory.CreateDirectory(runDirectory);
-        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), """
+        File.WriteAllText(Path.Combine(runDirectory, "events.jsonl"), $$"""
             {"runId":"20260314T121910000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Malformed timestamp","contentFormat":"markdown","streamKind":"assistant","title":"Architecture","timestampUtc":"not-a-timestamp"}
             {"runId":"20260314T121910000","source":"request","message":"Run request received","taskPrompt":"Review the architecture boundary changes","timestampUtc":"2026-03-14T12:19:00Z"}
             {"runId":"20260314T121910000","source":"architecture","kind":"agent-delta","agentId":"architecture","agentRole":"Architecture","message":"Missing timestamp","contentFormat":"markdown","streamKind":"assistant","title":"Architecture"}
-            {"runId":"20260314T121910000","source":"copilot.session","eventType":"session.resume","sessionId":"session-123","model":"gpt-5.4","details":"resumed","timestampUtc":"2026-03-14T12:19:03Z"}
+            {"runId":"20260314T121910000","source":"copilot.session","eventType":"session.resume","sessionId":"session-123","model":"{{WellKnownModelNames.GPT_5_4}}","details":"resumed","timestampUtc":"2026-03-14T12:19:03Z"}
             """);
 
         FileSystemRunHistoryCatalog service = new FileSystemRunHistoryCatalog();

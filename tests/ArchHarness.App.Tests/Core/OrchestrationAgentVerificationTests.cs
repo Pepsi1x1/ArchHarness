@@ -160,7 +160,7 @@ public sealed class OrchestrationAgentVerificationTests
             => null;
 
         public string Resolve(string role, IDictionary<string, string>? overrides)
-            => "gpt-5.4";
+            => WellKnownModelNames.GPT_5_4;
 
         public void ValidateConfiguredModelsOrThrow(IDictionary<string, string>? overrides = null)
         {
