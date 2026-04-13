@@ -13,6 +13,7 @@ internal static class ProgramEndpointExtensions
     {
         endpoints.MapGet("/api", ProgramHandlers.GetApiRoot);
         endpoints.MapGet("/api/bootstrap", ProgramHandlers.GetBootstrap);
+        endpoints.MapGet("/api/workflows", ProgramHandlers.GetWorkflows);
         endpoints.MapGet("/api/health", ProgramHandlers.GetHealth);
 
         endpoints.MapGet("/api/projects", ProgramHandlers.GetProjects);

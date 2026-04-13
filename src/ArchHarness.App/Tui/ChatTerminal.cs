@@ -41,7 +41,11 @@ public sealed class ChatTerminal
     /// <param name="cancellationToken">Token to signal cancellation.</param>
     public async Task RunAsync(string[] args, CancellationToken cancellationToken = default)
     {
-        ContentScreenRenderer.RenderSplash();
+        bool nonInteractiveCommand = CliArgumentParser.IsNonInteractiveCommand(args);
+        if (!nonInteractiveCommand)
+        {
+            ContentScreenRenderer.RenderSplash();
+        }
 
         if (!await this.ValidatePreflightAsync(cancellationToken))
         {
@@ -54,11 +58,20 @@ public sealed class ChatTerminal
             return;
         }
 
-        await WaitForSetupAcknowledgementAsync(requestResult.Request, requestResult.SetupSummary);
+        if (!nonInteractiveCommand)
+        {
+            await WaitForSetupAcknowledgementAsync(requestResult.Request, requestResult.SetupSummary);
+        }
 
-        ChatTerminalRunResult? result = await this._runController.ExecuteAsync(requestResult.Request, cancellationToken);
+        ChatTerminalRunResult? result = await this._runController.ExecuteAsync(requestResult.Request, !nonInteractiveCommand, cancellationToken);
         if (result is null)
         {
+            return;
+        }
+
+        if (nonInteractiveCommand)
+        {
+            RunResultRenderer.RenderCommandCompletion(result.Artefacts);
             return;
         }
 

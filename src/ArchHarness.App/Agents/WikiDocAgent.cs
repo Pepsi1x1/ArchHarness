@@ -6,35 +6,55 @@ using Microsoft.Extensions.Options;
 namespace ArchHarness.App.Agents;
 
 /// <summary>
-/// Uses backend-developer tooling to inspect repositories and return structured wiki content.
+/// Inspects repositories and writes wiki documentation via tools, returning only a structured index.
 /// </summary>
 public sealed class WikiDocAgent : AgentBase
 {
-    private const string BACKEND_ROLE = "backend-developer";
+    private const string WIKIDOC_ROLE = "wikidoc";
+    private const string ORCHESTRATION_ROLE = "orchestration";
     private const string WIKIDOC_AGENT_ROLE = "wikidoc";
     private const string WIKIDOC_SYSTEM_PROMPT_FALLBACK = """
-        You are the WikiDoc backend workflow.
-        Inspect the repository using available read tools, but do not modify workspace files directly.
-        Return strict JSON only. Do not wrap the response in markdown fences.
+        You are the WikiDoc agent.
+        Inspect repositories using available read tools and write thorough, multi-page wiki documentation using available write tools.
+        The documentation you produce must be suitable for publishing directly to an Azure DevOps wiki.
+        Home.md is always an index page that links to sub-pages; the real content lives in the sub-pages.
+        After writing ALL documentation files, return a strict JSON index as specified in the prompt.
+        Do not wrap the JSON in markdown fences.
         Focus on producing accurate operator-facing documentation from the checked-in source.
         """;
     private const string WIKIDOC_REPOSITORY_PROMPT_FALLBACK = """
-        Inspect the repository rooted at the current working directory and return ONLY strict JSON with this schema:
+        Inspect the repository and write thorough, multi-page wiki documentation suitable for Azure DevOps wiki.
+
+        Steps:
+        1. Read and analyze the repository thoroughly using available read tools.
+           Examine project files, source code, configuration, scripts, READMEs, and directory structure.
+        2. Write multiple documentation pages to the output directory at {{OutputTarget}}.
+           Create sub-pages as individual .md files, one per significant topic you discover.
+           Thoroughly document the solution and any other aspects that an operator, developer, 
+           or new team member would need to understand.
+           Each sub-page should be a deep-dive into its topic with concrete facts from the source code.
+           You may create as many or as few sub-pages as the repository warrants.
+        3. Write Home.md as an INDEX page:
+           - Repository title and a concise summary paragraph.
+           - A table of contents with relative links to every sub-page you wrote (e.g., [Architecture](Architecture.md)).
+           - Do NOT put substantive documentation in Home.md; it is an index only.
+        4. After writing ALL documentation files, return ONLY a JSON summary index:
         {
           "repositoryName": "string",
           "summary": "string",
-          "homeMarkdown": "string",
+          "pages": ["string"],
           "concepts": [{"name": "string", "summary": "string"}]
         }
 
         Rules:
         - Do not ask follow-up questions.
-        - Do not modify files.
-        - `homeMarkdown` is the full content for wiki/Home.md.
-        - `homeMarkdown` must include: title, purpose, major components, important commands/workflows, and notable conventions or risks.
-        - Prefer concrete facts from the repository over generic advice.
+        - Write ALL documentation files using file-write tools BEFORE returning the JSON.
+        - `pages` lists every .md filename you wrote (including Home.md), e.g. ["Home.md", "Architecture.md", "Getting-Started.md"].
         - `concepts` should capture reusable cross-repository ideas, bounded to 8 items maximum.
-        - If the repository is sparse, say that explicitly in the markdown rather than inventing details.
+        - Prefer concrete facts from the repository over generic advice.
+        - If the repository is sparse, say that explicitly rather than inventing details; still write at least Home.md.
+        - Use relative links between pages so the wiki works when published to Azure DevOps.
+        - The final response text must be ONLY the JSON summary object.
 
         ScanRoot: {{ScanRoot}}
         RepositoryRoot: {{RepositoryRoot}}
@@ -44,19 +64,28 @@ public sealed class WikiDocAgent : AgentBase
         """;
     private const string WIKIDOC_SYNTHESIS_PROMPT_FALLBACK = """
         You are synthesizing a megawiki across related repositories.
-        Return ONLY strict JSON with this schema:
+        The output must be suitable for publishing directly to an Azure DevOps wiki.
+
+        Steps:
+        1. Write a Home.md INDEX page to {{OutputTarget}}:
+           - Title and a brief summary of the repository set and its overall purpose.
+           - A "Repositories" section with relative links to each per-repository wiki Home.md using the paths provided.
+           - A "Cross-Repository Concepts" section with relative links to concept pages under concepts/.
+           - Do NOT put substantive content in Home.md; it is an index only.
+        2. Write shared concept pages to {{OutputTarget}}/concepts/ as individual markdown files.
+           - Use filesystem-safe slugs for filenames (e.g., "run-pipeline.md").
+           - Each concept page should be thorough: explain the concept, which repositories participate, how they interact, and any cross-cutting concerns.
+           - Synthesize shared concepts that matter across repositories; do not duplicate repository home pages.
+        3. After writing ALL files, return ONLY a JSON manifest:
         {
-          "megaWikiMarkdown": "string",
-          "conceptPages": [{"slug": "string", "title": "string", "markdown": "string"}]
+          "conceptSlugs": ["string"]
         }
 
         Rules:
-        - Do not modify files.
-        - `megaWikiMarkdown` is the full markdown for MegaWiki.md.
-        - Summarize the repository set, major boundaries, and where each repository fits.
-        - `conceptPages` must synthesize shared concepts that matter across repositories, not duplicate repository home pages.
-        - Keep concept page slugs filesystem-safe and concise.
         - Use only the supplied repository summaries and concept seeds; do not invent repositories.
+        - Write ALL documentation files using file-write tools BEFORE returning the JSON manifest.
+        - Use relative links between pages so the wiki works when published to Azure DevOps.
+        - The final response text must be ONLY the JSON manifest.
 
         ScanRoot: {{ScanRoot}}
         RepositorySummaryPayload:
@@ -68,23 +97,24 @@ public sealed class WikiDocAgent : AgentBase
         PropertyNameCaseInsensitive = true
     };
 
-    private static WikiDocRepositoryDocument NormalizeRepositoryDocument(WikiDocRepositoryDocument document)
+    private static WikiDocRepositoryIndex NormalizeRepositoryIndex(WikiDocRepositoryIndex index)
     {
-        if (string.IsNullOrWhiteSpace(document.HomeMarkdown))
-        {
-            throw new InvalidOperationException("WikiDoc repository response did not include homeMarkdown.");
-        }
-
-        string repositoryName = string.IsNullOrWhiteSpace(document.RepositoryName)
+        string repositoryName = string.IsNullOrWhiteSpace(index.RepositoryName)
             ? "Repository"
-            : document.RepositoryName.Trim();
+            : index.RepositoryName.Trim();
 
-        return document with
+        IReadOnlyList<string> pages = (index.Pages ?? Array.Empty<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Select(p => p.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return index with
         {
             RepositoryName = repositoryName,
-            Summary = document.Summary?.Trim() ?? string.Empty,
-            HomeMarkdown = document.HomeMarkdown.Trim(),
-            Concepts = NormalizeConceptSeeds(document.Concepts)
+            Summary = index.Summary?.Trim() ?? string.Empty,
+            Pages = pages,
+            Concepts = NormalizeConceptSeeds(index.Concepts)
         };
     }
 
@@ -96,14 +126,14 @@ public sealed class WikiDocAgent : AgentBase
         IModelResolver modelResolver,
         IAgentToolPolicyProvider toolPolicyProvider,
         IOptions<AgentsOptions> agentsOptions)
-        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, BACKEND_ROLE, Guid.NewGuid().ToString("N"))
+        : base(copilotClient, modelResolver, toolPolicyProvider, agentsOptions, WIKIDOC_ROLE, Guid.NewGuid().ToString("N"))
     {
     }
 
     /// <summary>
-    /// Generates structured wiki content for a single repository.
+    /// Inspects a repository, writes wiki documentation via tools, and returns a structured index.
     /// </summary>
-    public Task<WikiDocRepositoryDocument> DocumentRepositoryAsync(
+    public Task<WikiDocRepositoryIndex> DocumentRepositoryAsync(
         string scanRoot,
         string repositoryRoot,
         string repositoryRelativePath,
@@ -122,18 +152,19 @@ public sealed class WikiDocAgent : AgentBase
             ("{{RepositoryDisplayName}}", repositoryDisplayName),
             ("{{OutputTarget}}", outputTarget));
 
-        return this.CompleteJsonAsync<WikiDocRepositoryDocument>(
+        return this.CompleteJsonAsync<WikiDocRepositoryIndex>(
             prompt,
             modelOverrides,
             agentId,
-            NormalizeRepositoryDocument,
+            NormalizeRepositoryIndex,
             cancellationToken);
     }
 
     /// <summary>
-    /// Synthesizes aggregate documentation and shared concept pages across repositories.
+    /// Synthesizes aggregate documentation across repositories, writes megawiki files via tools, and returns an index.
+    /// Uses the orchestration model (Opus 4.6, high reasoning).
     /// </summary>
-    public Task<WikiDocMegaWikiDocument> SynthesizeMegaWikiAsync(
+    public Task<WikiDocMegaWikiIndex> SynthesizeMegaWikiAsync(
         string scanRoot,
         string repositorySummaryPayload,
         IDictionary<string, string>? modelOverrides,
@@ -146,18 +177,19 @@ public sealed class WikiDocAgent : AgentBase
             ("{{ScanRoot}}", scanRoot),
             ("{{RepositorySummaryPayload}}", repositorySummaryPayload));
 
-        return this.CompleteJsonAsync<WikiDocMegaWikiDocument>(
+        return this.CompleteJsonAsync<WikiDocMegaWikiIndex>(
             prompt,
             modelOverrides,
             agentId,
-            static document => !string.IsNullOrWhiteSpace(document.MegaWikiMarkdown)
-                ? document with
-                {
-                    MegaWikiMarkdown = document.MegaWikiMarkdown.Trim(),
-                    ConceptPages = NormalizeConceptPages(document.ConceptPages)
-                }
-                : throw new InvalidOperationException("WikiDoc megawiki response did not include megaWikiMarkdown."),
-            cancellationToken);
+            static index => index with
+            {
+                ConceptSlugs = (index.ConceptSlugs ?? Array.Empty<string>())
+                    .Where(slug => !string.IsNullOrWhiteSpace(slug))
+                    .Select(slug => slug.Trim())
+                    .ToArray()
+            },
+            cancellationToken,
+            roleOverride: ORCHESTRATION_ROLE);
     }
 
     private async Task<T> CompleteJsonAsync<T>(
@@ -165,19 +197,27 @@ public sealed class WikiDocAgent : AgentBase
         IDictionary<string, string>? modelOverrides,
         string agentId,
         Func<T, T> normalize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? roleOverride = null)
     {
-        string model = base.ResolveModel(modelOverrides);
+        string model = roleOverride is not null
+            ? base.ResolveModelForRole(roleOverride, modelOverrides)
+            : base.ResolveModel(modelOverrides);
         string systemPrompt = PromptLoader.Load("WikiDoc", "system.md", WIKIDOC_SYSTEM_PROMPT_FALLBACK);
-        CopilotCompletionOptions options = base.ApplyToolPolicy(new CopilotCompletionOptions
+
+        CopilotCompletionOptions baseOptions = new CopilotCompletionOptions
         {
             SystemMessage = systemPrompt,
-            SystemMessageMode = CopilotSystemMessageMode.Append
-        });
+            SystemMessageMode = CopilotSystemMessageMode.Append,
+            ReasoningEffort = roleOverride is not null
+                ? base.ResolveReasoningEffortForRole(roleOverride)
+                : null
+        };
+        CopilotCompletionOptions options = base.ApplyToolPolicy(baseOptions);
 
         string? lastError = null;
         string? previousResponsePreview = null;
-        for (int attempt = 0; attempt < 2; attempt++)
+        for (int attempt = 0; attempt < 3; attempt++)
         {
             string prompt = attempt == 0
                 ? basePrompt
@@ -240,10 +280,4 @@ public sealed class WikiDocAgent : AgentBase
             isValid: concept => !string.IsNullOrWhiteSpace(concept.Name) && !string.IsNullOrWhiteSpace(concept.Summary),
             trim: concept => concept with { Name = concept.Name.Trim(), Summary = concept.Summary.Trim() },
             postProcess: items => items.DistinctBy(c => c.Name, StringComparer.OrdinalIgnoreCase).Take(8));
-
-    private static IReadOnlyList<WikiDocConceptPage> NormalizeConceptPages(IReadOnlyList<WikiDocConceptPage>? conceptPages)
-        => NormalizeDocumentList(
-            conceptPages,
-            isValid: page => !string.IsNullOrWhiteSpace(page.Title) && !string.IsNullOrWhiteSpace(page.Markdown),
-            trim: page => page with { Slug = page.Slug?.Trim() ?? string.Empty, Title = page.Title.Trim(), Markdown = page.Markdown.Trim() });
 }

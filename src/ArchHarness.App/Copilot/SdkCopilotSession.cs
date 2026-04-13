@@ -64,6 +64,15 @@ internal sealed class SdkCopilotSession(
 
             switch (evt)
             {
+                case AssistantReasoningDeltaEvent reasoningDelta when !string.IsNullOrWhiteSpace(reasoningDelta.Data.DeltaContent):
+                    sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
+                        DateTimeOffset.UtcNow,
+                        agentId,
+                        agentRole,
+                        reasoningDelta.Data.DeltaContent,
+                        ContentFormat: "text",
+                        StreamKind: "reasoning"));
+                    break;
                 case AssistantMessageDeltaEvent delta when !string.IsNullOrWhiteSpace(delta.Data.DeltaContent):
                     completion.Append(delta.Data.DeltaContent);
                     sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(

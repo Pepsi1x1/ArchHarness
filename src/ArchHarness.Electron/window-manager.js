@@ -20,14 +20,50 @@ class WindowManager {
   }
 
   createMainWindow(loadUrl) {
-    const isMac = process.platform === "darwin";
-    const isWindows = process.platform === "win32";
-
-    this.#mainWindow = new BrowserWindow({
+    this.#mainWindow = this.#createWindow({
       width: 1600,
       height: 1040,
       minWidth: 1200,
       minHeight: 800,
+      title: "ArchHarness"
+    });
+
+    this.#mainWindow.loadURL(loadUrl).catch(error => {
+      console.error("Failed to load main window URL.", { loadUrl, error });
+    });
+
+    this.#mainWindow.on("closed", () => {
+      this.#mainWindow = null;
+    });
+
+    return this.#mainWindow;
+  }
+
+  createWikiDocWindow(loadUrl) {
+    const wikiWindow = this.#createWindow({
+      width: 1100,
+      height: 820,
+      minWidth: 720,
+      minHeight: 540,
+      title: "ArchHarness \u2013 Wiki Docs"
+    });
+
+    wikiWindow.loadURL(loadUrl).catch(error => {
+      console.error("Failed to load Wiki Docs window URL.", { loadUrl, error });
+    });
+
+    return wikiWindow;
+  }
+
+  #createWindow({ width, height, minWidth, minHeight, title }) {
+    const isMac = process.platform === "darwin";
+    const isWindows = process.platform === "win32";
+
+    const win = new BrowserWindow({
+      width,
+      height,
+      minWidth,
+      minHeight,
       autoHideMenuBar: true,
       backgroundColor: "#08121c",
       ...(isMac
@@ -46,7 +82,7 @@ class WindowManager {
             }
           }
         : {}),
-      title: "ArchHarness",
+      title,
       icon: this.#windowIconPath,
       webPreferences: {
         contextIsolation: true,
@@ -56,7 +92,7 @@ class WindowManager {
       }
     });
 
-    this.#mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    win.webContents.setWindowOpenHandler(({ url }) => {
       try {
         const parsed = new URL(url);
         if (parsed.protocol === "https:") {
@@ -68,15 +104,7 @@ class WindowManager {
       return { action: "deny" };
     });
 
-    this.#mainWindow.loadURL(loadUrl).catch(error => {
-      console.error("Failed to load main window URL.", { loadUrl, error });
-    });
-
-    this.#mainWindow.on("closed", () => {
-      this.#mainWindow = null;
-    });
-
-    return this.#mainWindow;
+    return win;
   }
 
   hasWindows() {

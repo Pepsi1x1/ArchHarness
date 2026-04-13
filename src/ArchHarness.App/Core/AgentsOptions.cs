@@ -184,7 +184,13 @@ public sealed record ReviewLoopAgentSelection(bool CodingStyleEnabled, bool Secu
 public sealed class AgentsOptions
 {
     /// <summary>Gets or sets the orchestration agent options.</summary>
-    public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.CLAUDE_OPUS_4_6 };
+    public AgentModelOptions Orchestration { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.CLAUDE_OPUS_4_6, ReasoningEffort = "high" };
+
+    /// <summary>Gets or sets the wikidoc agent options.</summary>
+    public AgentModelOptions WikiDoc { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_5_4, ReasoningEffort = "xhigh" };
+
+    /// <summary>Gets or sets the maximum number of wikidoc repository agents that execute in parallel.</summary>
+    public int WikiDocParallelism { get; set; } = 4;
 
     /// <summary>Gets or sets the planning agent options.</summary>
     public AgentModelOptions Planning { get; set; } = new AgentModelOptions() { Model = WellKnownModelNames.GPT_5_4, ReasoningEffort = "xhigh" };
@@ -225,6 +231,7 @@ public sealed class AgentsOptions
             "security" => this.Security,
             "architecture" => this.Architecture,
             "orchestration" => this.Orchestration,
+            "wikidoc" => this.WikiDoc,
             _ => new AgentModelOptions()
         };
     }

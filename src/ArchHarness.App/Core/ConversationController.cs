@@ -37,6 +37,7 @@ public sealed class ConversationController
         RunRequest? cliRequest = CliArgumentParser.TryParseCliArgs(args, this._agentsOptions);
         if (cliRequest is not null)
         {
+            cliRequest = RunRequestWorkflowDefaults.Apply(cliRequest);
             cliRequest = await this._summaryGenerator.PopulateRunTitleAsync(cliRequest, cancellationToken);
             string normalizedPermissionMode = PermissionHandlerModes.Normalize(cliRequest.PermissionHandlerMode);
             this._stateAccessors.PermissionHandlerMode.SetCurrent(normalizedPermissionMode);
@@ -53,6 +54,7 @@ public sealed class ConversationController
             this._agentsOptions.GetReviewLoopAgentSelection(),
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             CliArgumentParser.NormalizeArchitectureLoopPrompt(this._agentsOptions.Architecture.ArchitectureLoopPrompt));
+        requestInteractive = RunRequestWorkflowDefaults.Apply(requestInteractive);
 
         this._statusSink.Clear();
         this._statusSink.WriteLine("Preparing run configuration...");

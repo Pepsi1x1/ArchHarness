@@ -48,9 +48,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
     private readonly IRunAgentModelUsageBuilder _agentModelUsageBuilder;
     private readonly IPlanApprovalBridge? _approvalBridge;
     private readonly ICopilotUserInputBridge? _userInputBridge;
-    private readonly OrchestrationAgent _orchestrationAgent;
-    private readonly PlanningAgent _planningAgent;
-    private readonly IRunVerificationWorkflow _verificationWorkflow;
+    private readonly OrchestratorPlanningServices _planningServices;
     private readonly WikiDocRunServices _wikiDocServices;
 
     /// <summary>
@@ -60,9 +58,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         OrchestratorRunServices services,
         RuntimeStateAccessors stateAccessors,
         IRunAgentModelUsageBuilder agentModelUsageBuilder,
-        OrchestrationAgent orchestrationAgent,
-        PlanningAgent planningAgent,
-        IRunVerificationWorkflow verificationWorkflow,
+        OrchestratorPlanningServices planningServices,
         WikiDocRunServices wikiDocServices,
         IPlanApprovalBridge? approvalBridge = null,
         ICopilotUserInputBridge? userInputBridge = null)
@@ -70,9 +66,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         this._services = services;
         this._stateAccessors = stateAccessors;
         this._agentModelUsageBuilder = agentModelUsageBuilder;
-        this._orchestrationAgent = orchestrationAgent;
-        this._planningAgent = planningAgent;
-        this._verificationWorkflow = verificationWorkflow;
+        this._planningServices = planningServices;
         this._wikiDocServices = wikiDocServices;
         this._approvalBridge = approvalBridge;
         this._userInputBridge = userInputBridge;
@@ -632,8 +626,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
     private OrchestrationAgent ResolvePlanningAgent(string workflow)
         => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase)
-            ? this._planningAgent
-            : this._orchestrationAgent;
+            ? this._planningServices.PlanningAgent
+            : this._planningServices.OrchestrationAgent;
 
     private async Task PersistClarificationStateAsync(
         string runId,
@@ -868,8 +862,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             null,
             cancellationToken).ConfigureAwait(false);
 
-        VerificationWorkflowResult verificationResult = await this._verificationWorkflow.RunAsync(
-            new RunVerificationRequest(request, plan, review, securityReview, spec, lastBuildOutcome, filesTouched),
+        VerificationWorkflowResult verificationResult = await this._planningServices.VerificationWorkflow.RunAsync(
+            new RunVerificationRequest(request, checkpoint.RunDirectory, plan, review, securityReview, spec, lastBuildOutcome, filesTouched),
             adapter,
             progress,
             cancellationToken).ConfigureAwait(false);

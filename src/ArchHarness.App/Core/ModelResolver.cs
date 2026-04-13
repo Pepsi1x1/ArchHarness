@@ -63,6 +63,7 @@ public sealed class ModelResolver : IModelResolver
             "coding-style" => settings.CodingStyleModel,
             "security" => settings.SecurityModel,
             "architecture" => settings.ArchitectureModel,
+            "wikidoc" => settings.WikiDocModel,
             "conversation" => settings.ConversationModel,
             _ => throw new ArgumentOutOfRangeException(nameof(role), $"Unsupported role: {role}")
         };
@@ -133,7 +134,7 @@ public sealed class ModelResolver : IModelResolver
     private IEnumerable<(string Label, string Model)> GetConfiguredModels(IDictionary<string, string>? overrides)
     {
         PersistedGlobalSettings settings = this._settingsCatalog.GetSettings();
-        foreach (string role in new[] { "conversation", "orchestration", PLANNING_ROLE, "frontend-developer", "backend-developer", "build", "coding-style", "security", "architecture" })
+        foreach (string role in new[] { "conversation", "orchestration", PLANNING_ROLE, "frontend-developer", "backend-developer", "build", "coding-style", "security", "architecture", "wikidoc" })
         {
             yield return (role, role switch
             {
@@ -146,6 +147,7 @@ public sealed class ModelResolver : IModelResolver
                 "coding-style" => settings.CodingStyleModel,
                 "security" => settings.SecurityModel,
                 "architecture" => settings.ArchitectureModel,
+                "wikidoc" => settings.WikiDocModel,
                 _ => string.Empty
             });
         }

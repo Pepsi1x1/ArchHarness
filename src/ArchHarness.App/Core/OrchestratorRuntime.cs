@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
@@ -25,18 +26,23 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
         Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
+        request = RunRequestWorkflowDefaults.Apply(request);
         IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create(request.WorkspaceMode, request.WorkspacePath);
         bool initGit = request.WorkspaceMode is "new-project" or "existing-git";
         await adapter.InitializeAsync(request.WorkspaceMode == "new-project" ? request.ProjectName : null, initGit, cancellationToken).ConfigureAwait(false);
 
-        BuildCommandSelection initialBuildSelection = BuildCommandInference.Select(
-            adapter.RootPath,
-            request.BuildCommand,
-            request.WorkspaceMode,
-            request.ProjectName);
-        if (!string.Equals(initialBuildSelection.Command, request.BuildCommand, StringComparison.Ordinal))
+        BuildCommandSelection? initialBuildSelection = null;
+        if (!string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
         {
-            request = request with { BuildCommand = initialBuildSelection.Command };
+            initialBuildSelection = BuildCommandInference.Select(
+                adapter.RootPath,
+                request.BuildCommand,
+                request.WorkspaceMode,
+                request.ProjectName);
+            if (!string.Equals(initialBuildSelection.Command, request.BuildCommand, StringComparison.Ordinal))
+            {
+                request = request with { BuildCommand = initialBuildSelection.Command };
+            }
         }
 
         OrchestratedRunContext runContext = new OrchestratedRunContext(adapter, request, null, initialBuildSelection);
@@ -54,6 +60,7 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
         Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
+        runState = runState with { Request = RunRequestWorkflowDefaults.Apply(runState.Request) };
         string resumeWorkspaceMode = Directory.Exists(Path.Combine(runState.WorkspaceRoot, ".git"))
             ? "existing-git"
             : "existing-folder";

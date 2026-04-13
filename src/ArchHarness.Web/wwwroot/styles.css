@@ -981,6 +981,64 @@ button {
   padding: 12px;
 }
 
+.stream-reasoning-block {
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(155, 159, 170, 0.12);
+  background: rgba(155, 159, 170, 0.04);
+  margin: 0.5rem 0;
+  overflow: hidden;
+}
+
+.stream-reasoning-block > summary {
+  list-style: none;
+}
+
+.stream-reasoning-block > summary::-webkit-details-marker {
+  display: none;
+}
+
+.stream-reasoning-label {
+  padding: 7px 12px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stream-reasoning-label::before {
+  content: "▶";
+  font-size: 0.5rem;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.stream-reasoning-block[open] > .stream-reasoning-label::before {
+  transform: rotate(90deg);
+}
+
+.stream-reasoning-content {
+  padding: 12px;
+  color: var(--muted);
+  border-top: 1px solid rgba(155, 159, 170, 0.1);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.stream-reasoning-content pre,
+.stream-reasoning-content p,
+.stream-reasoning-content ul,
+.stream-reasoning-content ol {
+  margin: 0;
+  color: var(--muted);
+}
+
 details.stream-tool-calls > summary {
   list-style: none;
 }
@@ -1435,6 +1493,7 @@ html[data-desktop-platform="win32"] .field select option:hover {
   display: grid;
   gap: 8px;
   align-content: start;
+  overflow-y: auto;
 }
 
 .git-change-item {
@@ -2508,4 +2567,103 @@ html[data-desktop-platform="win32"] .field select option:hover {
 
 .composer-dropdown-item-label {
   min-width: 0;
+}
+/* ── Wikidoc dedicated screen ────────────────────────────────────────────── */
+
+.wikidoc-screen {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  height: 100vh;
+  padding: 0 20px 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.wikidoc-header {
+  padding: 14px var(--desktop-right-inset, 20px) 2px var(--desktop-left-inset, 20px);
+  min-height: var(--desktop-titlebar-height);
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.wikidoc-header h1,
+.wikidoc-header p {
+  -webkit-app-region: no-drag;
+}
+
+.wikidoc-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.wikidoc-header-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.wikidoc-controls {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.wikidoc-folder-field,
+.wikidoc-prompt-field {
+  display: grid;
+  gap: 6px;
+}
+
+.wikidoc-folder-row {
+  display: flex;
+  gap: 8px;
+}
+
+.wikidoc-folder-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.wikidoc-optional {
+  color: var(--muted);
+  font-size: 0.82em;
+  font-weight: 400;
+}
+
+.wikidoc-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.wikidoc-status {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.wikidoc-status[data-level="error"] {
+  color: var(--danger);
+}
+
+.wikidoc-status[data-level="info"] {
+  color: var(--muted-strong);
+}
+
+.wikidoc-stream-area {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.wikidoc-stream-area .stream-sections {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.wikidoc-screen .stream-empty {
+  margin: 0;
 }

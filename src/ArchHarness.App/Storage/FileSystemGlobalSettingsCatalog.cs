@@ -60,6 +60,9 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
                 NormalizeModel(update.CodingStyleModel, this._agentsOptions.CodingStyle.Model),
                 NormalizeModel(update.SecurityModel, this._agentsOptions.Security.Model),
                 NormalizeModel(update.ArchitectureModel, this._agentsOptions.Architecture.Model),
+                NormalizeModel(update.WikiDocModel, this._agentsOptions.WikiDoc.Model),
+                NormalizeReasoningEffort(update.WikiDocReasoningEffort),
+                NormalizeParallelism(update.WikiDocParallelism, this._agentsOptions.WikiDocParallelism),
                 PermissionHandlerModes.Normalize(update.DefaultPermissionHandlerMode),
                 update.DefaultArchitectureReviewMode,
                 string.IsNullOrWhiteSpace(update.DefaultArchitectureReviewPrompt) ? null : update.DefaultArchitectureReviewPrompt.Trim(),
@@ -104,6 +107,9 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             NormalizeModel(this._agentsOptions.CodingStyle.Model, WellKnownModelNames.CLAUDE_SONNET_4_6),
             NormalizeModel(this._agentsOptions.Security.Model, WellKnownModelNames.CLAUDE_OPUS_4_6),
             NormalizeModel(this._agentsOptions.Architecture.Model, WellKnownModelNames.CLAUDE_OPUS_4_6),
+            NormalizeModel(this._agentsOptions.WikiDoc.Model, WellKnownModelNames.GPT_5_4),
+            NormalizeReasoningEffort(this._agentsOptions.WikiDoc.ReasoningEffort),
+            this._agentsOptions.WikiDocParallelism,
             PermissionHandlerModes.APPROVE_ALL,
             this._agentsOptions.Architecture.ArchitectureLoopMode,
             string.IsNullOrWhiteSpace(this._agentsOptions.Architecture.ArchitectureLoopPrompt)
@@ -129,6 +135,9 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             NormalizeModel(persisted.CodingStyleModel, this._agentsOptions.CodingStyle.Model),
             NormalizeModel(persisted.SecurityModel, this._agentsOptions.Security.Model),
             NormalizeModel(persisted.ArchitectureModel, this._agentsOptions.Architecture.Model),
+            NormalizeModel(persisted.WikiDocModel, this._agentsOptions.WikiDoc.Model),
+            NormalizeReasoningEffort(persisted.WikiDocReasoningEffort),
+            NormalizeParallelism(persisted.WikiDocParallelism, this._agentsOptions.WikiDocParallelism),
             PermissionHandlerModes.Normalize(persisted.DefaultPermissionHandlerMode),
             persisted.DefaultArchitectureReviewMode,
             string.IsNullOrWhiteSpace(persisted.DefaultArchitectureReviewPrompt) ? null : persisted.DefaultArchitectureReviewPrompt.Trim(),
@@ -147,6 +156,9 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
             CodingStyleModel = settings.CodingStyleModel,
             SecurityModel = settings.SecurityModel,
             ArchitectureModel = settings.ArchitectureModel,
+            WikiDocModel = settings.WikiDocModel,
+            WikiDocReasoningEffort = settings.WikiDocReasoningEffort,
+            WikiDocParallelism = settings.WikiDocParallelism,
             DefaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,
             DefaultArchitectureReviewMode = settings.DefaultArchitectureReviewMode,
             DefaultArchitectureReviewPrompt = settings.DefaultArchitectureReviewPrompt,
@@ -158,6 +170,9 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
 
     private static string NormalizeModel(string? model, string fallback)
         => string.IsNullOrWhiteSpace(model) ? fallback : model.Trim();
+
+    private static int NormalizeParallelism(int value, int fallback)
+        => value >= 1 ? value : (fallback >= 1 ? fallback : 4);
 
     private static string? NormalizeReasoningEffort(string? reasoningEffort)
     {
@@ -193,6 +208,12 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         public string? SecurityModel { get; init; }
 
         public string? ArchitectureModel { get; init; }
+
+        public string? WikiDocModel { get; init; }
+
+        public string? WikiDocReasoningEffort { get; init; }
+
+        public int WikiDocParallelism { get; init; }
 
         public string? DefaultPermissionHandlerMode { get; init; }
 

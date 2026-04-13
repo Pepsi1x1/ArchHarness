@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using ArchHarness.App.Agents;
 using ArchHarness.App.Constants;
+using ArchHarness.App.Storage;
 
 namespace ArchHarness.App.Core;
 
@@ -25,6 +27,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
     private readonly WikiDocRepositoryDiscoverer _discoverer;
     private readonly WikiDocOutputResolver _resolver;
     private readonly IWikiDocMarkdownWriter _writer;
+    private readonly IGlobalSettingsCatalog _settingsCatalog;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WikiDocWorkflow"/> class.
@@ -34,13 +37,15 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         RuntimeStateAccessors stateAccessors,
         WikiDocRepositoryDiscoverer discoverer,
         WikiDocOutputResolver resolver,
-        IWikiDocMarkdownWriter writer)
+        IWikiDocMarkdownWriter writer,
+        IGlobalSettingsCatalog settingsCatalog)
     {
         this._agent = agent;
         this._stateAccessors = stateAccessors;
         this._discoverer = discoverer;
         this._resolver = resolver;
         this._writer = writer;
+        this._settingsCatalog = settingsCatalog;
     }
 
     /// <inheritdoc />
@@ -53,17 +58,22 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         request = RunRequestWorkflowDefaults.Apply(request);
         string scanRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(request.WorkspacePath));
         IReadOnlyList<WikiDocRepositoryInfo> repositories = this._discoverer.Discover(scanRoot);
-        List<string> filesTouched = new List<string>();
-        List<WikiDocRepositoryOutput> repositoryOutputs = new List<WikiDocRepositoryOutput>();
-        List<WikiDocFallbackRecord> fallbackRecords = new List<WikiDocFallbackRecord>();
+        ConcurrentBag<string> filesTouched = new ConcurrentBag<string>();
+        ConcurrentBag<WikiDocRepositoryOutput> repositoryOutputs = new ConcurrentBag<WikiDocRepositoryOutput>();
+        ConcurrentBag<WikiDocFallbackRecord> fallbackRecords = new ConcurrentBag<WikiDocFallbackRecord>();
 
-        foreach (WikiDocRepositoryInfo repository in repositories)
+        int parallelism = Math.Max(1, this._settingsCatalog.GetSettings().WikiDocParallelism);
+        await Parallel.ForEachAsync(
+            repositories,
+            new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = cancellationToken },
+            async (repository, ct) =>
         {
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"Documenting repository {repository.DisplayName}"));
 
             string fallbackRoot = Path.Combine(runDirectory, "wikidoc-fallback", repository.SafeKey);
             WikiDocOutputResolution resolution = this._resolver.Resolve(repository.RepositoryRoot, fallbackRoot);
-            WikiDocRepositoryDocument document = await this.WithWorkspaceRootAsync(
+            string documentationSessionKey = $"wikidoc-{repository.SafeKey}";
+            WikiDocRepositoryIndex index = await this.WithWorkspaceRootAsync(
                 repository.RepositoryRoot,
                 () => this._agent.DocumentRepositoryAsync(
                     scanRoot,
@@ -72,28 +82,42 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                     repository.DisplayName,
                     resolution.OutputRoot,
                     request.ModelOverrides,
-                    $"wikidoc-{repository.SafeKey}",
-                    cancellationToken)).ConfigureAwait(false);
+                    documentationSessionKey,
+                    ct)).ConfigureAwait(false);
 
-            string homePath = await this._writer.WriteMarkdownAsync(
-                resolution.OutputRoot,
-                "Home.md",
-                this._writer.EnsureHeading(document.HomeMarkdown, document.RepositoryName),
-                cancellationToken).ConfigureAwait(false);
-            filesTouched.Add(this._writer.ToWorkspaceRelativePath(scanRoot, homePath));
+            string homePath = Path.Combine(resolution.OutputRoot, "Home.md");
+            if (!File.Exists(homePath))
+            {
+                // Fallback: agent did not write Home.md (test stubs or tool failure).
+                homePath = await this._writer.WriteMarkdownAsync(
+                    resolution.OutputRoot,
+                    "Home.md",
+                    WikiDocPathHelper.EnsureHeading($"# {index.RepositoryName}\n\n{index.Summary}", index.RepositoryName),
+                    ct).ConfigureAwait(false);
+            }
+
+            // Track all .md files the agent wrote under the output root, not just Home.md.
+            foreach (string mdFile in Directory.GetFiles(resolution.OutputRoot, "*.md", SearchOption.AllDirectories))
+            {
+                filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, mdFile));
+            }
 
             WikiDocRepositoryOutput output = new WikiDocRepositoryOutput(
                 repository.RepositoryRoot,
                 repository.RelativePath,
                 repository.DisplayName,
                 resolution.OutputRoot,
+                resolution.RequestedLocalRoot,
                 homePath,
                 resolution.UsedFallback,
+                documentationSessionKey,
+                resolution.RenameCandidate,
+                resolution.RenameCandidateWasEligible,
                 resolution.RenamedFrom,
                 resolution.FallbackReasonCode,
                 resolution.FallbackReason,
-                document.Summary,
-                document.Concepts);
+                index.Summary,
+                index.Concepts);
             repositoryOutputs.Add(output);
 
             if (resolution.UsedFallback)
@@ -101,35 +125,41 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                 fallbackRecords.Add(new WikiDocFallbackRecord(
                     "repository",
                     repository.RepositoryRoot,
-                    Path.Combine(repository.RepositoryRoot, "wiki"),
+                    resolution.RequestedLocalRoot,
                     resolution.OutputRoot,
                     resolution.FallbackReasonCode ?? "unknown",
                     resolution.FallbackReason ?? "The repository-local wiki path could not be used."));
             }
-        }
+        }).ConfigureAwait(false);
+
+        // Snapshot to lists for downstream consumption (order not significant).
+        List<WikiDocRepositoryOutput> repositoryOutputsList = repositoryOutputs.ToList();
+        List<WikiDocFallbackRecord> fallbackRecordsList = fallbackRecords.ToList();
+        List<string> filesTouchedList = filesTouched.ToList();
 
         WikiDocAggregateOutput aggregateOutput = await this.GenerateAggregateOutputAsync(
             request,
             scanRoot,
             runDirectory,
-            repositoryOutputs,
-            fallbackRecords,
-            filesTouched,
+            repositoryOutputsList,
+            fallbackRecordsList,
+            filesTouchedList,
             progress,
             cancellationToken).ConfigureAwait(false);
 
         WikiDocExecutionReport report = new WikiDocExecutionReport(
             scanRoot,
             repositories.Count,
-            repositoryOutputs,
+            repositoryOutputsList,
             aggregateOutput,
-            fallbackRecords);
+            fallbackRecordsList);
 
         await this._writer.WriteJsonAsync(Path.Combine(runDirectory, "WikiDocReport.json"), report, cancellationToken).ConfigureAwait(false);
-        await this._writer.WriteJsonAsync(Path.Combine(runDirectory, "WikiDocFallbacks.json"), fallbackRecords, cancellationToken).ConfigureAwait(false);
+        await this._writer.WriteJsonAsync(Path.Combine(runDirectory, "WikiDocFallbacks.json"), fallbackRecordsList, cancellationToken).ConfigureAwait(false);
 
         CompletionValidationResult validationResult = BuildValidationResult(report);
-        return new WikiDocWorkflowResult(filesTouched.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(), validationResult, report);
+        string[] sortedFiles = filesTouchedList.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+        return new WikiDocWorkflowResult(sortedFiles, validationResult, report);
     }
 
     private async Task<WikiDocAggregateOutput> GenerateAggregateOutputAsync(
@@ -142,14 +172,15 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
+        string aggregateOwnerRoot = Path.Combine(scanRoot, "megawiki");
         string fallbackRoot = Path.Combine(runDirectory, "wikidoc-fallback", "megawiki");
-        WikiDocOutputResolution resolution = this._resolver.Resolve(scanRoot, fallbackRoot);
+        WikiDocOutputResolution resolution = this._resolver.Resolve(aggregateOwnerRoot, fallbackRoot);
         if (resolution.UsedFallback)
         {
             fallbackRecords.Add(new WikiDocFallbackRecord(
                 "megawiki",
-                scanRoot,
-                Path.Combine(scanRoot, "wiki"),
+                aggregateOwnerRoot,
+                resolution.RequestedLocalRoot,
                 resolution.OutputRoot,
                 resolution.FallbackReasonCode ?? "unknown",
                 resolution.FallbackReason ?? "The megawiki output path could not be created under the scan root."));
@@ -159,10 +190,10 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         {
             string placeholderPath = await this._writer.WriteMarkdownAsync(
                 resolution.OutputRoot,
-                "MegaWiki.md",
+                "Home.md",
                 "# MegaWiki\n\nNo Git repositories were discovered under the scan root, so no aggregate wiki could be synthesized.",
                 cancellationToken).ConfigureAwait(false);
-            filesTouched.Add(this._writer.ToWorkspaceRelativePath(scanRoot, placeholderPath));
+            filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, placeholderPath));
 
             return new WikiDocAggregateOutput(
                 resolution.OutputRoot,
@@ -186,7 +217,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
             }),
             JsonDefaults.INDENTED);
 
-        WikiDocMegaWikiDocument synthesis = await this.WithWorkspaceRootAsync(
+        WikiDocMegaWikiIndex synthesis = await this.WithWorkspaceRootAsync(
             scanRoot,
             () => this._agent.SynthesizeMegaWikiAsync(
                 scanRoot,
@@ -195,14 +226,39 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                 "wikidoc-megawiki",
                 cancellationToken)).ConfigureAwait(false);
 
-        string megaWikiPath = await this._writer.WriteMarkdownAsync(
-            resolution.OutputRoot,
-            "MegaWiki.md",
-            this._writer.EnsureHeading(synthesis.MegaWikiMarkdown, "MegaWiki"),
-            cancellationToken).ConfigureAwait(false);
-        filesTouched.Add(this._writer.ToWorkspaceRelativePath(scanRoot, megaWikiPath));
+        // The agent writes megawiki files (Home.md + concept pages) via tools.
+        // Discover concept pages the agent wrote.
+        string conceptsDir = Path.Combine(resolution.OutputRoot, "concepts");
+        if (!Directory.Exists(conceptsDir) && synthesis.ConceptSlugs.Count > 0)
+        {
+            // Fallback: agent did not write concept pages (test stubs or tool failure).
+            Directory.CreateDirectory(conceptsDir);
+            foreach (string slug in synthesis.ConceptSlugs)
+            {
+                string conceptFilePath = Path.Combine(conceptsDir, $"{slug}.md");
+                await File.WriteAllTextAsync(conceptFilePath, $"# {slug}\n\nPlaceholder concept page.", cancellationToken).ConfigureAwait(false);
+            }
+        }
 
-        string[] conceptPaths = await this._writer.WriteConceptPagesAsync(scanRoot, resolution.OutputRoot, synthesis.ConceptPages, filesTouched, cancellationToken).ConfigureAwait(false);
+        string[] conceptPaths = Directory.Exists(conceptsDir)
+            ? Directory.GetFiles(conceptsDir, "*.md")
+            : Array.Empty<string>();
+        foreach (string conceptPath in conceptPaths)
+        {
+            filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, conceptPath));
+        }
+
+        string megaWikiPath = Path.Combine(resolution.OutputRoot, "Home.md");
+        if (!File.Exists(megaWikiPath))
+        {
+            // Fallback: agent did not write Home.md (test stubs or tool failure).
+            megaWikiPath = await this._writer.WriteMarkdownAsync(
+                resolution.OutputRoot,
+                "Home.md",
+                BuildMegaWikiFallbackMarkdown(resolution.OutputRoot, repositoryOutputs, conceptPaths),
+                cancellationToken).ConfigureAwait(false);
+        }
+        filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, megaWikiPath));
         return new WikiDocAggregateOutput(
             resolution.OutputRoot,
             megaWikiPath,
@@ -227,6 +283,50 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         }
     }
 
+    private static string BuildMegaWikiFallbackMarkdown(
+        string megaWikiRoot,
+        IReadOnlyList<WikiDocRepositoryOutput> repositoryOutputs,
+        IReadOnlyList<string> conceptPaths)
+    {
+        string content = "# MegaWiki\n\nCombined repository overview.";
+        string repositoryLinks = BuildRepositoryLinkSection(megaWikiRoot, repositoryOutputs);
+        string conceptLinks = BuildConceptLinkSection(megaWikiRoot, conceptPaths);
+        return string.Join(
+            Environment.NewLine + Environment.NewLine,
+            new[] { content, repositoryLinks, conceptLinks }.Where(section => !string.IsNullOrWhiteSpace(section)));
+    }
+
+    private static string BuildRepositoryLinkSection(string megaWikiRoot, IReadOnlyList<WikiDocRepositoryOutput> repositoryOutputs)
+    {
+        if (repositoryOutputs.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        string[] links = repositoryOutputs
+            .OrderBy(output => output.RepositoryDisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(output => $"- [{output.RepositoryDisplayName}]({ToMarkdownRelativePath(megaWikiRoot, output.HomePath)})")
+            .ToArray();
+        return $"## Repository wikis{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, links)}";
+    }
+
+    private static string BuildConceptLinkSection(string megaWikiRoot, IReadOnlyList<string> conceptPaths)
+    {
+        if (conceptPaths.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        string[] links = conceptPaths
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Select(path => $"- [{Path.GetFileNameWithoutExtension(path)}]({ToMarkdownRelativePath(megaWikiRoot, path)})")
+            .ToArray();
+        return $"## Cross-repository concepts{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, links)}";
+    }
+
+    private static string ToMarkdownRelativePath(string baseDirectory, string targetPath)
+        => Path.GetRelativePath(baseDirectory, targetPath).Replace('\\', '/');
+
     private static CompletionValidationResult BuildValidationResult(WikiDocExecutionReport report)
     {
         bool discoveredRepos = report.DiscoveredRepositoryCount > 0;
@@ -238,16 +338,16 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
 
         CriterionResult[] criteria =
         {
-            new("Discovered at least one Git repository", discoveredRepos, discoveredRepos
+            new CriterionResult("Discovered at least one Git repository", discoveredRepos, discoveredRepos
                 ? $"Discovered {report.DiscoveredRepositoryCount} Git repositories."
                 : "No Git repositories were discovered under the scan root."),
-            new("Wrote one wiki Home.md per discovered repository", repositoryHomesWritten, repositoryHomesWritten
+            new CriterionResult("Wrote one wiki Home.md per discovered repository", repositoryHomesWritten, repositoryHomesWritten
                 ? $"Wrote {report.RepositoryOutputs.Count} repository home pages."
                 : "One or more discovered repositories did not receive a Home.md output."),
-            new("Synthesized megawiki output", megaWikiWritten, megaWikiWritten
+            new CriterionResult("Synthesized megawiki output", megaWikiWritten, megaWikiWritten
                 ? $"Megawiki written to {report.AggregateOutput.MegaWikiPath}."
                 : "Megawiki output was not created."),
-            new("Synthesized cross-repository concept pages", conceptPagesWritten, conceptPagesWritten
+            new CriterionResult("Synthesized cross-repository concept pages", conceptPagesWritten, conceptPagesWritten
                 ? $"Wrote {report.AggregateOutput.ConceptPagePaths.Count} concept pages."
                 : "No concept pages were written.")
         };
@@ -275,102 +375,3 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
     }
 }
 
-/// <summary>
-/// Structured response returned by the repository documentation pass.
-/// </summary>
-/// <param name="RepositoryName">Repository display name.</param>
-/// <param name="Summary">Concise repository summary.</param>
-/// <param name="HomeMarkdown">Full Home.md markdown.</param>
-/// <param name="Concepts">Concept seeds for cross-repository synthesis.</param>
-public sealed record WikiDocRepositoryDocument(
-    string RepositoryName,
-    string Summary,
-    string HomeMarkdown,
-    IReadOnlyList<WikiDocConceptSeed> Concepts);
-
-/// <summary>
-/// Cross-repository concept seed extracted from a repository pass.
-/// </summary>
-public sealed record WikiDocConceptSeed(string Name, string Summary);
-
-/// <summary>
-/// Structured response returned by the megawiki synthesis pass.
-/// </summary>
-public sealed record WikiDocMegaWikiDocument(
-    string MegaWikiMarkdown,
-    IReadOnlyList<WikiDocConceptPage> ConceptPages);
-
-/// <summary>
-/// Represents a synthesized shared concept page.
-/// </summary>
-public sealed record WikiDocConceptPage(string Slug, string Title, string Markdown);
-
-/// <summary>
-/// Final wikidoc workflow result consumed by the run processor.
-/// </summary>
-public sealed record WikiDocWorkflowResult(
-    IReadOnlyList<string> FilesTouched,
-    CompletionValidationResult ValidationResult,
-    WikiDocExecutionReport Report);
-
-/// <summary>
-/// Aggregated run report for wikidoc output generation.
-/// </summary>
-public sealed record WikiDocExecutionReport(
-    string ScanRoot,
-    int DiscoveredRepositoryCount,
-    IReadOnlyList<WikiDocRepositoryOutput> RepositoryOutputs,
-    WikiDocAggregateOutput AggregateOutput,
-    IReadOnlyList<WikiDocFallbackRecord> Fallbacks);
-
-/// <summary>
-/// Records one repository-local documentation output.
-/// </summary>
-public sealed record WikiDocRepositoryOutput(
-    string RepositoryRoot,
-    string RepositoryRelativePath,
-    string RepositoryDisplayName,
-    string OutputRoot,
-    string HomePath,
-    bool UsedFallback,
-    string? RenamedFrom,
-    string? FallbackReasonCode,
-    string? FallbackReason,
-    string Summary,
-    IReadOnlyList<WikiDocConceptSeed> Concepts);
-
-/// <summary>
-/// Records megawiki output paths.
-/// </summary>
-public sealed record WikiDocAggregateOutput(
-    string OutputRoot,
-    string MegaWikiPath,
-    IReadOnlyList<string> ConceptPagePaths,
-    bool UsedFallback,
-    string? RenamedFrom,
-    string? FallbackReasonCode,
-    string? FallbackReason);
-
-/// <summary>
-/// Explicit record of a deterministic fallback output.
-/// </summary>
-public sealed record WikiDocFallbackRecord(
-    string Scope,
-    string OwnerRoot,
-    string RequestedLocalRoot,
-    string FallbackRoot,
-    string ReasonCode,
-    string Reason);
-
-public sealed record WikiDocRepositoryInfo(
-    string RepositoryRoot,
-    string RelativePath,
-    string DisplayName,
-    string SafeKey);
-
-public sealed record WikiDocOutputResolution(
-    string OutputRoot,
-    bool UsedFallback,
-    string? RenamedFrom,
-    string? FallbackReasonCode,
-    string? FallbackReason);

@@ -139,6 +139,7 @@ export const elements = {
   settingsPermissionMode: document.getElementById("settings-permission-mode"),
   settingsArchitectureMode: document.getElementById("settings-architecture-mode"),
   settingsArchitecturePrompt: document.getElementById("settings-architecture-prompt"),
+  settingsWikidocParallelism: document.getElementById("settings-wikidoc-parallelism"),
   runDetailsModal: document.getElementById("run-details-modal"),
   runDetailsTitle: document.getElementById("run-details-title"),
   resumeRun: document.getElementById("resume-run-button"),

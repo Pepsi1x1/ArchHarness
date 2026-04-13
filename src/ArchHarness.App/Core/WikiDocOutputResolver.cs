@@ -36,21 +36,23 @@ public sealed class WikiDocOutputResolver
         string wikiRoot = Path.Combine(ownerRoot, "wiki");
         if (Directory.Exists(wikiRoot))
         {
-            return new WikiDocOutputResolution(wikiRoot, false, null, null, null);
+            return new WikiDocOutputResolution(wikiRoot, wikiRoot, false, null, false, null, null, null);
         }
 
         if (File.Exists(wikiRoot))
         {
-            return CreateFallbackResolution(fallbackBaseRoot, "wiki-path-is-file", "A file already exists at the repository-local wiki path.");
+            return CreateFallbackResolution(wikiRoot, fallbackBaseRoot, null, false, "wiki-path-is-file", "A file already exists at the repository-local wiki path.");
         }
 
         string? renameCandidate = FindDocumentationRenameCandidate(ownerRoot);
-        if (!string.IsNullOrWhiteSpace(renameCandidate) && CanSafelyRenameDocumentationFolder(renameCandidate))
+        bool renameCandidateWasEligible = !string.IsNullOrWhiteSpace(renameCandidate) && CanSafelyRenameDocumentationFolder(renameCandidate);
+        if (renameCandidateWasEligible)
         {
+            string safeRenameCandidate = renameCandidate!;
             try
             {
-                Directory.Move(renameCandidate, wikiRoot);
-                return new WikiDocOutputResolution(wikiRoot, false, renameCandidate, null, null);
+                Directory.Move(safeRenameCandidate, wikiRoot);
+                return new WikiDocOutputResolution(wikiRoot, wikiRoot, false, safeRenameCandidate, true, safeRenameCandidate, null, null);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -61,19 +63,19 @@ public sealed class WikiDocOutputResolver
         try
         {
             Directory.CreateDirectory(wikiRoot);
-            return new WikiDocOutputResolution(wikiRoot, false, null, null, null);
+            return new WikiDocOutputResolution(wikiRoot, wikiRoot, false, renameCandidate, renameCandidateWasEligible, null, null, null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return CreateFallbackResolution(fallbackBaseRoot, "wiki-directory-create-failed", ex.Message);
+            return CreateFallbackResolution(wikiRoot, fallbackBaseRoot, renameCandidate, renameCandidateWasEligible, "wiki-directory-create-failed", ex.Message);
         }
     }
 
-    private static WikiDocOutputResolution CreateFallbackResolution(string fallbackBaseRoot, string reasonCode, string reason)
+    private static WikiDocOutputResolution CreateFallbackResolution(string requestedLocalRoot, string fallbackBaseRoot, string? renameCandidate, bool renameCandidateWasEligible, string reasonCode, string reason)
     {
         string outputRoot = Path.Combine(fallbackBaseRoot, "wiki");
         Directory.CreateDirectory(outputRoot);
-        return new WikiDocOutputResolution(outputRoot, true, null, reasonCode, reason);
+        return new WikiDocOutputResolution(outputRoot, requestedLocalRoot, true, renameCandidate, renameCandidateWasEligible, null, reasonCode, reason);
     }
 
     private static string? FindDocumentationRenameCandidate(string ownerRoot)

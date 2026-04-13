@@ -39,15 +39,20 @@ internal static class ProgramHandlers
             defaultTaskPrompt = settings.DefaultArchitectureReviewMode ? DefaultPrompts.ARCHITECTURE_LOOP_TASK : DefaultPrompts.DEFAULT_TASK,
             workspaceModes = new[] { "existing-folder", "new-project", "existing-git" },
             permissionModes = new[] { "approve-all", "prompt" },
+            workflows = WorkflowCatalog.GetAll(),
             workflow = settings.DefaultArchitectureReviewMode ? WorkflowNames.ARCHITECTURE_LOOP : WorkflowNames.AUTO,
             architectureLoopMode = settings.DefaultArchitectureReviewMode,
             architectureLoopPrompt = settings.DefaultArchitectureReviewPrompt,
             defaultPermissionHandlerMode = settings.DefaultPermissionHandlerMode,
+            wikidocParallelism = settings.WikiDocParallelism,
             reviewLoopAgents = reviewLoopSelection,
             gitHubOAuthEnabled = gitHubOAuthDeviceFlowService.IsEnabled,
             activeRun = sessionManager.GetSnapshot()
         });
     }
+
+    public static IResult GetWorkflows()
+        => Results.Ok(WorkflowCatalog.GetAll());
 
     public static IResult GetHealth()
         => Results.Ok(new { healthy = true });
@@ -355,11 +360,13 @@ internal static class ProgramHandlers
                 build = settings.BuildModel,
                 codingStyle = settings.CodingStyleModel,
                 security = settings.SecurityModel,
-                architecture = settings.ArchitectureModel
+                architecture = settings.ArchitectureModel,
+                wikidoc = settings.WikiDocModel
             },
             agentReasoningEfforts = new
             {
-                planning = settings.PlanningReasoningEffort
+                planning = settings.PlanningReasoningEffort,
+                wikidoc = settings.WikiDocReasoningEffort
             },
             defaults = new
             {
@@ -385,6 +392,9 @@ internal static class ProgramHandlers
             request.AgentModels.CodingStyle,
             request.AgentModels.Security,
             request.AgentModels.Architecture,
+            request.AgentModels.WikiDoc,
+            request.AgentReasoningEfforts is null ? currentSettings.WikiDocReasoningEffort : request.AgentReasoningEfforts.WikiDoc,
+            request.Defaults.WikiDocParallelism ?? currentSettings.WikiDocParallelism,
             request.Defaults.PermissionHandlerMode,
             request.Defaults.ArchitectureReviewMode,
             request.Defaults.ArchitectureReviewPrompt);
@@ -411,17 +421,20 @@ internal static class ProgramHandlers
                 build = settings.BuildModel,
                 codingStyle = settings.CodingStyleModel,
                 security = settings.SecurityModel,
-                architecture = settings.ArchitectureModel
+                architecture = settings.ArchitectureModel,
+                wikidoc = settings.WikiDocModel
             },
             agentReasoningEfforts = new
             {
-                planning = settings.PlanningReasoningEffort
+                planning = settings.PlanningReasoningEffort,
+                wikidoc = settings.WikiDocReasoningEffort
             },
             defaults = new
             {
                 permissionHandlerMode = settings.DefaultPermissionHandlerMode,
                 architectureReviewMode = settings.DefaultArchitectureReviewMode,
-                architectureReviewPrompt = settings.DefaultArchitectureReviewPrompt
+                architectureReviewPrompt = settings.DefaultArchitectureReviewPrompt,
+                wikidocParallelism = settings.WikiDocParallelism
             },
             updatedAtUtc = settings.UpdatedAtUtc
         });
@@ -984,6 +997,14 @@ internal static class ProgramHandlers
 
     public static async Task<IResult> StartRunAsync(RunRequest request, IWebRunSessionManager sessionManager, IProjectWorkspaceCatalog projectCatalog, SetupSummaryGenerator summaryGenerator, CancellationToken cancellationToken)
     {
+        request = RunRequestWorkflowDefaults.Apply(request);
+
+        if (string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(request.WorkspacePath))
+        {
+            return Results.BadRequest(new { error = "WorkspacePath (scan root) is required for the wikidoc workflow." });
+        }
+
         PersistedProjectWorkspace project = string.IsNullOrWhiteSpace(request.ProjectId)
             ? projectCatalog.EnsureProject(
                 request.WorkspacePath,

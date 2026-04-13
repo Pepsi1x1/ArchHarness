@@ -31,6 +31,7 @@ Three hosts share the same runtime library:
 | `auto` | Default orchestrator-driven workflow |
 | `planning` | Clarification and plan approval only (no execution) |
 | `architecture-loop` | Architecture review remediation loop |
+| `wikidoc` | Recursive Git-repository wiki generation with megawiki synthesis |
 | `frontend-feature` | Legacy frontend-focused default |
 
 ## Repository Layout
@@ -103,6 +104,20 @@ dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj -- \
 ```
 
 Argument order: `TaskPrompt`, `WorkspacePath`, `WorkspaceMode` (`existing-folder` | `new-project` | `existing-git`), `Workflow`, `ProjectName`, `ModelOverrides` (comma-delimited `role=model`), `BuildCommand`. From `Workflow` onward all arguments are optional. If `BuildCommand` is omitted, ArchHarness infers a suitable `dotnet build` target when possible.
+
+### Console (`wikidoc`, non-interactive)
+
+```bash
+dotnet run --project src/ArchHarness.Console/ArchHarness.Console.csproj -- \
+  wikidoc \
+  "C:\path\to\scan-root" \
+  "Docs Workspace" \
+  "backend-developer=gpt-5.4"
+```
+
+- `wikidoc` scans the supplied root recursively for Git repositories and includes the scan root itself when it is a repository.
+- The command runs without the setup confirmation or post-run navigation screens.
+- Optional arguments after `scan-root`: `ProjectName`, then `ModelOverrides`.
 
 ### Web host
 
@@ -186,6 +201,23 @@ Each run writes to `<workspace>/.agent-harness/runs/<runId>/`:
 | `BuildResult.json` | Build execution result |
 | `FinalSummary.md` | End summary |
 | `run-log.json` | Run metadata and model usage snapshot |
+| `WikiDocReport.json` | Repository discovery, output roots, megawiki paths, and fallback details for `wikidoc` runs |
+| `WikiDocFallbacks.json` | Deterministic fallback ledger when repo-local `wiki` output cannot be used |
+
+### WikiDoc outputs
+
+For each discovered repository, `wikidoc` prefers repository-local output under `wiki\Home.md`.
+
+1. If `wiki\` already exists, it writes there.
+2. If the repository has a markdown-only `docs\`, `doc\`, or `documentation\` folder and no `wiki\`, ArchHarness safely renames that folder to `wiki\`.
+3. If a repo-local `wiki\` path cannot be used (for example, `wiki` is already a file), ArchHarness writes to `.agent-harness\runs\<runId>\wikidoc-fallback\...` and records the reason in `WikiDocFallbacks.json`.
+
+Aggregate outputs are synthesized at the scan root as:
+
+- `megawiki\wiki\Home.md`
+- `megawiki\wiki\concepts\*.md`
+
+When the scan-root `wiki\` path is unavailable, the aggregate files also fall back into the run directory and are recorded in the same fallback ledger.
 
 ## Troubleshooting
 

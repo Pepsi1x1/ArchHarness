@@ -1,7 +1,7 @@
 import { MAIN_PANEL_VIEWS } from './js/constants.js';
 import { state, elements } from './js/state.js';
 import { requestJson } from './js/api.js';
-import { applyDesktopChrome } from './js/desktop-bridge.js';
+import { applyDesktopChrome, desktopBridge } from './js/desktop-bridge.js';
 import { saveShellState, restoreShellState } from './js/shell-persistence.js';
 import { openModal, closeModal, registerModalPreClose } from './js/modals.js';
 import {
@@ -53,6 +53,17 @@ async function warmModelDiscovery() {
 
 function attachHandlers() {
   elements.newProjectButton.addEventListener("click", () => openModal("new-project-modal"));
+
+  const wikidocScreenButton = document.getElementById("wikidoc-screen-button");
+  if (desktopBridge?.openWikiDocScreen) {
+    wikidocScreenButton.addEventListener("click", () => {
+      void desktopBridge.openWikiDocScreen();
+    });
+  } else {
+    wikidocScreenButton.addEventListener("click", () => {
+      globalThis.open("/wikidoc.html", "_blank");
+    });
+  }
   elements.pickProjectFolder.addEventListener("click", () => {
     void pickProjectFolder().catch(error => {
       elements.projectPickerNote.textContent = `Folder selection failed: ${error.message}`;

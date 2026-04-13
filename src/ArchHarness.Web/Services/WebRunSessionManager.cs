@@ -196,6 +196,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
 
     private static string? ResolveSnapshotPrompt(RunRequest request)
     {
+        request = RunRequestWorkflowDefaults.Apply(request);
         if (!string.IsNullOrWhiteSpace(request.TaskPrompt))
         {
             return request.TaskPrompt;

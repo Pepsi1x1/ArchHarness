@@ -44,6 +44,19 @@ public sealed class WebApiTests
         Assert.False(document.RootElement.GetProperty("gitHubOAuthEnabled").GetBoolean());
     }
 
+    [Fact]
+    public async Task WorkflowsEndpoint_IncludesWikiDoc()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        JsonDocument document = JsonDocument.Parse(await client.GetStringAsync("/api/workflows"));
+
+        Assert.Contains(
+            document.RootElement.EnumerateArray().Select(item => item.GetProperty("id").GetString()),
+            workflow => string.Equals(workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>
     /// GitHubOAuthDeviceFlowEndpoints — ReturnConfiguredResults
     /// </summary>
@@ -307,6 +320,32 @@ public sealed class WebApiTests
         JsonDocument resumeDocument = JsonDocument.Parse(await resumeResponse.Content.ReadAsStringAsync());
         Assert.Equal(RunStatuses.RESUMING, resumeDocument.RootElement.GetProperty("status").GetString());
         Assert.Equal(runId, resumeDocument.RootElement.GetProperty("runId").GetString());
+    }
+
+    [Fact]
+    public async Task StartRunEndpoint_AppliesWikiDocDefaults()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("wikidoc-run-workspace");
+
+        HttpResponseMessage response = await client.PostAsJsonAsync("/api/runs", new
+        {
+            taskPrompt = "",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            workflow = WorkflowNames.WIKIDOC,
+            projectName = "WikiDoc Workspace"
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.NotNull(factory.LastStartedRequest);
+        Assert.Equal(DefaultPrompts.WIKIDOC_TASK, factory.LastStartedRequest!.TaskPrompt);
+        Assert.Equal(WorkflowNames.WIKIDOC, factory.LastStartedRequest.Workflow);
+        Assert.NotNull(factory.LastStartedRequest.ReviewLoopAgents);
+        Assert.False(factory.LastStartedRequest.ReviewLoopAgents!.CodingStyleEnabled);
+        Assert.False(factory.LastStartedRequest.ReviewLoopAgents.SecurityEnabled);
+        Assert.False(factory.LastStartedRequest.ReviewLoopAgents.ArchitectureEnabled);
     }
 
     /// <summary>

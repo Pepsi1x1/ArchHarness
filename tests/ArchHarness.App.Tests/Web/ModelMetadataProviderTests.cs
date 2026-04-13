@@ -38,6 +38,9 @@ public sealed class ModelMetadataProviderTests : IDisposable
             CodingStyleModel: WellKnownModelNames.GPT_5_4,
             SecurityModel: WellKnownModelNames.GPT_5_4,
             ArchitectureModel: WellKnownModelNames.CLAUDE_OPUS_4_6,
+            WikiDocModel: WellKnownModelNames.GPT_5_4,
+            WikiDocReasoningEffort: "xhigh",
+            WikiDocParallelism: 4,
             DefaultPermissionHandlerMode: "approve-all",
             DefaultArchitectureReviewMode: false,
             DefaultArchitectureReviewPrompt: null));

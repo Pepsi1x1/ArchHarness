@@ -19,13 +19,6 @@ public interface IWikiDocMarkdownWriter
     /// </summary>
     Task<string[]> WriteConceptPagesAsync(string scanRoot, string outputRoot, IReadOnlyList<WikiDocConceptPage> conceptPages, List<string> filesTouched, CancellationToken cancellationToken);
 
-    /// <summary>Returns the workspace-relative form of <paramref name="fullPath"/>.</summary>
-    string ToWorkspaceRelativePath(string scanRoot, string fullPath);
-
-    /// <summary>
-    /// Ensures <paramref name="markdown"/> begins with a heading; prepends <c># {title}</c> if it does not.
-    /// </summary>
-    string EnsureHeading(string markdown, string title);
 }
 
 /// <summary>
@@ -82,26 +75,13 @@ public sealed class WikiDocMarkdownWriter : IWikiDocMarkdownWriter
             string conceptPath = await this.WriteMarkdownAsync(
                 outputRoot,
                 relativePath,
-                EnsureHeading(conceptPage.Markdown, conceptPage.Title),
+                WikiDocPathHelper.EnsureHeading(conceptPage.Markdown, conceptPage.Title),
                 cancellationToken).ConfigureAwait(false);
-            filesTouched.Add(ToWorkspaceRelativePath(scanRoot, conceptPath));
+            filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, conceptPath));
             paths.Add(conceptPath);
         }
 
         return paths.ToArray();
-    }
-
-    /// <inheritdoc />
-    public string ToWorkspaceRelativePath(string scanRoot, string fullPath)
-        => Path.GetRelativePath(scanRoot, fullPath);
-
-    /// <inheritdoc />
-    public string EnsureHeading(string markdown, string title)
-    {
-        string trimmed = markdown.Trim();
-        return trimmed.StartsWith('#')
-            ? trimmed
-            : $"# {title}{Environment.NewLine}{Environment.NewLine}{trimmed}";
     }
 
     private static string GetSafeOutputPath(string root, string relativePath)

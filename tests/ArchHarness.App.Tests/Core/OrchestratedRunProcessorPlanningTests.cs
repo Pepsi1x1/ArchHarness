@@ -53,9 +53,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
             CreateServices(copilotClient, runStateStore),
             CreateStateAccessors(),
             new StubRunAgentModelUsageBuilder(),
-            orchestrationAgent,
-            planningAgent,
-            new StubRunVerificationWorkflow(),
+            new OrchestratorPlanningServices(orchestrationAgent, planningAgent, new StubRunVerificationWorkflow()),
             new WikiDocRunServices(new StubWikiDocWorkflow()),
             approvalBridge: null,
             userInputBridge: null);

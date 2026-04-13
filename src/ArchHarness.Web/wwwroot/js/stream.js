@@ -5,10 +5,26 @@ import { requestJson } from './api.js';
 import { refreshActiveRun, syncSelectedRunStateToCurrentSelection } from './runs.js';
 import { loadProjects, renderTopbar } from './projects.js';
 
-export function ensureStreamSection(agentId, agentRole, title) {
-  if (!state.streamSections[agentId]) {
-    state.streamSections[agentId] = {
-      agentId,
+const _agentTurnCounters = {};
+const _agentCurrentSectionId = {};
+
+function resolveSectionId(agentId, isNewTurn) {
+  if (isNewTurn && _agentCurrentSectionId[agentId]) {
+    const count = (_agentTurnCounters[agentId] || 1) + 1;
+    _agentTurnCounters[agentId] = count;
+    const sectionId = `${agentId}#${count}`;
+    _agentCurrentSectionId[agentId] = sectionId;
+  } else if (!_agentCurrentSectionId[agentId]) {
+    _agentTurnCounters[agentId] = 1;
+    _agentCurrentSectionId[agentId] = agentId;
+  }
+  return _agentCurrentSectionId[agentId];
+}
+
+export function ensureStreamSection(sectionId, agentRole, title) {
+  if (!state.streamSections[sectionId]) {
+    state.streamSections[sectionId] = {
+      agentId: sectionId,
       agentRole,
       title: title || agentRole,
       segments: [],
@@ -18,10 +34,10 @@ export function ensureStreamSection(agentId, agentRole, title) {
       renderHandle: null,
       renderVersion: 0
     };
-    state.streamOrder.push(agentId);
+    state.streamOrder.push(sectionId);
   }
 
-  const section = state.streamSections[agentId];
+  const section = state.streamSections[sectionId];
   section.agentRole = agentRole || section.agentRole;
   section.title = title || section.title || section.agentRole;
   return section;
@@ -45,6 +61,14 @@ function getOrCreateToolGroup(section) {
   const last = section.segments[section.segments.length - 1];
   if (last?.type === "tool-group") return last;
   const seg = { type: "tool-group", calls: [] };
+  section.segments.push(seg);
+  return seg;
+}
+
+function getOrCreateReasoningSegment(section) {
+  const last = section.segments[section.segments.length - 1];
+  if (last?.type === "reasoning") return last;
+  const seg = { type: "reasoning", content: "", html: "" };
   section.segments.push(seg);
   return seg;
 }
@@ -75,6 +99,24 @@ function renderToolGroupHtml(seg) {
   return `<details class="stream-tool-calls"><summary class="stream-tool-calls-header">${label} (${count})</summary><ul class="stream-tool-calls-list">${items}</ul></details>`;
 }
 
+function captureDetailsState(container) {
+  const map = new Map();
+  if (!container) return map;
+  container.querySelectorAll("details").forEach((el, i) => {
+    const key = el.className + ":" + i;
+    map.set(key, el.open);
+  });
+  return map;
+}
+
+function restoreDetailsState(container, map) {
+  if (!container || !map.size) return;
+  container.querySelectorAll("details").forEach((el, i) => {
+    const key = el.className + ":" + i;
+    if (map.has(key)) el.open = map.get(key);
+  });
+}
+
 function buildSectionBodyHtml(section) {
   if (section.segments.length === 0) {
     return `<pre>Waiting for rendered markdown...</pre>`;
@@ -84,6 +126,10 @@ function buildSectionBodyHtml(section) {
     if (seg.type === "prompt") {
       const content = seg.html || (seg.content ? `<pre>${escapeHtml(seg.content)}</pre>` : "");
       return `<section class="stream-prompt-block"><div class="stream-prompt-label">Prompt</div>${content}</section>`;
+    }
+    if (seg.type === "reasoning") {
+      const content = seg.html || (seg.content ? `<pre>${escapeHtml(seg.content)}</pre>` : "");
+      return `<details class="stream-reasoning-block"><summary class="stream-reasoning-label">Reasoning</summary><div class="stream-reasoning-content">${content}</div></details>`;
     }
     return seg.html || (seg.content ? `<pre>${escapeHtml(seg.content)}</pre>` : "");
   }).join("");
@@ -248,7 +294,9 @@ function flushPendingRenders() {
       needsFullRender = true;
       break;
     }
+    const openState = captureDetailsState(container);
     setSanitizedHtml(container, buildSectionBodyHtml(section));
+    restoreDetailsState(container, openState);
   }
 
   if (needsFullRender) {
@@ -294,7 +342,7 @@ async function renderStreamSectionMarkdown(agentId) {
   }
 
   const version = ++section.renderVersion;
-  const textSegments = section.segments.filter(s => (s.type === "text" || s.type === "prompt") && s.content);
+  const textSegments = section.segments.filter(s => (s.type === "text" || s.type === "prompt" || s.type === "reasoning") && s.content);
 
   const renderedSegments = await Promise.all(textSegments.map(async seg => {
     try {
@@ -319,7 +367,9 @@ async function renderStreamSectionMarkdown(agentId) {
 
   const container = elements.streamSections.querySelector(`[data-agent-id="${CSS.escape(agentId)}"]`);
   if (container) {
+    const openState = captureDetailsState(container);
     setSanitizedHtml(container, buildSectionBodyHtml(section));
+    restoreDetailsState(container, openState);
     scrollStreamToBottom();
   } else {
     renderStream();
@@ -340,8 +390,10 @@ export function recordStreamEvent(entry, options = {}) {
   }
 
   const streamKind = readEventField(entry, "streamKind") || "assistant";
-  const title = streamKind === "tool-call" || streamKind === "prompt" ? null : readEventField(entry, "title");
-  const section = ensureStreamSection(agentId, agentRole, title);
+  const isNewTurn = streamKind === "prompt";
+  const sectionId = resolveSectionId(agentId, isNewTurn);
+  const title = streamKind === "tool-call" || streamKind === "prompt" || streamKind === "reasoning" ? null : readEventField(entry, "title");
+  const section = ensureStreamSection(sectionId, agentRole, title);
   if (section.segmentCount === 0) {
     hideAgentSpinningUp(agentRole);
   }
@@ -352,7 +404,7 @@ export function recordStreamEvent(entry, options = {}) {
     section.segmentCount += 1;
     section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
     if (!deferRender) {
-      scheduleIncrementalRender(agentId);
+      scheduleIncrementalRender(sectionId);
     }
     return;
   }
@@ -364,7 +416,18 @@ export function recordStreamEvent(entry, options = {}) {
     section.streamKind = streamKind;
 
     if (!deferRender) {
-      scheduleIncrementalRender(agentId);
+      scheduleIncrementalRender(sectionId);
+    }
+    return;
+  }
+
+  if (streamKind === "reasoning") {
+    const seg = getOrCreateReasoningSegment(section);
+    seg.content += message;
+    section.segmentCount += 1;
+    section.updatedAt = readEventField(entry, "timestampUtc") || new Date().toISOString();
+    if (!deferRender) {
+      scheduleIncrementalRender(sectionId);
     }
     return;
   }
@@ -376,7 +439,7 @@ export function recordStreamEvent(entry, options = {}) {
   section.streamKind = streamKind;
 
   if (!deferRender) {
-    scheduleIncrementalRender(agentId);
+    scheduleIncrementalRender(sectionId);
   }
 }
 
@@ -393,6 +456,8 @@ export function resetStream() {
   }
   state.streamSections = {};
   state.streamOrder = [];
+  Object.keys(_agentTurnCounters).forEach(k => delete _agentTurnCounters[k]);
+  Object.keys(_agentCurrentSectionId).forEach(k => delete _agentCurrentSectionId[k]);
   Object.keys(state.agentSpinningUp).forEach(key => {
     const el = state.agentSpinningUp[key];
     if (el?.parentNode) el.remove();

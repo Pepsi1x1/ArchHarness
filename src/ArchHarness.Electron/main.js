@@ -32,7 +32,9 @@ webHost.on("host-error", message => {
 });
 
 ipcHandlers.registerAll({
-  windowProvider: () => windowManager.mainWindow
+  windowProvider: () => windowManager.mainWindow,
+  hostUrlProvider: () => webHost.hostUrl,
+  windowManager
 });
 
 let shutdownComplete = false;

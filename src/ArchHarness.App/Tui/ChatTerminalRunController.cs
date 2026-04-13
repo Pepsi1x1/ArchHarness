@@ -11,7 +11,7 @@ public interface IChatTerminalRunController
     /// <summary>
     /// Runs the orchestrator and returns captured artifacts and progress when successful.
     /// </summary>
-    Task<ChatTerminalRunResult?> ExecuteAsync(RunRequest request, CancellationToken cancellationToken);
+    Task<ChatTerminalRunResult?> ExecuteAsync(RunRequest request, bool enableLiveMonitor, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -45,10 +45,18 @@ public sealed class ChatTerminalRunController : IChatTerminalRunController
     }
 
     /// <inheritdoc />
-    public async Task<ChatTerminalRunResult?> ExecuteAsync(RunRequest request, CancellationToken cancellationToken)
+    public async Task<ChatTerminalRunResult?> ExecuteAsync(RunRequest request, bool enableLiveMonitor, CancellationToken cancellationToken)
     {
         List<RuntimeProgressEvent> runEvents = new List<RuntimeProgressEvent>();
         Progress<RuntimeProgressEvent> progress = CreateRunProgress(runEvents);
+        if (!enableLiveMonitor)
+        {
+            RunArtefacts? commandArtefacts = await TryAwaitRunArtefactsAsync(
+                this._runtime.RunAsync(request, progress, cancellationToken: cancellationToken),
+                userCanceledRun: false,
+                cancellationToken).ConfigureAwait(false);
+            return commandArtefacts is null ? null : new ChatTerminalRunResult(commandArtefacts, runEvents);
+        }
 
         AgentStreamState agentStreamState = new(this._agentStreamEventStream);
         using CancellationTokenSource runCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

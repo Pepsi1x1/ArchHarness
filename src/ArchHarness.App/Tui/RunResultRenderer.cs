@@ -1,4 +1,5 @@
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Tui;
 
@@ -84,6 +85,15 @@ public static class RunResultRenderer
         ChatTerminalRenderer.WriteCenteredColored("Thanks for using ArchHarness", width, ConsoleColor.Cyan);
         ChatTerminalRenderer.WriteHRule(width);
         Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Renders a concise non-interactive completion message.
+    /// </summary>
+    public static void RenderCommandCompletion(RunArtefacts artefacts)
+    {
+        Console.WriteLine($"Run completed: {artefacts.RunId}");
+        Console.WriteLine($"Artifacts: {artefacts.RunDirectory}");
     }
 
     private static void WaitForExitInputIfInteractive()

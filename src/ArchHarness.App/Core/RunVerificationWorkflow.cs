@@ -24,6 +24,7 @@ public interface IRunVerificationWorkflow
 /// </summary>
 public sealed record RunVerificationRequest(
     RunRequest RunRequest,
+    string RunDirectory,
     ExecutionPlan Plan,
     ArchitectureReview Review,
     SecurityReview SecurityReview,
@@ -97,7 +98,10 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
                     request.Spec,
                     lastBuildOutcome,
                     evidence,
-                    filesTouched),
+                    filesTouched,
+                    request.RunRequest.WorkspacePath,
+                    request.RunDirectory,
+                    request.RunRequest.Workflow),
                 cancellationToken).ConfigureAwait(false);
 
             attempts.Add(new VerificationAttempt(

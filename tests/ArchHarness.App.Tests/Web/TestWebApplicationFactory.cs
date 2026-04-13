@@ -22,6 +22,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _tempRoot = TempWorkspaceHelper.CreateTempWorkspace();
     private readonly TestPersonalAccessTokenProtector _personalAccessTokenProtector = new TestPersonalAccessTokenProtector();
+    private readonly FakeWebRunSessionManager _runSessionManager = new();
     private Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> _azureDevOpsResponseFactory = static (_, _) => new HttpResponseMessage(HttpStatusCode.NotImplemented)
     {
         Content = new StringContent("Azure DevOps test response not configured.", Encoding.UTF8, "text/plain")
@@ -86,6 +87,8 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
         this._personalAccessTokenProtector.CanProtectTokens = canProtect;
     }
 
+    public RunRequest? LastStartedRequest => this._runSessionManager.LastStartedRequest;
+
     protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -141,7 +144,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             });
                 return catalog;
             });
-            services.AddSingleton<IWebRunSessionManager, FakeWebRunSessionManager>();
+            services.AddSingleton<IWebRunSessionManager>(this._runSessionManager);
             services.AddHttpClient<AzureDevOpsSourceControlService>()
                 .ConfigurePrimaryHttpMessageHandler(() => new StubHttpMessageHandler(this._azureDevOpsResponseFactory));
             services.AddHttpClient<GitHubSourceControlService>()
@@ -162,9 +165,11 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     {
         private readonly ConcurrentQueue<WebRunEvent> _events = new ConcurrentQueue<WebRunEvent>();
         private WebRunSnapshot _snapshot = new WebRunSnapshot(false, RunStatuses.IDLE, null, null, null, null, null, null, null);
+        public RunRequest? LastStartedRequest { get; private set; }
 
         public Task<WebRunSnapshot> StartRunAsync(RunRequest request, CancellationToken cancellationToken)
         {
+            this.LastStartedRequest = request;
             string runId = "test-run-001";
             this._snapshot = new WebRunSnapshot(
                 true,

@@ -14,6 +14,9 @@ public sealed record UpdatePersistedGlobalSettings(
     string CodingStyleModel,
     string SecurityModel,
     string ArchitectureModel,
+    string WikiDocModel,
+    string? WikiDocReasoningEffort,
+    int WikiDocParallelism,
     string DefaultPermissionHandlerMode,
     bool DefaultArchitectureReviewMode,
     string? DefaultArchitectureReviewPrompt)
@@ -32,5 +35,6 @@ public sealed record UpdatePersistedGlobalSettings(
         yield return this.CodingStyleModel;
         yield return this.SecurityModel;
         yield return this.ArchitectureModel;
+        yield return this.WikiDocModel;
     }
 }

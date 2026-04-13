@@ -22,6 +22,7 @@ export function applySettingsDefaults() {
   setSelectValue(elements.runMode, state.settings.defaults.architectureReviewMode ? "architecture-review" : "standard");
   elements.settingsArchitectureMode.checked = !!state.settings.defaults.architectureReviewMode;
   elements.settingsArchitecturePrompt.value = state.settings.defaults.architectureReviewPrompt || "";
+  elements.settingsWikidocParallelism.value = state.settings.defaults.wikidocParallelism ?? 4;
 }
 
 export function renderSettingsForm() {
@@ -130,7 +131,8 @@ function collectSettingsPayload() {
     defaults: {
       permissionHandlerMode: elements.settingsPermissionMode.value,
       architectureReviewMode: elements.settingsArchitectureMode.checked,
-      architectureReviewPrompt: elements.settingsArchitecturePrompt.value.trim() || null
+      architectureReviewPrompt: elements.settingsArchitecturePrompt.value.trim() || null,
+      wikidocParallelism: parseInt(elements.settingsWikidocParallelism.value, 10) || 4
     }
   };
 }

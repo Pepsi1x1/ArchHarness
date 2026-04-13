@@ -80,6 +80,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IRunVerificationWorkflow, RunVerificationWorkflow>();
         services.AddSingleton<IRunAgentModelUsageBuilder, RunAgentModelUsageBuilder>();
         services.AddSingleton<OrchestratorRunServices>();
+        services.AddSingleton<OrchestratorPlanningServices>();
         services.AddSingleton<IOrchestratedRunProcessor, OrchestratedRunProcessor>();
         services.AddSingleton<ArchitectureReviewLoop.LoopAgentDependencies>();
         services.AddSingleton<ArchitectureReviewLoop>();
