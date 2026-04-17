@@ -393,7 +393,7 @@ internal static class ProgramHandlers
             request.AgentModels.Security,
             request.AgentModels.Architecture,
             request.AgentModels.WikiDoc,
-            request.AgentReasoningEfforts is null ? currentSettings.WikiDocReasoningEffort : request.AgentReasoningEfforts.WikiDoc,
+            request.AgentReasoningEfforts is null || request.AgentReasoningEfforts.WikiDoc is null ? currentSettings.WikiDocReasoningEffort : request.AgentReasoningEfforts.WikiDoc,
             request.Defaults.WikiDocParallelism ?? currentSettings.WikiDocParallelism,
             request.Defaults.PermissionHandlerMode,
             request.Defaults.ArchitectureReviewMode,

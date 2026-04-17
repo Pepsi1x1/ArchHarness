@@ -22,7 +22,7 @@ import {
 import { loadBootstrap, loadProjects, createProject, pickProjectFolder } from './js/projects.js';
 import {
   loadSettings, renderSettingsForm, applySettingsDefaults,
-  saveSettings, switchSettingsTab, handleSettingsTabKeydown
+  saveSettings, switchSettingsTab, handleSettingsTabKeydown, closeSettingsDropdowns
 } from './js/settings.js';
 import {
   renderInlineInteraction, pollPendingInteraction,
@@ -40,6 +40,7 @@ import {
 } from './js/pull-request-review.js';
 
 registerModalPreClose("settings-modal", () => {
+  closeSettingsDropdowns();
   closeProviderSetup();
 });
 
@@ -202,11 +203,16 @@ function attachHandlers() {
     if (!composerDropdownClicked) {
       closeComposerDropdowns();
     }
+
+    if (!event.target.closest(".settings-dropdown")) {
+      closeSettingsDropdowns();
+    }
   });
   document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       closeWorkspaceBranchMenu();
       closeComposerDropdowns();
+      closeSettingsDropdowns();
     }
   });
 

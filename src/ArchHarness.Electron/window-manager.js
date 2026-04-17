@@ -9,6 +9,7 @@ class WindowManager {
   #preloadPath;
   #windowIconPath;
   #mainWindow = null;
+  #wikiDocWindows = new Set();
 
   constructor({ preloadPath, windowIconPath }) {
     this.#preloadPath = preloadPath;
@@ -46,6 +47,11 @@ class WindowManager {
       minWidth: 720,
       minHeight: 540,
       title: "ArchHarness \u2013 Wiki Docs"
+    });
+
+    this.#wikiDocWindows.add(wikiWindow);
+    wikiWindow.on("closed", () => {
+      this.#wikiDocWindows.delete(wikiWindow);
     });
 
     wikiWindow.loadURL(loadUrl).catch(error => {

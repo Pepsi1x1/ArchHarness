@@ -171,9 +171,12 @@ public sealed class ArtefactStore : IArtefactStore
     public async Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken)
     {
         string runDirectoryFull = Path.GetFullPath(runDirectory);
+        string runDirectoryPrefix = runDirectoryFull.EndsWith(Path.DirectorySeparatorChar)
+            ? runDirectoryFull
+            : runDirectoryFull + Path.DirectorySeparatorChar;
         List<JsonlAppendWriter> toComplete = new();
         string[] matchingKeys = WRITERS.Keys
-            .Where(key => key.StartsWith(runDirectoryFull, StringComparison.Ordinal))
+            .Where(key => key.StartsWith(runDirectoryPrefix, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         foreach (string key in matchingKeys)
         {

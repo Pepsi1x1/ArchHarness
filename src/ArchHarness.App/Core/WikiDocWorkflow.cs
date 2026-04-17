@@ -131,7 +131,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         progress?.Report(new RuntimeProgressEvent(
             DateTimeOffset.UtcNow,
             WellKnownSources.WIKIDOC,
-            $"wikidoc:progress:{alreadyCompleted}/{totalRepositories}:Starting documentation ({pendingRepositories.Count} repositories, {parallelism} parallel agents)"));
+            $"wikidoc:progress:starting:{alreadyCompleted}/{totalRepositories}"));
 
         try
         {
@@ -249,6 +249,8 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
             filesTouchedList,
             progress,
             cancellationToken).ConfigureAwait(false);
+
+        await WriteCheckpointAsync(runDirectory, repositoryOutputsList, megaWikiCompleted: true, cancellationToken).ConfigureAwait(false);
 
         WikiDocExecutionReport report = new WikiDocExecutionReport(
             scanRoot,

@@ -69,5 +69,6 @@ export const ROLE_LABELS = {
   build: "Build",
   codingStyle: "Coding Style",
   security: "Security",
-  architecture: "Architecture"
+  architecture: "Architecture",
+  wikidoc: "Wiki Docs"
 };

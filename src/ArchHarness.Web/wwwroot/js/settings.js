@@ -4,6 +4,8 @@ import { requestJson } from './api.js';
 import { populateSelect, setSelectValue } from './utils.js';
 import { closeModal } from './modals.js';
 
+let settingsMenuOpen = null;
+
 export async function loadSettings() {
   state.settings = await requestJson("/api/settings");
   const modelsResponse = await requestJson("/api/models");
@@ -32,101 +34,176 @@ export function renderSettingsForm() {
 
   elements.settingsGrid.replaceChildren();
   Object.entries(ROLE_LABELS).forEach(([key, label]) => {
+    const modelOptions = state.models.map(model => ({
+      value: model.modelId,
+      label: model.costBand ? `${model.displayName} • ${model.costBand}` : model.displayName
+    }));
+
+    const modelDropdown = createSettingsDropdown(
+      `settings-model-${key}`,
+      modelOptions,
+      state.settings.agentModels?.[key] || "",
+      (value) => {
+        if (key === "planning" || key === "wikidoc") {
+          const rWrap = document.querySelector(`[data-dropdown-id="settings-reasoning-${key}"]`);
+          if (rWrap) {
+            const newOpts = getReasoningOptions(value);
+            updateSettingsDropdown(rWrap, newOpts, newOpts.length ? rWrap.dataset.value || "" : "");
+          }
+        }
+      }
+    );
+
     const wrapper = document.createElement("div");
     wrapper.className = "field settings-field";
     const title = document.createElement("span");
     title.textContent = label;
-
-    const select = document.createElement("select");
-    select.id = `settings-model-${key}`;
-    state.models.forEach(model => {
-      const option = document.createElement("option");
-      option.value = model.modelId;
-      option.textContent = model.costBand
-        ? `${model.displayName} • ${model.costBand}`
-        : model.displayName;
-      select.append(option);
-    });
-
-    setSelectValue(select, state.settings.agentModels[key]);
-    wrapper.append(title, select);
-
-    if (key === "planning") {
-      const reasoningTitle = document.createElement("span");
-      reasoningTitle.textContent = "Planning Reasoning";
-
-      const reasoningSelect = document.createElement("select");
-      reasoningSelect.id = "settings-reasoning-planning";
-      populatePlanningReasoningSelect(
-        reasoningSelect,
-        select.value,
-        state.settings.agentReasoningEfforts?.planning || "");
-
-      select.addEventListener("change", () => {
-        populatePlanningReasoningSelect(reasoningSelect, select.value, reasoningSelect.value || "");
-      });
-
-      wrapper.append(reasoningTitle, reasoningSelect);
-    }
-
+    wrapper.append(title, modelDropdown);
     elements.settingsGrid.append(wrapper);
+
+    if (key === "planning" || key === "wikidoc") {
+      const reasoningOpts = getReasoningOptions(state.settings.agentModels?.[key] || "");
+      const currentReasoning = state.settings.agentReasoningEfforts?.[key] || "";
+      const reasoningDropdown = createSettingsDropdown(
+        `settings-reasoning-${key}`,
+        reasoningOpts,
+        reasoningOpts.find(o => o.value === currentReasoning) ? currentReasoning : "",
+        () => {}
+      );
+
+      const reasoningWrapper = document.createElement("div");
+      reasoningWrapper.className = "field settings-field";
+      reasoningWrapper.style.gridColumn = key === "wikidoc" ? "2" : "1";
+      const reasoningTitle = document.createElement("span");
+      reasoningTitle.textContent = key === "wikidoc" ? "Wiki Docs Reasoning" : "Planning Reasoning";
+      reasoningWrapper.append(reasoningTitle, reasoningDropdown);
+      elements.settingsGrid.append(reasoningWrapper);
+    }
   });
 }
 
-function getModelMetadata(modelId) {
-  return state.models.find(model => model.modelId === modelId) || null;
+function getReasoningOptions(modelId) {
+  const model = state.models.find(m => m.modelId === modelId);
+  const supported = Array.isArray(model?.supportedReasoningEfforts) ? model.supportedReasoningEfforts : [];
+  if (!supported.length) {
+    return [{ value: "", label: "Reasoning not supported", disabled: true }];
+  }
+  const defaultLabel = model.defaultReasoningEffort
+    ? `Model default (${model.defaultReasoningEffort})`
+    : "Model default";
+  return [
+    { value: "", label: defaultLabel },
+    ...supported.map(e => ({ value: e, label: e.toUpperCase() }))
+  ];
 }
 
-function populatePlanningReasoningSelect(select, modelId, selectedValue) {
-  select.replaceChildren();
+function createSettingsDropdown(id, options, selectedValue, onSelect) {
+  const wrap = document.createElement("div");
+  wrap.className = "settings-dropdown composer-dropdown";
+  wrap.dataset.dropdownId = id;
+  wrap.dataset.value = selectedValue || "";
 
-  const model = getModelMetadata(modelId);
-  let supportedReasoningEfforts = [];
-  if (Array.isArray(model?.supportedReasoningEfforts)) {
-    supportedReasoningEfforts = model.supportedReasoningEfforts;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "settings-dropdown-button composer-dropdown-button";
+  button.setAttribute("aria-haspopup", "menu");
+  button.setAttribute("aria-expanded", "false");
+
+  const labelSpan = document.createElement("span");
+  labelSpan.textContent = options.find(o => o.value === selectedValue)?.label || selectedValue || "";
+
+  const chevron = document.createElement("i");
+  chevron.className = "fa-solid fa-chevron-down";
+  chevron.setAttribute("aria-hidden", "true");
+  button.append(labelSpan, chevron);
+
+  const menu = document.createElement("div");
+  menu.className = "composer-dropdown-menu hidden";
+  menu.setAttribute("role", "menu");
+
+  function buildMenuItems(opts, val) {
+    menu.replaceChildren();
+    opts.forEach(opt => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "composer-dropdown-item";
+      item.setAttribute("role", "menuitemradio");
+      item.setAttribute("aria-checked", opt.value === val ? "true" : "false");
+      item.classList.toggle("current", opt.value === val);
+      item.textContent = opt.label;
+      item.disabled = !!opt.disabled;
+      item.addEventListener("click", e => {
+        e.stopPropagation();
+        wrap.dataset.value = opt.value;
+        labelSpan.textContent = opt.label;
+        menu.querySelectorAll(".composer-dropdown-item").forEach(i => {
+          const active = i === item;
+          i.classList.toggle("current", active);
+          i.setAttribute("aria-checked", active ? "true" : "false");
+        });
+        onSelect(opt.value);
+        closeSettingsDropdowns();
+      });
+      menu.append(item);
+    });
   }
-  let defaultLabel = "Reasoning not supported";
-  if (model?.defaultReasoningEffort) {
-    defaultLabel = `Model default (${model.defaultReasoningEffort})`;
-  } else if (supportedReasoningEfforts.length > 0) {
-    defaultLabel = "Model default";
-  }
 
-  const defaultOption = document.createElement("option");
-  defaultOption.value = "";
-  defaultOption.textContent = defaultLabel;
-  select.append(defaultOption);
+  buildMenuItems(options, selectedValue);
+  wrap._buildMenuItems = buildMenuItems;
 
-  supportedReasoningEfforts.forEach(reasoningEffort => {
-    const option = document.createElement("option");
-    option.value = reasoningEffort;
-    option.textContent = reasoningEffort.toUpperCase();
-    select.append(option);
+  const hasChoices = options.filter(o => !o.disabled).length > 0;
+  button.disabled = !hasChoices;
+
+  button.addEventListener("click", e => {
+    e.stopPropagation();
+    const isOpen = settingsMenuOpen === id;
+    closeSettingsDropdowns();
+    if (!isOpen && hasChoices) {
+      settingsMenuOpen = id;
+      wrap.classList.add("open");
+      menu.classList.remove("hidden");
+      button.setAttribute("aria-expanded", "true");
+    }
   });
 
-  select.disabled = supportedReasoningEfforts.length === 0;
-  if (select.disabled) {
-    select.value = "";
-    return;
-  }
+  wrap.append(button, menu);
+  return wrap;
+}
 
-  setSelectValue(select, supportedReasoningEfforts.includes(selectedValue) ? selectedValue : "");
+function updateSettingsDropdown(wrap, options, value) {
+  wrap.dataset.value = value || "";
+  const labelSpan = wrap.querySelector(".composer-dropdown-button span");
+  const selectedOpt = options.find(o => o.value === value);
+  if (labelSpan) labelSpan.textContent = selectedOpt?.label || value || "";
+  if (wrap._buildMenuItems) wrap._buildMenuItems(options, value);
+  const btn = wrap.querySelector(".settings-dropdown-button");
+  if (btn) btn.disabled = options.filter(o => !o.disabled).length === 0;
+}
+
+export function closeSettingsDropdowns() {
+  settingsMenuOpen = null;
+  document.querySelectorAll(".settings-dropdown.open").forEach(el => {
+    el.classList.remove("open");
+    el.querySelector(".composer-dropdown-menu")?.classList.add("hidden");
+    el.querySelector(".settings-dropdown-button")?.setAttribute("aria-expanded", "false");
+  });
 }
 
 function collectSettingsPayload() {
   const agentModels = {};
   Object.keys(ROLE_LABELS).forEach(key => {
-    agentModels[key] = document.getElementById(`settings-model-${key}`).value;
+    const wrap = document.querySelector(`[data-dropdown-id="settings-model-${key}"]`);
+    agentModels[key] = wrap?.dataset.value || null;
   });
 
-  const planningReasoningSelect = document.getElementById("settings-reasoning-planning");
+  const planningWrap = document.querySelector('[data-dropdown-id="settings-reasoning-planning"]');
+  const wikidocWrap = document.querySelector('[data-dropdown-id="settings-reasoning-wikidoc"]');
 
   return {
     agentModels,
     agentReasoningEfforts: {
-      planning: planningReasoningSelect && !planningReasoningSelect.disabled
-        ? planningReasoningSelect.value || null
-        : null
+      planning: planningWrap?.dataset.value || null,
+      wikidoc: wikidocWrap?.dataset.value || null
     },
     defaults: {
       permissionHandlerMode: elements.settingsPermissionMode.value,
