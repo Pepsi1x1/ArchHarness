@@ -17,6 +17,8 @@ namespace ArchHarness.App.Core;
 /// <param name="ProjectId">Optional stable project identifier associated with the run workspace.</param>
 /// <param name="RunTitle">Optional human-friendly title for the run.</param>
 /// <param name="PlanningSourceRunId">Optional planning run identifier whose approved artifacts seed execution without replanning.</param>
+/// <param name="PlanningSessionId">Optional durable planning-session identifier shared with the originating planning run. When set, the run participates in the session's conversation ledger and receives any post-handoff follow-up messages.</param>
+/// <param name="Attachments">Optional prompt attachments (e.g., images) accompanying <paramref name="TaskPrompt"/>. Forwarded into the orchestrator and delegated agent prompts when supplied.</param>
 public sealed record RunRequest(
     string TaskPrompt,
     string WorkspacePath,
@@ -31,7 +33,9 @@ public sealed record RunRequest(
     string? ArchitectureLoopPrompt = null,
     string? ProjectId = null,
     string? RunTitle = null,
-    string? PlanningSourceRunId = null
+    string? PlanningSourceRunId = null,
+    string? PlanningSessionId = null,
+    IReadOnlyList<PromptAttachment>? Attachments = null
 );
 
 /// <summary>
@@ -43,13 +47,19 @@ public sealed record RunRequest(
 /// <param name="DependsOnStepIds">Optional list of step IDs that must complete before this step can start. Used internally by the harness for review-chain ordering.</param>
 /// <param name="Languages">Optional language scope for review/enforcement steps (e.g., "dotnet", "vue3").</param>
 /// <param name="ParallelGroup">Execution batch group. Steps with the same ParallelGroup execute concurrently. Lower groups complete before higher groups start.</param>
+/// <param name="Attachments">Optional attachments (e.g., images) forwarded to the delegated agent as additional context.</param>
+/// <param name="Wave">The continuation wave this step belongs to. Initial-plan steps use wave 0; orchestrator-appended follow-up steps use incrementing wave values.</param>
+/// <param name="OriginHint">Optional marker describing why this step was inserted (e.g., "initial-plan", "review-followup", "user-follow-up").</param>
 public sealed record ExecutionPlanStep(
     int Id,
     string Agent,
     string Objective,
     IReadOnlyList<int>? DependsOnStepIds = null,
     IReadOnlyList<string>? Languages = null,
-    int ParallelGroup = 1);
+    int ParallelGroup = 1,
+    IReadOnlyList<PromptAttachment>? Attachments = null,
+    int Wave = 0,
+    string? OriginHint = null);
 
 /// <summary>
 /// Controls how many remediation iterations are allowed and whether review is required.
@@ -407,6 +417,9 @@ public sealed record ImplementationAssessment(
 /// <param name="Review">Architecture review produced by this step, if any.</param>
 /// <param name="SecurityReview">Security review produced by this step, if any.</param>
 /// <param name="BuildOutcome">Structured build outcome from this step, if any.</param>
+/// <param name="CompletionStatus">Structured self-reported completion status (see <see cref="StepCompletionStatuses"/>). Used by the orchestrator's continuation planner to decide whether additional waves are required.</param>
+/// <param name="UnresolvedWork">Bullet list of work the agent identified as still outstanding.</param>
+/// <param name="FollowUpHints">Structured hints the agent surfaces for the orchestrator to consider when planning a follow-up wave.</param>
 public sealed record StepOutcome(
     int StepId,
     string Agent,
@@ -414,7 +427,42 @@ public sealed record StepOutcome(
     string? FrontendPlanDelta = null,
     ArchitectureReview? Review = null,
     SecurityReview? SecurityReview = null,
-    BuildOutcome? BuildOutcome = null);
+    BuildOutcome? BuildOutcome = null,
+    string? CompletionStatus = null,
+    IReadOnlyList<string>? UnresolvedWork = null,
+    IReadOnlyList<StepFollowUpHint>? FollowUpHints = null);
+
+/// <summary>
+/// Well-known completion-status values a developer/review agent can self-report on a <see cref="StepOutcome"/>.
+/// </summary>
+public static class StepCompletionStatuses
+{
+    /// <summary>The step completed its objective and no additional work is required.</summary>
+    public const string COMPLETE = "complete";
+
+    /// <summary>The step made progress but additional work remains.</summary>
+    public const string PARTIAL = "partial";
+
+    /// <summary>The step did not produce meaningful progress (e.g., blocked, no-op).</summary>
+    public const string NO_PROGRESS = "no-progress";
+
+    /// <summary>The step is blocked pending user or upstream-agent input.</summary>
+    public const string BLOCKED = "blocked";
+}
+
+/// <summary>
+/// A structured hint emitted by a step outcome that the orchestrator's continuation planner may use
+/// to append additional steps. Agents surface hints but do not themselves append steps.
+/// </summary>
+/// <param name="Agent">The recommended agent role to handle the follow-up (e.g., "FrontendDeveloper").</param>
+/// <param name="Objective">A concise description of the follow-up objective.</param>
+/// <param name="Reason">Why the follow-up is needed.</param>
+/// <param name="Languages">Optional language scope for review-style follow-ups.</param>
+public sealed record StepFollowUpHint(
+    string Agent,
+    string Objective,
+    string Reason,
+    IReadOnlyList<string>? Languages = null);
 
 /// <summary>
 /// Result of structured completion validation with per-criterion evidence.

@@ -120,3 +120,24 @@ export async function requestEventStream(url, options) {
     flushBuffer(false);
   }
 }
+
+export function fetchPlanningSession(sessionId, workspacePath) {
+  const url = `/api/planning-sessions/${encodeURIComponent(sessionId)}?workspacePath=${encodeURIComponent(workspacePath)}`;
+  return requestJson(url);
+}
+
+export function postPlanningFollowUp(sessionId, { workspacePath, text, attachments, relatedRunId }) {
+  return requestJson(`/api/planning-sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspacePath,
+      role: "user",
+      kind: "follow-up",
+      text: text ?? "",
+      authorAgent: null,
+      relatedRunId: relatedRunId ?? null,
+      attachments: Array.isArray(attachments) && attachments.length > 0 ? attachments : null
+    })
+  });
+}

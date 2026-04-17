@@ -73,6 +73,9 @@ internal static class ProgramEndpointExtensions
         endpoints.MapPost("/api/interactions/permission", ProgramHandlers.SubmitPermission);
         endpoints.MapPost("/api/interactions/plan-approval", ProgramHandlers.SubmitPlanApproval);
 
+        endpoints.MapGet("/api/planning-sessions/{sessionId}", ProgramHandlers.GetPlanningSession);
+        endpoints.MapPost("/api/planning-sessions/{sessionId}/messages", ProgramHandlers.AppendPlanningSessionMessageAsync);
+
         return endpoints;
     }
 }

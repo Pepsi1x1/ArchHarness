@@ -133,7 +133,8 @@ internal sealed class SdkCopilotSession(
         try
         {
             using CancellationTokenRegistration registration = cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
-            Task sendTask = BeginSendAsync(() => handle.Session.SendAsync(new MessageOptions { Prompt = prompt, Mode = "immediate" }));
+            MessageOptions messageOptions = BuildMessageOptions(prompt, options);
+            Task sendTask = BeginSendAsync(() => handle.Session.SendAsync(messageOptions));
 
             await AwaitTurnCompletionAsync(
                 sendTask,
@@ -407,4 +408,41 @@ internal sealed class SdkCopilotSession(
         Func<long> GetLastEventTicks,
         int InactivityTimeoutSeconds,
         int AbsoluteTimeoutSeconds);
+
+    internal static MessageOptions BuildMessageOptions(string prompt, CopilotCompletionOptions? options)
+    {
+        MessageOptions messageOptions = new() { Prompt = prompt, Mode = "immediate" };
+        IReadOnlyList<PromptAttachment>? attachments = options?.Attachments;
+        if (attachments is null || attachments.Count == 0)
+        {
+            return messageOptions;
+        }
+
+        List<UserMessageDataAttachmentsItem> sdkItems = new(attachments.Count);
+        foreach (PromptAttachment attachment in attachments)
+        {
+            if (string.IsNullOrWhiteSpace(attachment.DataBase64))
+            {
+                // Only inline blob attachments are transported to the SDK today. Skip references
+                // that only carry a StoragePath; callers that persisted attachments must load
+                // the payload into DataBase64 before dispatch.
+                continue;
+            }
+
+            sdkItems.Add(new UserMessageDataAttachmentsItemBlob
+            {
+                Type = "blob",
+                Data = attachment.DataBase64,
+                MimeType = attachment.MimeType,
+                DisplayName = attachment.FileName,
+            });
+        }
+
+        if (sdkItems.Count > 0)
+        {
+            messageOptions.Attachments = sdkItems;
+        }
+
+        return messageOptions;
+    }
 }

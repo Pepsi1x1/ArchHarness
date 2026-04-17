@@ -85,13 +85,21 @@
       <section class="composer-panel panel">
         <div id="inline-interaction" class="inline-interaction hidden"></div>
 
+        <div id="prompt-attachments" class="prompt-attachments hidden" aria-label="Prompt attachments"></div>
+
         <label class="composer-field">
           <span class="sr-only">Prompt</span>
-          <textarea id="task-prompt" rows="4" placeholder="Describe the change or review you want ArchHarness to run."></textarea>
+          <textarea id="task-prompt" class="form-textarea" rows="4" placeholder="Describe the change or review you want ArchHarness to run."></textarea>
         </label>
+
+        <input id="prompt-attachment-input" type="file" accept="image/*" multiple class="hidden" aria-hidden="true" tabindex="-1" />
 
         <div class="composer-toolbar">
           <div class="composer-toolbar-options">
+            <button id="prompt-attachment-button" class="composer-dropdown-button" type="button" aria-label="Attach image">
+              <i class="fa-solid fa-paperclip" aria-hidden="true"></i>
+              <span>Attach</span>
+            </button>
             <div id="run-mode-wrap" class="composer-dropdown">
               <button id="run-mode-button" class="composer-dropdown-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Run mode">
                 <span id="run-mode-label">Standard</span>
@@ -137,6 +145,7 @@
             <button id="cancel-run" class="ghost-button small-button" type="button">Stop</button>
             <button id="resume-run-button" class="ghost-button small-button hidden" type="button">Resume</button>
             <button id="implement-run-button" class="ghost-button small-button hidden" type="button">Implement</button>
+            <button id="planning-followup-button" class="ghost-button small-button hidden" type="button">Send Follow-up</button>
             <button id="start-run" class="primary-button small-button" type="button">Send</button>
           </div>
         </div>

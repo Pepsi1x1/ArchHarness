@@ -233,6 +233,8 @@ public class OrchestrationAgent : AgentBase
             ("{{ClarificationSpecSection}}", BuildClarificationSpecSection(planningContext?.Spec)),
             ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(planningContext?.ClarificationAnswers)),
             ("{{PlanRevisionRequestSection}}", BuildPlanRevisionRequestSection(planningContext?.PlanRevisionRequest)),
+            ("{{ConversationHistorySection}}", BuildConversationHistorySection(planningContext?.ConversationHistory)),
+            ("{{AttachmentContextSection}}", BuildAttachmentContextSection(planningContext?.Attachments ?? request.Attachments)),
             ("{{EnabledReviewLoopAgents}}", reviewLoopAgents.DescribeEnabledAgents()),
             ("{{DisabledReviewLoopAgents}}", reviewLoopAgents.DescribeDisabledAgents()),
             ("{{ReviewLoopCompletionCriteria}}", string.Join(Environment.NewLine, reviewLoopAgents.BuildCompletionCriteria().Select(x => $"- {x}"))));
@@ -280,6 +282,7 @@ public class OrchestrationAgent : AgentBase
         RunRequest request,
         string workspaceRoot,
         IReadOnlyList<ClarificationAnswer>? clarificationAnswers = null,
+        IReadOnlyList<ConversationMessage>? conversationHistory = null,
         string? agentId = null,
         string? agentRole = null,
         CancellationToken cancellationToken = default)
@@ -294,7 +297,8 @@ public class OrchestrationAgent : AgentBase
             ("{{WorkspaceRoot}}", workspaceRoot),
             ("{{WorkspaceMode}}", request.WorkspaceMode),
             ("{{BuildCommand}}", buildCommand),
-            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(clarificationAnswers)));
+            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(clarificationAnswers)),
+            ("{{ConversationHistorySection}}", BuildConversationHistorySection(conversationHistory)));
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
         const int MAX_SPEC_ATTEMPTS = 3;
@@ -371,6 +375,46 @@ public class OrchestrationAgent : AgentBase
         }
 
         return $"PlanRevisionRequest:{Environment.NewLine}{planRevisionRequest.Trim()}";
+    }
+
+    private static string BuildConversationHistorySection(IReadOnlyList<ConversationMessage>? history)
+    {
+        if (history is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        List<string> lines = new(history.Count + 1) { "ConversationHistory:" };
+        foreach (ConversationMessage message in history)
+        {
+            string authorLabel = string.IsNullOrWhiteSpace(message.AuthorAgent)
+                ? message.Role
+                : $"{message.Role}/{message.AuthorAgent}";
+            string text = string.IsNullOrWhiteSpace(message.Text) ? string.Empty : message.Text.Trim();
+            int attachmentCount = message.Attachments?.Count ?? 0;
+            string attachmentSuffix = attachmentCount > 0 ? $" [+{attachmentCount} attachment(s)]" : string.Empty;
+            lines.Add($"- [{message.Kind}] {authorLabel}: {text}{attachmentSuffix}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildAttachmentContextSection(IReadOnlyList<PromptAttachment>? attachments)
+    {
+        if (attachments is not { Count: > 0 })
+        {
+            return string.Empty;
+        }
+
+        List<string> lines = new(attachments.Count + 1) { "AttachmentContext:" };
+        foreach (PromptAttachment attachment in attachments)
+        {
+            string fileName = string.IsNullOrWhiteSpace(attachment.FileName) ? "(unnamed)" : attachment.FileName!;
+            string caption = string.IsNullOrWhiteSpace(attachment.Caption) ? string.Empty : $" — {attachment.Caption}";
+            lines.Add($"- {attachment.Kind} {fileName} ({attachment.MimeType}, {attachment.SizeBytes} bytes){caption}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static string JoinValues(IReadOnlyList<string> values)

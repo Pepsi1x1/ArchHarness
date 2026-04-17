@@ -4,7 +4,23 @@ using ArchHarness.App.Workspace;
 namespace ArchHarness.App.Core;
 
 public sealed record PlanResumeContext(string RunId, string RunDirectory, PersistedRunState? ResumeState);
-public sealed record PlanningContext(ClarificationSpec? Spec, IReadOnlyList<ClarificationAnswer>? ClarificationAnswers, string? PlanRevisionRequest = null);
+
+/// <summary>
+/// Inputs the plan executor uses when building or revising a plan.
+/// </summary>
+/// <param name="Spec">The active clarification spec, if one has been produced.</param>
+/// <param name="ClarificationAnswers">The ordered clarification question/answer pairs collected so far.</param>
+/// <param name="PlanRevisionRequest">Optional free-form plan-revision instruction supplied by the user.</param>
+/// <param name="ConversationHistory">The planning-session conversation ledger up to (but not including) the current plan build. Used so the planning agent can consume chat history, attachment context, and post-handoff follow-up messages.</param>
+/// <param name="PlanningSessionId">Optional durable planning-session identifier linking this plan build to a shared session.</param>
+/// <param name="Attachments">Optional prompt attachments accompanying the latest user message (e.g., images).</param>
+public sealed record PlanningContext(
+    ClarificationSpec? Spec,
+    IReadOnlyList<ClarificationAnswer>? ClarificationAnswers,
+    string? PlanRevisionRequest = null,
+    IReadOnlyList<ConversationMessage>? ConversationHistory = null,
+    string? PlanningSessionId = null,
+    IReadOnlyList<PromptAttachment>? Attachments = null);
 
 /// <summary>
 /// Builds the execution plan via the orchestration agent and dispatches step execution.

@@ -1991,4 +1991,120 @@ public sealed class WebApiTests
         Assert.True(root.TryGetProperty("defaults", out _));
         Assert.True(root.TryGetProperty("updatedAtUtc", out _));
     }
+
+    /// <summary>
+    /// PlanningSessionEndpoint — ReturnsBadRequestWhenWorkspacePathMissing
+    /// </summary>
+    [Fact]
+    public async Task PlanningSessionEndpoint_ReturnsBadRequestWhenWorkspacePathMissing()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/planning-sessions/s-1?workspacePath=");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    /// <summary>
+    /// PlanningSessionEndpoint — ReturnsNotFoundForUnknownSession
+    /// </summary>
+    [Fact]
+    public async Task PlanningSessionEndpoint_ReturnsNotFoundForUnknownSession()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("planning-session-missing");
+
+        await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Planning Session Missing",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+
+        HttpResponseMessage response = await client.GetAsync($"/api/planning-sessions/missing-id?workspacePath={Uri.EscapeDataString(workspacePath)}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// PlanningSessionEndpoint — RoundTripsFollowUpMessageWithAttachment
+    /// </summary>
+    [Fact]
+    public async Task PlanningSessionEndpoint_RoundTripsFollowUpMessageWithAttachment()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("planning-session-roundtrip");
+
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Planning Session Roundtrip",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        // Seed a planning session via the store so the recorder can append to it.
+        ArchHarness.App.Storage.PlanningSessionStore store = new ArchHarness.App.Storage.PlanningSessionStore();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        ArchHarness.App.Core.PlanningSession seed = new ArchHarness.App.Core.PlanningSession(
+            "session-web-1",
+            now,
+            now,
+            "plan-run-1",
+            ImplementationRunId: null,
+            Messages: Array.Empty<ArchHarness.App.Core.ConversationMessage>());
+        await store.WriteAsync(workspacePath, seed, CancellationToken.None);
+
+        object payload = new
+        {
+            workspacePath,
+            role = ArchHarness.App.Core.ConversationRoles.USER,
+            kind = ArchHarness.App.Core.ConversationMessageKinds.FOLLOW_UP,
+            text = "please tweak the dashboard",
+            authorAgent = (string?)null,
+            relatedRunId = "impl-1",
+            attachments = new[]
+            {
+                new
+                {
+                    id = "att-1",
+                    kind = ArchHarness.App.Core.PromptAttachmentKinds.IMAGE,
+                    mimeType = "image/png",
+                    fileName = "mock.png",
+                    sizeBytes = 512L,
+                    dataBase64 = "AAA=",
+                    storagePath = (string?)null,
+                    caption = "screenshot"
+                }
+            }
+        };
+
+        HttpResponseMessage appendResponse = await client.PostAsJsonAsync(
+            "/api/planning-sessions/session-web-1/messages",
+            payload);
+        Assert.Equal(HttpStatusCode.OK, appendResponse.StatusCode);
+
+        HttpResponseMessage getResponse = await client.GetAsync(
+            $"/api/planning-sessions/session-web-1?workspacePath={Uri.EscapeDataString(workspacePath)}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        JsonDocument document = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync());
+        JsonElement messages = document.RootElement.GetProperty("messages");
+        JsonElement message = Assert.Single(messages.EnumerateArray());
+        Assert.Equal(ArchHarness.App.Core.ConversationMessageKinds.FOLLOW_UP, message.GetProperty("kind").GetString());
+        Assert.Equal("please tweak the dashboard", message.GetProperty("text").GetString());
+        Assert.Equal("impl-1", message.GetProperty("relatedRunId").GetString());
+        JsonElement attachment = Assert.Single(message.GetProperty("attachments").EnumerateArray());
+        Assert.Equal("att-1", attachment.GetProperty("id").GetString());
+        Assert.Equal("mock.png", attachment.GetProperty("fileName").GetString());
+    }
 }

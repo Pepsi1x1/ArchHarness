@@ -4,6 +4,7 @@ import { setSelectValue, getSelectDisplayLabel } from './utils.js';
 import { saveShellState } from './shell-persistence.js';
 import { closeWorkspaceBranchMenu } from './branch.js';
 import { buildDropdownMenuItems } from './dropdown.js';
+import { collectSubmissionAttachments } from './attachments.js';
 
 export function normalizeReviewLoopAgents(selection) {
   const normalized = {
@@ -145,6 +146,8 @@ export function collectRunRequest() {
     ? "Generate comprehensive wiki documentation for this workspace."
     : prompt;
 
+  const attachments = collectSubmissionAttachments();
+
   return {
     taskPrompt: effectivePrompt,
     workspacePath: project.workspacePath,
@@ -157,7 +160,8 @@ export function collectRunRequest() {
     permissionHandlerMode: wikiDocMode ? "approve-all" : (elements.permissionMode.value || project.permissionHandlerMode),
     reviewLoopAgents,
     architectureLoopMode,
-    architectureLoopPrompt
+    architectureLoopPrompt,
+    attachments: attachments.length > 0 ? attachments : null
   };
 }
 

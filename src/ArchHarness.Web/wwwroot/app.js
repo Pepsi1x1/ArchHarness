@@ -17,7 +17,7 @@ import {
 import {
   startRun, pauseRun, cancelRun, resumeSelectedRun,
   startImplementationFromPlanningRun, renderRunDetailsActions,
-  refreshActiveRun, loadSelectedRunStream
+  refreshActiveRun, loadSelectedRunStream, sendPlanningFollowUp
 } from './js/runs.js';
 import { loadBootstrap, loadProjects, createProject, pickProjectFolder } from './js/projects.js';
 import {
@@ -38,7 +38,7 @@ import {
   openReviewPrModal, handleReviewPrBack, startPullRequestReview,
   handleReviewPrNext, clearPullRequestFilter, pickReviewPrFolder
 } from './js/pull-request-review.js';
-
+import { initAttachments } from './js/attachments.js';
 registerModalPreClose("settings-modal", () => {
   closeSettingsDropdowns();
   closeProviderSetup();
@@ -119,9 +119,14 @@ function attachHandlers() {
     console.error("Implementation handoff failed:", error);
     renderRunDetailsActions();
   }));
+  elements.planningFollowUp?.addEventListener("click", () => sendPlanningFollowUp().catch(error => {
+    console.error("Planning follow-up failed:", error);
+    renderRunDetailsActions();
+  }));
   elements.taskPrompt.addEventListener("input", () => {
     saveShellState();
     renderComposerState();
+    renderRunDetailsActions();
   });
   [elements.runMode, elements.permissionMode, elements.architectureReviewPreset].forEach(control => {
     control.addEventListener("input", () => {
@@ -266,6 +271,7 @@ async function init() {
   attachHandlers();
   restoreShellState();
   clearLegacyAutofillPrompt();
+  initAttachments();
   await Promise.all([loadBootstrap(), warmModelDiscovery()]);
   await loadSettings();
   await loadProjects();

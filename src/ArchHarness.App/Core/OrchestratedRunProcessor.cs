@@ -50,6 +50,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
     private readonly ICopilotUserInputBridge? _userInputBridge;
     private readonly OrchestratorPlanningServices _planningServices;
     private readonly WikiDocRunServices _wikiDocServices;
+    private readonly ArchHarness.App.Storage.PlanningSessionRecorder? _planningSessionRecorder;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratedRunProcessor"/> class.
@@ -61,7 +62,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         OrchestratorPlanningServices planningServices,
         WikiDocRunServices wikiDocServices,
         IPlanApprovalBridge? approvalBridge = null,
-        ICopilotUserInputBridge? userInputBridge = null)
+        ICopilotUserInputBridge? userInputBridge = null,
+        ArchHarness.App.Storage.PlanningSessionRecorder? planningSessionRecorder = null)
     {
         this._services = services;
         this._stateAccessors = stateAccessors;
@@ -70,6 +72,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         this._wikiDocServices = wikiDocServices;
         this._approvalBridge = approvalBridge;
         this._userInputBridge = userInputBridge;
+        this._planningSessionRecorder = planningSessionRecorder;
     }
 
     /// <inheritdoc />
@@ -113,6 +116,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                     null,
                     cancellationToken).ConfigureAwait(false);
                 progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, RUN_STARTED_MESSAGE));
+                await this.EnsurePlanningSessionForRunStartAsync(request, adapter.RootPath, runId, cancellationToken).ConfigureAwait(false);
             }
             else
             {
@@ -533,9 +537,10 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             request,
             workspaceRoot,
             clarificationAnswers,
-            clarificationAgent.Id,
-            clarificationAgent.Role,
-            cancellationToken).ConfigureAwait(false);
+            conversationHistory: null,
+            agentId: clarificationAgent.Id,
+            agentRole: clarificationAgent.Role,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
 
@@ -590,9 +595,10 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 request,
                 workspaceRoot,
                 clarificationAnswers,
-                clarificationAgent.Id,
-                clarificationAgent.Role,
-                cancellationToken).ConfigureAwait(false);
+                conversationHistory: null,
+                agentId: clarificationAgent.Id,
+                agentRole: clarificationAgent.Role,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             await this.PersistClarificationStateAsync(runId, runDirectory, spec, clarificationAnswers, cancellationToken).ConfigureAwait(false);
         }
 
@@ -797,6 +803,15 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             cancellationToken,
             RunStatuses.COMPLETED).ConfigureAwait(false);
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, PLANNING_COMPLETED_MESSAGE));
+        await this.AppendPlanningSessionMessageAsync(
+            request,
+            checkpoint.WorkspaceRoot,
+            checkpoint.RunId,
+            ConversationRoles.SYSTEM,
+            ConversationMessageKinds.HANDOFF,
+            "Planning complete; ready for implementation handoff.",
+            authorAgent: WellKnownSources.ORCHESTRATOR,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<(ArchitectureReview Review, SecurityReview SecurityReview, IReadOnlyList<string> FilesTouched)> RunArchitectureLoopAsync(
@@ -1017,6 +1032,98 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
     private static bool IsWikiDocWorkflow(string? workflow)
         => string.Equals(workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase);
+
+    private async Task EnsurePlanningSessionForRunStartAsync(
+        RunRequest request,
+        string workspaceRoot,
+        string runId,
+        CancellationToken cancellationToken)
+    {
+        if (this._planningSessionRecorder is null)
+        {
+            return;
+        }
+
+        string? sessionId = request.PlanningSessionId;
+        // Only auto-track sessions when explicitly linked or for planning-workflow runs.
+        if (string.IsNullOrWhiteSpace(sessionId) && !IsPlanningWorkflow(request.Workflow))
+        {
+            return;
+        }
+
+        try
+        {
+            string effectiveSessionId = string.IsNullOrWhiteSpace(sessionId) ? runId : sessionId!;
+            await this._planningSessionRecorder.EnsureAsync(workspaceRoot, effectiveSessionId, runId, cancellationToken).ConfigureAwait(false);
+
+            // Record the initial user message + attachments so the ledger reflects the full task history.
+            await this._planningSessionRecorder.AppendMessageAsync(
+                workspaceRoot,
+                effectiveSessionId,
+                ConversationRoles.USER,
+                ConversationMessageKinds.CHAT,
+                request.TaskPrompt ?? string.Empty,
+                request.Attachments,
+                authorAgent: null,
+                relatedRunId: runId,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            // If this is an implementation run continuing a planning session, link it now.
+            if (!string.IsNullOrWhiteSpace(request.PlanningSessionId) && !IsPlanningWorkflow(request.Workflow))
+            {
+                await this._planningSessionRecorder.LinkImplementationRunAsync(
+                    workspaceRoot,
+                    request.PlanningSessionId!,
+                    runId,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // Best-effort: failing to record planning-session state must not break the run.
+        }
+    }
+
+    private async Task AppendPlanningSessionMessageAsync(
+        RunRequest request,
+        string workspaceRoot,
+        string runId,
+        string role,
+        string kind,
+        string text,
+        string? authorAgent,
+        CancellationToken cancellationToken)
+    {
+        if (this._planningSessionRecorder is null)
+        {
+            return;
+        }
+
+        string? sessionId = request.PlanningSessionId;
+        if (string.IsNullOrWhiteSpace(sessionId) && !IsPlanningWorkflow(request.Workflow))
+        {
+            return;
+        }
+
+        try
+        {
+            string effectiveSessionId = string.IsNullOrWhiteSpace(sessionId) ? runId : sessionId!;
+            await this._planningSessionRecorder.AppendMessageAsync(
+                workspaceRoot,
+                effectiveSessionId,
+                role,
+                kind,
+                text,
+                attachments: null,
+                authorAgent: authorAgent,
+                relatedRunId: runId,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Best-effort.
+        }
+    }
 
     private async Task ExecuteWikiDocWorkflowAsync(
         RunStateCheckpoint checkpoint,

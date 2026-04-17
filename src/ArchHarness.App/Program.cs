@@ -39,9 +39,12 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IProjectWorkspaceCatalog, FileSystemProjectWorkspaceCatalog>();
         services.AddSingleton<IRunHistoryCatalog, FileSystemRunHistoryCatalog>();
         services.AddSingleton<IDiscoveredModelCatalog, DiscoveredModelCatalog>();
+        services.AddSingleton<IPlanningSessionStore, PlanningSessionStore>();
+        services.AddSingleton<PlanningSessionRecorder>();
         services.AddSingleton<ICopilotGovernancePolicy, CopilotGovernancePolicy>();
         services.AddSingleton<IModelResolver, ModelResolver>();
         services.AddSingleton<IStartupPreflightValidator, CopilotStartupPreflightValidator>();
+        services.AddSingleton<ICopilotCapabilityProbe, CopilotCapabilityProbe>();
         services.AddSingleton<ICopilotSessionFactory, CopilotSessionFactory>();
         services.AddSingleton<CopilotClientProvider>();
         services.AddSingleton<ICopilotClientProvider>(sp => sp.GetRequiredService<CopilotClientProvider>());
@@ -88,6 +91,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<AgentStepReviewDispatcher>();
         services.AddSingleton<IAgentStepDispatcher, AgentStepDispatcher>();
         services.AddSingleton<IStepExecutionStateStore, StepExecutionStateStore>();
+        services.AddSingleton<IContinuationPlanner, DeterministicContinuationPlanner>();
         services.AddSingleton<AgentStepExecutor>();
         services.AddSingleton<IAgentStepExecutor>(sp => sp.GetRequiredService<AgentStepExecutor>());
         services.AddSingleton<ExecutionPlanParser>();

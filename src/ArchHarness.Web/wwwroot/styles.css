@@ -1199,6 +1199,93 @@ textarea {
   resize: vertical;
 }
 
+/* Phase 4b: shared multiline form-input appearance. Applied to the main
+   composer textarea and any inline/modal textareas so every surface matches
+   the primary prompt input. */
+.form-textarea,
+.inline-interaction-field textarea,
+.modal-card textarea {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  padding: 13px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.form-textarea:focus,
+.inline-interaction-field textarea:focus,
+.modal-card textarea:focus {
+  outline: 2px solid var(--accent, rgba(72, 138, 255, 0.7));
+  outline-offset: 1px;
+}
+
+.form-textarea.is-drop-target,
+#task-prompt.is-drop-target {
+  outline: 2px dashed var(--accent, rgba(72, 138, 255, 0.8));
+  outline-offset: -2px;
+  background: rgba(72, 138, 255, 0.08);
+}
+
+/* Phase 4a: prompt attachment chips. */
+.prompt-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+
+.prompt-attachments.hidden {
+  display: none !important;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  max-width: 220px;
+}
+
+.attachment-chip-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.attachment-chip-label {
+  font-size: 0.78rem;
+  color: var(--muted-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip-remove {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  line-height: 1;
+}
+
+.attachment-chip-remove:hover,
+.attachment-chip-remove:focus {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
 .path-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

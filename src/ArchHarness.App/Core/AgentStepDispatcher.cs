@@ -73,7 +73,12 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
                 string frontendPlan = newFiles.Count > 0
                     ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
                     : "Frontend developer step executed.";
-                return new StepOutcome(step.Id, step.Agent, newFiles, FrontendPlanDelta: frontendPlan);
+                return new StepOutcome(
+                    step.Id,
+                    step.Agent,
+                    newFiles,
+                    FrontendPlanDelta: frontendPlan,
+                    CompletionStatus: StepCompletionStatuses.COMPLETE);
             }
 
             case AgentNames.BACKEND_DEVELOPER:
@@ -87,7 +92,11 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
                     this._backendDeveloper.Role,
                     cancellationToken).ConfigureAwait(false);
 
-                return new StepOutcome(step.Id, step.Agent, newFiles);
+                return new StepOutcome(
+                    step.Id,
+                    step.Agent,
+                    newFiles,
+                    CompletionStatus: StepCompletionStatuses.COMPLETE);
             }
 
             case AgentNames.BUILD:

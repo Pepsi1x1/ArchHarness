@@ -35,9 +35,11 @@ Constraints:
 - If there are no open questions, set openQuestions to an empty array.
 - Scope and constraints should be derived from the task prompt and workspace context.
 - Use any prior clarification answers as resolved context. Do not repeat an answered question in openQuestions unless the answer still leaves a concrete ambiguity.
+- When ConversationHistory is present, fold prior chat turns, plan decisions, and post-handoff follow-up messages into the spec. Do not re-open a question that a prior message has already answered.
 
 TaskPrompt: {{TaskPrompt}}
 WorkspaceRoot: {{WorkspaceRoot}}
 WorkspaceMode: {{WorkspaceMode}}
 BuildCommand: {{BuildCommand}}
 {{ClarificationAnswersSection}}
+{{ConversationHistorySection}}

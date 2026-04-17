@@ -1468,7 +1468,120 @@ internal static class ProgramHandlers
             : "pat";
         return new GitAuthenticationOptions(username, providerSettings.PersonalAccessToken.Trim());
     }
+
+    public static IResult GetPlanningSession(
+        string sessionId,
+        string workspacePath,
+        IPlanningSessionStore store,
+        IProjectWorkspaceCatalog projectCatalog)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return Results.BadRequest(new { error = "sessionId is required." });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
+        }
+
+        string workspaceRoot = Path.GetFullPath(workspacePath);
+        PlanningSession? session = store.Get(workspaceRoot, sessionId);
+        if (session is null)
+        {
+            return Results.NotFound(new { error = $"Planning session '{sessionId}' not found." });
+        }
+
+        return Results.Ok(session);
+    }
+
+    public static async Task<IResult> AppendPlanningSessionMessageAsync(
+        string sessionId,
+        AppendPlanningSessionMessageRequest request,
+        PlanningSessionRecorder recorder,
+        IProjectWorkspaceCatalog projectCatalog,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return Results.BadRequest(new { error = "Request body required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return Results.BadRequest(new { error = "sessionId is required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.WorkspacePath))
+        {
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
+        }
+
+        if (!IsKnownWorkspacePath(request.WorkspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
+        }
+
+        string role = string.IsNullOrWhiteSpace(request.Role) ? ConversationRoles.USER : request.Role!;
+        string kind = string.IsNullOrWhiteSpace(request.Kind) ? ConversationMessageKinds.FOLLOW_UP : request.Kind!;
+        string text = request.Text ?? string.Empty;
+
+        IReadOnlyList<PromptAttachment>? attachments = request.Attachments?
+            .Where(a => a is not null)
+            .Select(a => new PromptAttachment(
+                string.IsNullOrWhiteSpace(a.Id) ? Guid.NewGuid().ToString("N") : a.Id,
+                string.IsNullOrWhiteSpace(a.Kind) ? PromptAttachmentKinds.IMAGE : a.Kind,
+                a.MimeType ?? "application/octet-stream",
+                a.FileName,
+                a.SizeBytes ?? 0L,
+                a.DataBase64,
+                a.StoragePath,
+                a.Caption))
+            .ToArray();
+
+        string workspaceRoot = Path.GetFullPath(request.WorkspacePath);
+        PlanningSession? updated = await recorder.AppendMessageAsync(
+            workspaceRoot,
+            sessionId,
+            role,
+            kind,
+            text,
+            attachments,
+            authorAgent: request.AuthorAgent,
+            relatedRunId: request.RelatedRunId,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (updated is null)
+        {
+            return Results.NotFound(new { error = $"Planning session '{sessionId}' not found." });
+        }
+
+        return Results.Ok(updated);
+    }
 }
 
 internal sealed record PullRequestLookupContext(string ProviderName, string? Project, string? Repository, string? Author);
 
+internal sealed record AppendPlanningSessionMessageRequest(
+    string? WorkspacePath,
+    string? Role,
+    string? Kind,
+    string? Text,
+    string? AuthorAgent,
+    string? RelatedRunId,
+    IReadOnlyList<AppendPlanningSessionAttachmentPayload>? Attachments);
+
+internal sealed record AppendPlanningSessionAttachmentPayload(
+    string? Id,
+    string? Kind,
+    string? MimeType,
+    string? FileName,
+    long? SizeBytes,
+    string? DataBase64,
+    string? StoragePath,
+    string? Caption);
