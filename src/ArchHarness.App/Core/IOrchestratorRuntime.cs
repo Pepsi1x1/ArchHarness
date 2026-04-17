@@ -26,4 +26,15 @@ public interface IOrchestratorRuntime
         IProgress<RuntimeProgressEvent>? progress = null,
         Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Regenerates only the megawiki (Home.md and cross-repository concept pages) for a
+    /// completed or partially-completed wikidoc run. Does not re-run any per-repository
+    /// documentation agents; reuses the outputs recorded in WikiDocCheckpoint.json.
+    /// </summary>
+    Task<RunArtefacts> RegenerateMegaWikiAsync(
+        PersistedRunState runState,
+        IProgress<RuntimeProgressEvent>? progress = null,
+        Action<string, string>? onRunContextEstablished = null,
+        CancellationToken cancellationToken = default);
 }

@@ -59,6 +59,7 @@ internal static class ProgramEndpointExtensions
         endpoints.MapPost("/api/runs/{runId}/handoff", ProgramHandlers.StartImplementationFromPlanningRunAsync);
         endpoints.MapPost("/api/runs", ProgramHandlers.StartRunAsync);
         endpoints.MapPost("/api/runs/{runId}/resume", ProgramHandlers.ResumeRunAsync);
+        endpoints.MapPost("/api/runs/{runId}/wikidoc/regenerate-megawiki", ProgramHandlers.RegenerateMegaWikiAsync);
         endpoints.MapPost("/api/runs/active/pause", ProgramHandlers.PauseActiveRunAsync);
         endpoints.MapDelete("/api/runs/active", ProgramHandlers.CancelActiveRunAsync);
         endpoints.MapGet("/api/runs/active", ProgramHandlers.GetActiveRun);

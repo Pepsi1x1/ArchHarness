@@ -19,6 +19,7 @@ const browseButton = document.getElementById("wikidoc-browse");
 const promptInput = document.getElementById("wikidoc-prompt");
 const generateButton = document.getElementById("wikidoc-generate");
 const resumeButton = document.getElementById("wikidoc-resume");
+const regenerateMegaWikiButton = document.getElementById("wikidoc-regenerate-megawiki");
 const statusEl = document.getElementById("wikidoc-status");
 const streamEmptyEl = document.getElementById("wikidoc-stream-empty");
 const streamSectionsEl = document.getElementById("wikidoc-stream-sections");
@@ -37,6 +38,7 @@ let streamOrder = [];
 let streamAutoScroll = true;
 let refreshHandle = null;
 let resumableRun = null;
+let regenerableRun = null;
 let progressTotal = 0;
 let progressDone = 0;
 let activeAgents = new Map(); // repoName → startTime
@@ -69,6 +71,7 @@ async function startWikiDocRun() {
   generateButton.disabled = true;
   generateButton.textContent = "Generating…";
   hideResumeButton();
+  hideRegenerateMegaWikiButton();
   setStatus("Starting run…");
 
   resetStream();
@@ -112,6 +115,7 @@ async function checkForResumableRun() {
   const scanRoot = folderInput.value.trim();
   if (!scanRoot) {
     hideResumeButton();
+    hideRegenerateMegaWikiButton();
     return;
   }
 
@@ -119,27 +123,41 @@ async function checkForResumableRun() {
     const runs = await requestJson(`/api/runs?workspacePath=${encodeURIComponent(scanRoot)}&maxCount=5`);
     if (!Array.isArray(runs) || runs.length === 0) {
       hideResumeButton();
+      hideRegenerateMegaWikiButton();
       return;
     }
 
+    let foundResumable = false;
+    let foundRegenerable = false;
     for (const run of runs) {
       try {
         const state = await requestJson(
           `/api/runs/${encodeURIComponent(run.runId)}/state?workspacePath=${encodeURIComponent(scanRoot)}`
         );
-        if (state?.workflow === WIKIDOC_WORKFLOW && state?.canResume) {
+        if (state?.workflow !== WIKIDOC_WORKFLOW) continue;
+        if (!foundResumable && state?.canResume) {
           resumableRun = { runId: run.runId, workspacePath: scanRoot };
           showResumeButton();
-          return;
+          foundResumable = true;
         }
+        // A completed wikidoc run (or any non-running one with a completed-repo checkpoint)
+        // is eligible for megawiki-only regeneration — pick the most recent match.
+        if (!foundRegenerable && state?.status && state.status !== "running" && state.status !== "starting" && state.status !== "resuming") {
+          regenerableRun = { runId: run.runId, workspacePath: scanRoot };
+          showRegenerateMegaWikiButton();
+          foundRegenerable = true;
+        }
+        if (foundResumable && foundRegenerable) return;
       } catch {
         // Skip runs whose state cannot be read.
       }
     }
 
-    hideResumeButton();
+    if (!foundResumable) hideResumeButton();
+    if (!foundRegenerable) hideRegenerateMegaWikiButton();
   } catch {
     hideResumeButton();
+    hideRegenerateMegaWikiButton();
   }
 }
 
@@ -150,6 +168,15 @@ function showResumeButton() {
 function hideResumeButton() {
   resumableRun = null;
   resumeButton.classList.add("hidden");
+}
+
+function showRegenerateMegaWikiButton() {
+  regenerateMegaWikiButton.classList.remove("hidden");
+}
+
+function hideRegenerateMegaWikiButton() {
+  regenerableRun = null;
+  regenerateMegaWikiButton.classList.add("hidden");
 }
 
 async function resumeWikiDocRun() {
@@ -180,6 +207,41 @@ async function resumeWikiDocRun() {
     resumeButton.textContent = "Resume";
     generateButton.disabled = false;
     setStatus(`Failed to resume: ${error.message || "Unknown error"}`, "error");
+    hideStreamStarting();
+  }
+}
+
+async function regenerateMegaWikiRun() {
+  if (!regenerableRun) return;
+
+  const { runId, workspacePath } = regenerableRun;
+  regenerateMegaWikiButton.disabled = true;
+  regenerateMegaWikiButton.textContent = "Regenerating…";
+  generateButton.disabled = true;
+  resumeButton.disabled = true;
+  setStatus("Regenerating megawiki…");
+
+  resetStream();
+  showStreamStarting();
+
+  try {
+    const snapshot = await requestJson(
+      `/api/runs/${encodeURIComponent(runId)}/wikidoc/regenerate-megawiki?workspacePath=${encodeURIComponent(workspacePath)}`,
+      { method: "POST" }
+    );
+
+    activeRunId = snapshot?.runId || runId;
+    isRunning = true;
+    hideRegenerateMegaWikiButton();
+    hideResumeButton();
+    setStatus("Running… (megawiki regeneration)");
+    connectEventStream();
+  } catch (error) {
+    regenerateMegaWikiButton.disabled = false;
+    regenerateMegaWikiButton.textContent = "Regenerate megawiki";
+    generateButton.disabled = false;
+    resumeButton.disabled = false;
+    setStatus(`Failed to regenerate megawiki: ${error.message || "Unknown error"}`, "error");
     hideStreamStarting();
   }
 }
@@ -264,6 +326,8 @@ function onRunFinished(snapshot) {
   generateButton.textContent = "Generate";
   resumeButton.disabled = false;
   resumeButton.textContent = "Resume";
+  regenerateMegaWikiButton.disabled = false;
+  regenerateMegaWikiButton.textContent = "Regenerate megawiki";
   const status = snapshot?.status || "completed";
   setStatus(status === "completed" ? "Completed successfully." : `Finished with status: ${status}`);
   void checkForResumableRun();
@@ -835,6 +899,19 @@ resumeButton.addEventListener("click", () => {
       resumeButton.disabled = false;
       resumeButton.textContent = "Resume";
       generateButton.disabled = false;
+      setStatus(`Error: ${error.message || "Unknown error"}`, "error");
+    });
+  }
+});
+
+regenerateMegaWikiButton.addEventListener("click", () => {
+  if (!isRunning) {
+    void regenerateMegaWikiRun().catch(error => {
+      console.error("Wiki doc megawiki regeneration failed:", error);
+      regenerateMegaWikiButton.disabled = false;
+      regenerateMegaWikiButton.textContent = "Regenerate megawiki";
+      generateButton.disabled = false;
+      resumeButton.disabled = false;
       setStatus(`Error: ${error.message || "Unknown error"}`, "error");
     });
   }

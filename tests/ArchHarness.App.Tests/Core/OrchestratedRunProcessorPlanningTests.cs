@@ -227,6 +227,9 @@ public sealed class OrchestratedRunProcessorPlanningTests
         public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
             => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
 
+        public Task<WikiDocWorkflowResult> RegenerateAggregateAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+            => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
+
         public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, WikiDocResumeState? resumeState, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
         {
             _ = request;

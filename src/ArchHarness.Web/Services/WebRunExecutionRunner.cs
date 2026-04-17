@@ -18,6 +18,11 @@ public interface IWebRunExecutionRunner
     /// Executes a resumed run.
     /// </summary>
     Task ExecuteResumeAsync(PersistedRunState runState, CancellationTokenSource runCts, CancellationToken shutdownToken);
+
+    /// <summary>
+    /// Executes megawiki regeneration for a completed wikidoc run.
+    /// </summary>
+    Task ExecuteRegenerateMegaWikiAsync(PersistedRunState runState, CancellationTokenSource runCts, CancellationToken shutdownToken);
 }
 
 /// <summary>
@@ -123,6 +128,38 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
             await this.TryWriteTerminalRunStateAsync(runState.RunDirectory, RunStatuses.FAILED, RunTerminalPhases.FAILED, ex.Message).ConfigureAwait(false);
             this._snapshotStore.FailRun(RunStatuses.FAILED, INTERNAL_ERROR_MESSAGE);
             this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Run failed."));
+        }
+        finally
+        {
+            this._snapshotStore.ReleaseRun(runCts);
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task ExecuteRegenerateMegaWikiAsync(PersistedRunState runState, CancellationTokenSource runCts, CancellationToken shutdownToken)
+    {
+        Progress<RuntimeProgressEvent> progress = this.CreateProgress();
+        try
+        {
+            RunArtefacts artefacts = await this._runtime.RegenerateMegaWikiAsync(runState, progress, this.OnRunContextEstablished, runCts.Token).ConfigureAwait(false);
+            this._snapshotStore.CompleteRun(RunStatuses.COMPLETED, artefacts, null);
+            this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, $"Run {artefacts.RunId} megawiki regenerated.", Details: artefacts.RunDirectory));
+        }
+        catch (OperationCanceledException) when (runCts.IsCancellationRequested && !shutdownToken.IsCancellationRequested)
+        {
+            this._snapshotStore.FailRun(RunStatuses.CANCELED, RUN_CANCELED_MESSAGE);
+            this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_CANCELED_MESSAGE));
+        }
+        catch (OperationCanceledException) when (shutdownToken.IsCancellationRequested)
+        {
+            this._snapshotStore.FailRun(RunStatuses.STOPPED, RUN_STOPPED_MESSAGE);
+            this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, RUN_STOPPED_MESSAGE));
+        }
+        catch (Exception ex)
+        {
+            await Console.Error.WriteLineAsync($"[WebRunExecutionRunner] Megawiki regenerate failed: {ex}");
+            this._snapshotStore.FailRun(RunStatuses.FAILED, INTERNAL_ERROR_MESSAGE);
+            this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, ORCHESTRATOR_EVENT_SOURCE, "Megawiki regeneration failed."));
         }
         finally
         {

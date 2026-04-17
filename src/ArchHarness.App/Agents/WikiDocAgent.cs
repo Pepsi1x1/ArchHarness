@@ -11,7 +11,6 @@ namespace ArchHarness.App.Agents;
 public sealed class WikiDocAgent : AgentBase
 {
     private const string WIKIDOC_ROLE = "wikidoc";
-    private const string ORCHESTRATION_ROLE = "orchestration";
     private const string WIKIDOC_AGENT_ROLE = "wikidoc";
     private const string WIKIDOC_SYSTEM_PROMPT_FALLBACK = """
         You are the WikiDoc agent.
@@ -61,35 +60,6 @@ public sealed class WikiDocAgent : AgentBase
         RepositoryRelativePath: {{RepositoryRelativePath}}
         RepositoryDisplayName: {{RepositoryDisplayName}}
         OutputTarget: {{OutputTarget}}
-        """;
-    private const string WIKIDOC_SYNTHESIS_PROMPT_FALLBACK = """
-        You are synthesizing a megawiki across related repositories.
-        The output must be suitable for publishing directly to an Azure DevOps wiki.
-
-        Steps:
-        1. Write a Home.md INDEX page to {{OutputTarget}}:
-           - Title and a brief summary of the repository set and its overall purpose.
-           - A "Repositories" section with relative links to each per-repository wiki Home.md using the paths provided.
-           - A "Cross-Repository Concepts" section with relative links to concept pages under concepts/.
-           - Do NOT put substantive content in Home.md; it is an index only.
-        2. Write shared concept pages to {{OutputTarget}}/concepts/ as individual markdown files.
-           - Use filesystem-safe slugs for filenames (e.g., "run-pipeline.md").
-           - Each concept page should be thorough: explain the concept, which repositories participate, how they interact, and any cross-cutting concerns.
-           - Synthesize shared concepts that matter across repositories; do not duplicate repository home pages.
-        3. After writing ALL files, return ONLY a JSON manifest:
-        {
-          "conceptSlugs": ["string"]
-        }
-
-        Rules:
-        - Use only the supplied repository summaries and concept seeds; do not invent repositories.
-        - Write ALL documentation files using file-write tools BEFORE returning the JSON manifest.
-        - Use relative links between pages so the wiki works when published to Azure DevOps.
-        - The final response text must be ONLY the JSON manifest.
-
-        ScanRoot: {{ScanRoot}}
-        RepositorySummaryPayload:
-        {{RepositorySummaryPayload}}
         """;
 
     private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -158,40 +128,6 @@ public sealed class WikiDocAgent : AgentBase
             agentId,
             NormalizeRepositoryIndex,
             cancellationToken);
-    }
-
-    /// <summary>
-    /// Synthesizes aggregate documentation across repositories, writes megawiki files via tools, and returns an index.
-    /// Uses the orchestration model (Opus 4.6, high reasoning).
-    /// </summary>
-    public Task<WikiDocMegaWikiIndex> SynthesizeMegaWikiAsync(
-        string scanRoot,
-        string repositorySummaryPayload,
-        string outputTarget,
-        IDictionary<string, string>? modelOverrides,
-        string agentId,
-        CancellationToken cancellationToken)
-    {
-        string template = PromptLoader.Load("WikiDoc", "megawiki.md", WIKIDOC_SYNTHESIS_PROMPT_FALLBACK);
-        string prompt = PromptLoader.Render(
-            template,
-            ("{{ScanRoot}}", scanRoot),
-            ("{{RepositorySummaryPayload}}", repositorySummaryPayload),
-            ("{{OutputTarget}}", outputTarget));
-
-        return this.CompleteJsonAsync<WikiDocMegaWikiIndex>(
-            prompt,
-            modelOverrides,
-            agentId,
-            static index => index with
-            {
-                ConceptSlugs = (index.ConceptSlugs ?? Array.Empty<string>())
-                    .Where(slug => !string.IsNullOrWhiteSpace(slug))
-                    .Select(slug => slug.Trim())
-                    .ToArray()
-            },
-            cancellationToken,
-            roleOverride: ORCHESTRATION_ROLE);
     }
 
     private async Task<T> CompleteJsonAsync<T>(

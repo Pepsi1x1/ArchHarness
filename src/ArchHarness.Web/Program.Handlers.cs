@@ -1084,6 +1084,45 @@ internal static class ProgramHandlers
         return Results.Accepted("/api/runs/active", snapshot);
     }
 
+    public static async Task<IResult> RegenerateMegaWikiAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
+        }
+
+        if (!IsSafeRunId(runId))
+        {
+            return Results.BadRequest(new { error = INVALID_RUN_ID_MESSAGE });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
+        }
+
+        string runDirectory = Path.Combine(Path.GetFullPath(workspacePath), AGENT_HARNESS_DIRECTORY_NAME, "runs", runId);
+        PersistedRunState? runState = runStateStore.GetState(runDirectory);
+        if (runState is null)
+        {
+            return Results.NotFound(new { error = $"Run '{runId}' does not have persisted state." });
+        }
+
+        if (!string.Equals(runState.Request.Workflow, "wikidoc", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Conflict(new { error = $"Run '{runId}' is not a wikidoc run.", workflow = runState.Request.Workflow });
+        }
+
+        string checkpointPath = Path.Combine(runDirectory, "WikiDocCheckpoint.json");
+        if (!File.Exists(checkpointPath))
+        {
+            return Results.Conflict(new { error = $"Run '{runId}' has no WikiDocCheckpoint.json; nothing to regenerate." });
+        }
+
+        WebRunSnapshot snapshot = await sessionManager.RegenerateMegaWikiAsync(runState, cancellationToken);
+        return Results.Accepted("/api/runs/active", snapshot);
+    }
+
     public static async Task<IResult> StartImplementationFromPlanningRunAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, SetupSummaryGenerator summaryGenerator, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(workspacePath))

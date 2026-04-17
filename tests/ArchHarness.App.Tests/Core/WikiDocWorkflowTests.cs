@@ -209,11 +209,6 @@ public sealed class WikiDocWorkflowTests : IDisposable
                       "concepts": [{ "name": "run pipeline", "summary": "Nested repository also uses the pipeline." }]
                     }
                     """),
-                "wikidoc-megawiki" => Task.FromResult("""
-                    {
-                      "conceptSlugs": ["run-pipeline"]
-                    }
-                    """),
                 _ => throw new InvalidOperationException($"Unexpected agent id: {agentId}")
             };
         }

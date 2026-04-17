@@ -20,6 +20,14 @@ public interface IWikiDocWorkflow
     /// Resumes a prior WikiDoc run, skipping repositories that already completed.
     /// </summary>
     Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, WikiDocResumeState? resumeState, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Regenerates only the megawiki (Home.md and cross-repository concept pages) for a
+    /// completed or partially-completed wikidoc run, reusing the per-repository outputs
+    /// recorded in the run's <c>WikiDocCheckpoint.json</c>. Does not re-run any per-repository
+    /// documentation agents.
+    /// </summary>
+    Task<WikiDocWorkflowResult> RegenerateAggregateAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -267,6 +275,96 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         return new WikiDocWorkflowResult(sortedFiles, validationResult, report);
     }
 
+    /// <inheritdoc />
+    public async Task<WikiDocWorkflowResult> RegenerateAggregateAsync(
+        RunRequest request,
+        string runDirectory,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        request = RunRequestWorkflowDefaults.Apply(request);
+        string scanRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(request.WorkspacePath));
+
+        // Load the persisted per-repository outputs from the prior run.
+        string checkpointPath = Path.Combine(runDirectory, "WikiDocCheckpoint.json");
+        if (!File.Exists(checkpointPath))
+        {
+            throw new InvalidOperationException($"Cannot regenerate megawiki: checkpoint not found at '{checkpointPath}'.");
+        }
+
+        WikiDocCheckpoint? checkpoint;
+        await using (FileStream checkpointStream = File.OpenRead(checkpointPath))
+        {
+            checkpoint = await JsonSerializer.DeserializeAsync<WikiDocCheckpoint>(
+                checkpointStream,
+                JsonDefaults.WEB_INDENTED,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (checkpoint is null || checkpoint.CompletedRepositories.Count == 0)
+        {
+            throw new InvalidOperationException("Cannot regenerate megawiki: the checkpoint has no completed repositories.");
+        }
+
+        List<WikiDocRepositoryOutput> repositoryOutputs = checkpoint.CompletedRepositories
+            .Select(completed => new WikiDocRepositoryOutput(
+                completed.RepositoryRoot,
+                completed.RepositoryRelativePath,
+                completed.RepositoryDisplayName,
+                completed.OutputRoot,
+                completed.RequestedLocalRoot,
+                completed.HomePath,
+                completed.UsedFallback,
+                completed.DocumentationSessionKey,
+                completed.RenameCandidate,
+                completed.RenameCandidateWasEligible,
+                completed.RenamedFrom,
+                completed.FallbackReasonCode,
+                completed.FallbackReason,
+                completed.Summary,
+                completed.Concepts))
+            .ToList();
+
+        progress?.Report(new RuntimeProgressEvent(
+            DateTimeOffset.UtcNow,
+            WellKnownSources.WIKIDOC,
+            $"wikidoc:megawiki-regenerate-started:{repositoryOutputs.Count}"));
+
+        List<WikiDocFallbackRecord> fallbackRecords = new List<WikiDocFallbackRecord>();
+        List<string> filesTouched = new List<string>();
+
+        WikiDocAggregateOutput aggregateOutput = await this.GenerateAggregateOutputAsync(
+            request,
+            scanRoot,
+            runDirectory,
+            repositoryOutputs,
+            fallbackRecords,
+            filesTouched,
+            progress,
+            cancellationToken).ConfigureAwait(false);
+
+        await WriteCheckpointAsync(runDirectory, repositoryOutputs, megaWikiCompleted: true, cancellationToken).ConfigureAwait(false);
+
+        WikiDocExecutionReport report = new WikiDocExecutionReport(
+            scanRoot,
+            repositoryOutputs.Count,
+            repositoryOutputs,
+            aggregateOutput,
+            fallbackRecords);
+
+        await this._writer.WriteJsonAsync(Path.Combine(runDirectory, "WikiDocReport.json"), report, cancellationToken).ConfigureAwait(false);
+
+        CompletionValidationResult validationResult = BuildValidationResult(report);
+        string[] sortedFiles = filesTouched.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+
+        progress?.Report(new RuntimeProgressEvent(
+            DateTimeOffset.UtcNow,
+            WellKnownSources.WIKIDOC,
+            $"wikidoc:megawiki-regenerate-completed:{repositoryOutputs.Count}"));
+
+        return new WikiDocWorkflowResult(sortedFiles, validationResult, report);
+    }
+
     private async Task<WikiDocAggregateOutput> GenerateAggregateOutputAsync(
         RunRequest request,
         string scanRoot,
@@ -311,65 +409,44 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         }
 
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"wikidoc:megawiki-started:megawiki:{repositoryOutputs.Count}/{repositoryOutputs.Count}"));
-        string repositorySummaryPayload = JsonSerializer.Serialize(
-            repositoryOutputs.Select(output => new
-            {
-                output.RepositoryRelativePath,
-                output.RepositoryDisplayName,
-                output.HomePath,
-                output.Summary,
-                Concepts = output.Concepts.Select(concept => new { concept.Name, concept.Summary })
-            }),
-            JsonDefaults.INDENTED);
 
-        WikiDocMegaWikiIndex synthesis = await this.WithWorkspaceRootAsync(
-            scanRoot,
-            () => this._agent.SynthesizeMegaWikiAsync(
-                scanRoot,
-                repositorySummaryPayload,
-                resolution.OutputRoot,
-                request.ModelOverrides,
-                "wikidoc-megawiki",
-                cancellationToken)).ConfigureAwait(false);
+        // ── Step 1: deterministically cluster concepts across all repositories ──
+        // One cluster per concept name (case-insensitive). We already captured each repo's
+        // concept summary during the per-repository pass, so the aggregate is a pure
+        // stitching exercise — no second LLM round-trip per concept.
+        List<ConceptCluster> clusters = BuildConceptClusters(repositoryOutputs);
 
-        // The agent writes megawiki files (Home.md + concept pages) via tools.
-        // Discover concept pages the agent wrote.
+        // ── Step 2: write one deterministic markdown page per concept ──
+        // Intentionally no LLM call here: every per-concept call would cost a premium
+        // request, and the prior pass already produced the summary text we would have
+        // asked the model to paraphrase. With hundreds of repos this saves hundreds of
+        // premium requests per run without losing information.
         string conceptsDir = Path.Combine(resolution.OutputRoot, "concepts");
-        if (!Directory.Exists(conceptsDir) && synthesis.ConceptSlugs.Count > 0)
+        Directory.CreateDirectory(conceptsDir);
+        List<string> writtenConceptPaths = new List<string>(clusters.Count);
+        foreach (ConceptCluster cluster in clusters)
         {
-            // Fallback: agent did not write concept pages (test stubs or tool failure).
-            Directory.CreateDirectory(conceptsDir);
-            foreach (string slug in synthesis.ConceptSlugs)
-            {
-                string safeSlug = SanitizeSlug(slug);
-                if (string.IsNullOrWhiteSpace(safeSlug))
-                {
-                    continue;
-                }
-
-                string conceptFilePath = Path.Combine(conceptsDir, $"{safeSlug}.md");
-                await File.WriteAllTextAsync(conceptFilePath, $"# {safeSlug}\n\nPlaceholder concept page.", cancellationToken).ConfigureAwait(false);
-            }
+            cancellationToken.ThrowIfCancellationRequested();
+            string conceptFilePath = Path.Combine(conceptsDir, $"{cluster.Slug}.md");
+            string markdown = BuildConceptFallbackMarkdown(cluster, conceptsDir);
+            await File.WriteAllTextAsync(conceptFilePath, markdown, cancellationToken).ConfigureAwait(false);
+            writtenConceptPaths.Add(conceptFilePath);
         }
 
-        string[] conceptPaths = Directory.Exists(conceptsDir)
-            ? Directory.GetFiles(conceptsDir, "*.md")
-            : Array.Empty<string>();
+        string[] conceptPaths = writtenConceptPaths
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         foreach (string conceptPath in conceptPaths)
         {
             filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, conceptPath));
         }
 
+        // ── Step 3: write megawiki Home.md deterministically from ALL repository outputs ──
+        // Never delegate the repository index to an LLM: with hundreds of repositories the
+        // one-shot prompt would truncate and only the first few repos would be rendered.
         string megaWikiPath = Path.Combine(resolution.OutputRoot, "Home.md");
-        if (!File.Exists(megaWikiPath))
-        {
-            // Fallback: agent did not write Home.md (test stubs or tool failure).
-            megaWikiPath = await this._writer.WriteMarkdownAsync(
-                resolution.OutputRoot,
-                "Home.md",
-                BuildMegaWikiFallbackMarkdown(resolution.OutputRoot, repositoryOutputs, conceptPaths),
-                cancellationToken).ConfigureAwait(false);
-        }
+        string homeMarkdown = BuildMegaWikiFallbackMarkdown(resolution.OutputRoot, repositoryOutputs, conceptPaths);
+        await File.WriteAllTextAsync(megaWikiPath, homeMarkdown, cancellationToken).ConfigureAwait(false);
         filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, megaWikiPath));
 
         progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"wikidoc:megawiki-completed:megawiki:{repositoryOutputs.Count}/{repositoryOutputs.Count}"));
@@ -383,6 +460,91 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
             resolution.FallbackReasonCode,
             resolution.FallbackReason);
     }
+
+    private sealed record ConceptCluster(
+        string Name,
+        string Slug,
+        IReadOnlyList<WikiDocRepositoryOutput> ContributingRepositories,
+        IReadOnlyDictionary<string, string> ConceptSummariesByRepo);
+
+    private static List<ConceptCluster> BuildConceptClusters(IReadOnlyList<WikiDocRepositoryOutput> repositoryOutputs)
+    {
+        Dictionary<string, (string CanonicalName, List<WikiDocRepositoryOutput> Repos, Dictionary<string, string> Summaries)> byName =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (WikiDocRepositoryOutput output in repositoryOutputs)
+        {
+            if (output.Concepts is null) continue;
+            foreach (WikiDocConceptSeed concept in output.Concepts)
+            {
+                if (string.IsNullOrWhiteSpace(concept.Name)) continue;
+                string key = concept.Name.Trim();
+                if (!byName.TryGetValue(key, out var bucket))
+                {
+                    bucket = (key, new List<WikiDocRepositoryOutput>(), new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+                    byName[key] = bucket;
+                }
+                if (!bucket.Repos.Any(r => string.Equals(r.DocumentationSessionKey, output.DocumentationSessionKey, StringComparison.OrdinalIgnoreCase)))
+                {
+                    bucket.Repos.Add(output);
+                }
+                bucket.Summaries[output.DocumentationSessionKey] = concept.Summary ?? string.Empty;
+            }
+        }
+
+        // Deduplicate by slug so two concepts that normalise to the same slug share a single page.
+        Dictionary<string, ConceptCluster> bySlug = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var bucket in byName.Values)
+        {
+            string slug = SanitizeSlug(bucket.CanonicalName);
+            if (string.IsNullOrWhiteSpace(slug)) continue;
+            if (bySlug.TryGetValue(slug, out ConceptCluster? existing))
+            {
+                List<WikiDocRepositoryOutput> merged = existing.ContributingRepositories.ToList();
+                foreach (WikiDocRepositoryOutput repo in bucket.Repos)
+                {
+                    if (!merged.Any(r => string.Equals(r.DocumentationSessionKey, repo.DocumentationSessionKey, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        merged.Add(repo);
+                    }
+                }
+                Dictionary<string, string> mergedSummaries = new(existing.ConceptSummariesByRepo, StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, string> pair in bucket.Summaries)
+                {
+                    mergedSummaries[pair.Key] = pair.Value;
+                }
+                bySlug[slug] = existing with
+                {
+                    ContributingRepositories = merged,
+                    ConceptSummariesByRepo = mergedSummaries
+                };
+            }
+            else
+            {
+                bySlug[slug] = new ConceptCluster(bucket.CanonicalName, slug, bucket.Repos, bucket.Summaries);
+            }
+        }
+
+        return bySlug.Values
+            .OrderBy(cluster => cluster.Slug, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string BuildConceptFallbackMarkdown(ConceptCluster cluster, string conceptsDir)
+    {
+        IEnumerable<string> lines = cluster.ContributingRepositories
+            .OrderBy(repo => repo.RepositoryDisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(repo =>
+            {
+                string link = ToMarkdownRelativePath(conceptsDir, repo.HomePath);
+                string summary = cluster.ConceptSummariesByRepo.TryGetValue(repo.DocumentationSessionKey, out string? s) && !string.IsNullOrWhiteSpace(s)
+                    ? $": {s}"
+                    : string.Empty;
+                return $"- [{repo.RepositoryDisplayName}]({link}){summary}";
+            });
+        return $"# {cluster.Name}{Environment.NewLine}{Environment.NewLine}Contributing repositories:{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine, lines)}{Environment.NewLine}";
+    }
+
 
     private async Task<T> WithWorkspaceRootAsync<T>(string workspaceRoot, Func<Task<T>> action)
     {

@@ -10,13 +10,15 @@ namespace ArchHarness.App.Core;
 public sealed class OrchestratorRuntime : IOrchestratorRuntime
 {
     private readonly IOrchestratedRunProcessor _runProcessor;
+    private readonly IWikiDocWorkflow _wikiDocWorkflow;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
     /// </summary>
-    public OrchestratorRuntime(IOrchestratedRunProcessor runProcessor)
+    public OrchestratorRuntime(IOrchestratedRunProcessor runProcessor, IWikiDocWorkflow wikiDocWorkflow)
     {
         this._runProcessor = runProcessor;
+        this._wikiDocWorkflow = wikiDocWorkflow;
     }
 
     /// <inheritdoc />
@@ -73,6 +75,25 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
             progress,
             onRunContextEstablished,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<RunArtefacts> RegenerateMegaWikiAsync(
+        PersistedRunState runState,
+        IProgress<RuntimeProgressEvent>? progress = null,
+        Action<string, string>? onRunContextEstablished = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (runState is null) throw new ArgumentNullException(nameof(runState));
+        RunRequest request = RunRequestWorkflowDefaults.Apply(runState.Request);
+        if (!string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Run '{runState.RunId}' is not a wikidoc run (workflow='{request.Workflow}'); megawiki regeneration is only supported for wikidoc runs.");
+        }
+
+        onRunContextEstablished?.Invoke(runState.RunId, runState.RunDirectory);
+        await this._wikiDocWorkflow.RegenerateAggregateAsync(request, runState.RunDirectory, progress, cancellationToken).ConfigureAwait(false);
+        return new RunArtefacts(runState.RunId, runState.RunDirectory);
     }
 
     /// <summary>

@@ -69,5 +69,13 @@ public sealed class WebRunSessionManagerTests
             _ = shutdownToken;
             throw new NotSupportedException();
         }
+
+        public Task ExecuteRegenerateMegaWikiAsync(PersistedRunState runState, CancellationTokenSource runCts, CancellationToken shutdownToken)
+        {
+            _ = runState;
+            _ = runCts;
+            _ = shutdownToken;
+            throw new NotSupportedException();
+        }
     }
 }

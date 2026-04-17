@@ -202,6 +202,23 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             return Task.FromResult(this._snapshot);
         }
 
+        Task<WebRunSnapshot> IWebRunSessionManager.RegenerateMegaWikiAsync(PersistedRunState runState, CancellationToken cancellationToken)
+        {
+            _ = cancellationToken;
+            this._snapshot = new WebRunSnapshot(
+                true,
+                RunStatuses.RESUMING,
+                runState.StartedAtUtc,
+                null,
+                runState.RunId,
+                runState.RunDirectory,
+                runState.Request.TaskPrompt,
+                runState.WorkspaceRoot,
+                null);
+            this._events.Enqueue(new WebRunEvent(DateTimeOffset.UtcNow, "run-state", "test", "megawiki-regenerate-accepted"));
+            return Task.FromResult(this._snapshot);
+        }
+
         public WebRunSnapshot GetSnapshot() => this._snapshot;
 
         public Task<WebRunSnapshot> CancelRunAsync()

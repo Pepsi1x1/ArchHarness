@@ -50,6 +50,15 @@ public sealed class ChatTerminalRunControllerTests
             _ = cancellationToken;
             throw new NotSupportedException();
         }
+
+        public Task<RunArtefacts> RegenerateMegaWikiAsync(PersistedRunState runState, IProgress<RuntimeProgressEvent>? progress = null, Action<string, string>? onRunContextEstablished = null, CancellationToken cancellationToken = default)
+        {
+            _ = runState;
+            _ = progress;
+            _ = onRunContextEstablished;
+            _ = cancellationToken;
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class StubUserInputState : IUserInputState
