@@ -33,4 +33,13 @@ public interface IRunEventLogger
     /// <param name="cancellationToken">Token to signal shutdown.</param>
     /// <returns>A task that completes when the pump stops.</returns>
     Task PumpAgentEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Flushes any in-flight JSONL writers for this run. Call once after the event
+    /// pumps have been drained so pending events are persisted before the process
+    /// continues / exits.
+    /// </summary>
+    /// <param name="runDirectory">The run artefact directory.</param>
+    /// <param name="cancellationToken">Token to bound the wait for pending writes.</param>
+    Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken);
 }

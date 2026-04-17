@@ -216,6 +216,16 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             await agentEventCts.CancelAsync().ConfigureAwait(false);
             await DrainPumpAsync(sessionEventPump).ConfigureAwait(false);
             await DrainPumpAsync(agentEventPump).ConfigureAwait(false);
+            // Flush the channel-backed JSONL writers after the pumps stop so pending
+            // events are durably written before we clear the runtime context.
+            try
+            {
+                await this._services.RunInfrastructure.EventLogger.CompleteRunAsync(runDirectory, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort: telemetry flush must not mask the original run outcome.
+            }
             this.ClearRuntimeContext();
         }
     }

@@ -253,19 +253,34 @@ internal sealed class SdkCopilotSession(
             ? TimeSpan.FromSeconds(absoluteTimeoutSeconds) - (now - startedAt)
             : Timeout.InfiniteTimeSpan;
 
-        TimeSpan waitDuration;
-        if (absoluteRemaining == Timeout.InfiniteTimeSpan)
+        // Pick the shorter of the two remaining budgets, treating Timeout.InfiniteTimeSpan
+        // as "no budget" rather than a negative TimeSpan. A prior version compared the two
+        // TimeSpan values directly, which let Timeout.InfiniteTimeSpan (-1 ms) win over any
+        // finite remaining budget and produced Task.Delay(Timeout.InfiniteTimeSpan) — so the
+        // loop never woke up to check the absolute timeout when the SDK stopped emitting
+        // events mid-turn (e.g. stalled reasoning in parallel sessions).
+        TimeSpan waitDuration = MinRemaining(inactivityRemaining, absoluteRemaining);
+        if (waitDuration != Timeout.InfiniteTimeSpan && waitDuration < TimeSpan.Zero)
         {
-            waitDuration = inactivityRemaining;
-        }
-        else
-        {
-            waitDuration = inactivityRemaining < absoluteRemaining
-                ? inactivityRemaining
-                : absoluteRemaining;
+            waitDuration = TimeSpan.Zero;
         }
 
         return new TimeoutState(lastEventAt, inactivityRemaining, absoluteRemaining, waitDuration);
+    }
+
+    private static TimeSpan MinRemaining(TimeSpan a, TimeSpan b)
+    {
+        if (a == Timeout.InfiniteTimeSpan)
+        {
+            return b;
+        }
+
+        if (b == Timeout.InfiniteTimeSpan)
+        {
+            return a;
+        }
+
+        return a < b ? a : b;
     }
 
     private static async Task ThrowIfTimedOutAsync(

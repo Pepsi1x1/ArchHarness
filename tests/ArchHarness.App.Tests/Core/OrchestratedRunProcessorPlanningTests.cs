@@ -264,6 +264,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
         public Task AppendEventAsync(string runDirectory, object eventData, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PumpSessionEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PumpAgentEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class StubRunStateStore : IRunStateStore
