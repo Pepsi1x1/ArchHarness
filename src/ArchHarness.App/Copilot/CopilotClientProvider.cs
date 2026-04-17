@@ -21,7 +21,11 @@ public interface ICopilotClientProvider
 }
 
 /// <summary>
-/// Manages the lifecycle of the underlying GitHub Copilot SDK client.
+/// Manages the lifecycle of a single shared GitHub Copilot SDK client.
+/// The client process is started once with an initial cwd; per-session cwd is carried
+/// on <c>SessionConfig.WorkingDirectory</c> / <c>ResumeSessionConfig.WorkingDirectory</c>
+/// so parallel sessions against different workspace roots do not require separate clients
+/// and never cause the shared client to be disposed mid-turn.
 /// </summary>
 public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDisposable
 {
@@ -29,14 +33,13 @@ public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDispos
     private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
     private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
     private Task<GitHub.Copilot.SDK.CopilotClient>? _clientTask;
-    private string? _clientWorkingDirectory;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CopilotClientProvider"/> class
     /// and defers SDK client startup until first use.
     /// </summary>
     /// <param name="options">Copilot configuration options.</param>
-    /// <param name="workspaceRootAccessor">Accessor for the active workspace root.</param>
+    /// <param name="workspaceRootAccessor">Accessor for the active workspace root, used only to pick the CLI's initial cwd on first start.</param>
     public CopilotClientProvider(IOptions<CopilotOptions> options, IWorkspaceRootAccessor workspaceRootAccessor)
     {
         this._options = options.Value;
@@ -45,24 +48,24 @@ public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDispos
 
     /// <summary>
     /// Returns the initialized SDK client, awaiting startup if still in progress.
+    /// The CLI process is started exactly once per provider lifetime (or after an
+    /// explicit <see cref="InvalidateAsync"/>) and is reused across all workspace roots.
     /// </summary>
     /// <returns>The fully initialized SDK client.</returns>
     public async Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync()
     {
-        string desiredWorkingDirectory = ResolveWorkingDirectory(this._workspaceRootAccessor.Current);
+        if (this._clientTask is { } existing)
+        {
+            return await existing.ConfigureAwait(false);
+        }
 
         await this._gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (this._clientTask is null || !string.Equals(this._clientWorkingDirectory, desiredWorkingDirectory, StringComparison.Ordinal))
+            if (this._clientTask is null)
             {
-                if (this._clientTask is not null && this._clientTask.IsCompletedSuccessfully)
-                {
-                    await this._clientTask.Result.DisposeAsync().ConfigureAwait(false);
-                }
-
-                this._clientWorkingDirectory = desiredWorkingDirectory;
-                this._clientTask = InitializeClientAsync(this._options, desiredWorkingDirectory);
+                string initialCwd = ResolveWorkingDirectory(this._workspaceRootAccessor.Current);
+                this._clientTask = InitializeClientAsync(this._options, initialCwd);
             }
 
             return await this._clientTask.ConfigureAwait(false);
@@ -85,7 +88,6 @@ public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDispos
             }
 
             this._clientTask = null;
-            this._clientWorkingDirectory = null;
         }
         finally
         {

@@ -64,6 +64,18 @@ public abstract class AgentBase
         => this._modelResolver.Resolve(this.Role, overrides);
 
     /// <summary>
+    /// Resolves the model for a specific role, applying any overrides.
+    /// </summary>
+    protected string ResolveModelForRole(string role, IDictionary<string, string>? overrides)
+        => this._modelResolver.Resolve(role, overrides);
+
+    /// <summary>
+    /// Resolves the reasoning effort for a specific role.
+    /// </summary>
+    protected string? ResolveReasoningEffortForRole(string role)
+        => this._modelResolver.ResolveReasoningEffort(role);
+
+    /// <summary>
     /// Merges the configured tool policy with the provided completion options.
     /// </summary>
     /// <param name="options">The base completion options to augment with tool policies.</param>

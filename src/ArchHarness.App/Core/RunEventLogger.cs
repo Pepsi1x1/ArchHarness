@@ -56,4 +56,11 @@ public sealed class RunEventLogger : IRunEventLogger
     /// <returns>A task that completes when the pump stops.</returns>
     public Task PumpAgentEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken)
         => this._agentStreamEventPump.PumpAgentEventsAsync(runDirectory, runId, cancellationToken);
+
+    /// <summary>
+    /// Flushes all JSONL writers owned by the underlying <see cref="IArtefactStore"/> for
+    /// this run, draining any pending events queued in the channel-backed writers.
+    /// </summary>
+    public Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken)
+        => this._artefactStore.CompleteRunAsync(runDirectory, cancellationToken);
 }

@@ -236,7 +236,8 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
             Streaming = this._options.StreamingResponses,
             OnPermissionRequest = this.ResolvePermissionHandler(permissionHandlerMode),
             OnUserInputRequest = async (request, _) => await this._hooks.UserInputBridge.RequestInputAsync(request).ConfigureAwait(false),
-            Hooks = this.CreateSessionHooks(model, stableSessionId ?? "n/a")
+            Hooks = this.CreateSessionHooks(model, stableSessionId ?? "n/a"),
+            WorkingDirectory = cacheKey.WorkspaceRoot
         };
 
         if (!string.IsNullOrWhiteSpace(stableSessionId))

@@ -1,7 +1,7 @@
 import { MAIN_PANEL_VIEWS } from './js/constants.js';
 import { state, elements } from './js/state.js';
 import { requestJson } from './js/api.js';
-import { applyDesktopChrome } from './js/desktop-bridge.js';
+import { applyDesktopChrome, desktopBridge } from './js/desktop-bridge.js';
 import { saveShellState, restoreShellState } from './js/shell-persistence.js';
 import { openModal, closeModal, registerModalPreClose } from './js/modals.js';
 import {
@@ -22,7 +22,7 @@ import {
 import { loadBootstrap, loadProjects, createProject, pickProjectFolder } from './js/projects.js';
 import {
   loadSettings, renderSettingsForm, applySettingsDefaults,
-  saveSettings, switchSettingsTab, handleSettingsTabKeydown
+  saveSettings, switchSettingsTab, handleSettingsTabKeydown, closeSettingsDropdowns
 } from './js/settings.js';
 import {
   renderInlineInteraction, pollPendingInteraction,
@@ -40,6 +40,7 @@ import {
 } from './js/pull-request-review.js';
 
 registerModalPreClose("settings-modal", () => {
+  closeSettingsDropdowns();
   closeProviderSetup();
 });
 
@@ -53,6 +54,17 @@ async function warmModelDiscovery() {
 
 function attachHandlers() {
   elements.newProjectButton.addEventListener("click", () => openModal("new-project-modal"));
+
+  const wikidocScreenButton = document.getElementById("wikidoc-screen-button");
+  if (desktopBridge?.openWikiDocScreen) {
+    wikidocScreenButton.addEventListener("click", () => {
+      void desktopBridge.openWikiDocScreen();
+    });
+  } else {
+    wikidocScreenButton.addEventListener("click", () => {
+      globalThis.open("/wikidoc.html", "_blank");
+    });
+  }
   elements.pickProjectFolder.addEventListener("click", () => {
     void pickProjectFolder().catch(error => {
       elements.projectPickerNote.textContent = `Folder selection failed: ${error.message}`;
@@ -191,11 +203,16 @@ function attachHandlers() {
     if (!composerDropdownClicked) {
       closeComposerDropdowns();
     }
+
+    if (!event.target.closest(".settings-dropdown")) {
+      closeSettingsDropdowns();
+    }
   });
   document.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       closeWorkspaceBranchMenu();
       closeComposerDropdowns();
+      closeSettingsDropdowns();
     }
   });
 

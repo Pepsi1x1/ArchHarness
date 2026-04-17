@@ -15,7 +15,8 @@ export const GITHUB_AUTH_MODE_OAUTH = 2;
 export const WORKFLOWS = Object.freeze({
   AUTO: "auto",
   PLANNING: "planning",
-  ARCHITECTURE_LOOP: "architecture-loop"
+  ARCHITECTURE_LOOP: "architecture-loop",
+  WIKIDOC: "wikidoc"
 });
 
 export const REVIEW_LOOP_DEFAULT_SELECTION = Object.freeze({
@@ -68,5 +69,6 @@ export const ROLE_LABELS = {
   build: "Build",
   codingStyle: "Coding Style",
   security: "Security",
-  architecture: "Architecture"
+  architecture: "Architecture",
+  wikidoc: "Wiki Docs"
 };

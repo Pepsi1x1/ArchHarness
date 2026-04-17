@@ -66,6 +66,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<PlanningAgent>();
         services.AddSingleton<FrontendDeveloperAgent>();
         services.AddSingleton<BackendDeveloperAgent>();
+        services.AddSingleton<WikiDocAgent>();
         services.AddSingleton<BuildAgent>();
         services.AddSingleton<CodingStyleAgent>();
         services.AddSingleton<SecurityAgent>();
@@ -79,6 +80,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IRunVerificationWorkflow, RunVerificationWorkflow>();
         services.AddSingleton<IRunAgentModelUsageBuilder, RunAgentModelUsageBuilder>();
         services.AddSingleton<OrchestratorRunServices>();
+        services.AddSingleton<OrchestratorPlanningServices>();
         services.AddSingleton<IOrchestratedRunProcessor, OrchestratedRunProcessor>();
         services.AddSingleton<ArchitectureReviewLoop.LoopAgentDependencies>();
         services.AddSingleton<ArchitectureReviewLoop>();
@@ -97,6 +99,12 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<IRunArtifactWriter>(sp => sp.GetRequiredService<RunArtifactWriter>());
         services.AddSingleton<PlanExecutor>();
         services.AddSingleton<IPlanExecutor>(sp => sp.GetRequiredService<PlanExecutor>());
+        services.AddSingleton<IWikiDocWorkflow, WikiDocWorkflow>();
+        services.AddSingleton<WikiDocRepositoryDiscoverer>();
+        services.AddSingleton<WikiDocOutputResolver>();
+        services.AddSingleton<IWikiDocMarkdownWriter, WikiDocMarkdownWriter>();
+        services.AddSingleton<WikiDocResumeStateBuilder>();
+        services.AddSingleton<WikiDocRunServices>();
         services.AddSingleton<SetupSummaryGenerator>();
         services.AddSingleton<RunInfrastructure>();
         services.AddSingleton<OrchestratorRuntime>();

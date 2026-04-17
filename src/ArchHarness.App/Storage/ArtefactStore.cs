@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Threading.Channels;
 using ArchHarness.App.Core;
 
 namespace ArchHarness.App.Storage;
@@ -81,6 +83,15 @@ public interface IArtefactStore
     /// Writes the plan approval decision to the run directory as JSON.
     /// </summary>
     Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Flushes any in-flight JSONL writes for the specified run directory and closes
+    /// the backing writer tasks. Call once after the run completes (after event pumps stop).
+    /// Safe to call even if no writes occurred for the run.
+    /// </summary>
+    /// <param name="runDirectory">The run output directory whose writers should be drained.</param>
+    /// <param name="cancellationToken">Token to bound the wait for pending writes.</param>
+    Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -89,6 +100,12 @@ public interface IArtefactStore
 public sealed class ArtefactStore : IArtefactStore
 {
     private const string NONE_LABEL = "(none)";
+
+    // One writer per JSONL file path. Each writer owns an unbounded Channel<string>
+    // and a single-reader pump task. Producers TryWrite non-blockingly; the pump
+    // drains + flushes in batches. This eliminates the multi-writer interleave risk
+    // on the file side and removes per-event FlushToDisk syscalls (WriteThrough dropped).
+    private static readonly ConcurrentDictionary<string, JsonlAppendWriter> WRITERS = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
     public Task WriteExecutionPlanAsync(string runDirectory, ExecutionPlan plan, CancellationToken cancellationToken)
@@ -137,27 +154,136 @@ public sealed class ArtefactStore : IArtefactStore
         => WriteRedactedJsonAsync(runDirectory, "PlanApproval.json", approval, cancellationToken);
 
     /// <inheritdoc />
-    public async Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
-        => await AppendJsonLineAsync(runDirectory, "events.jsonl", evt, cancellationToken).ConfigureAwait(false);
+    public Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+    {
+        EnqueueJsonLine(runDirectory, "events.jsonl", evt);
+        return Task.CompletedTask;
+    }
 
     /// <inheritdoc />
-    public async Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
-        => await AppendJsonLineAsync(runDirectory, "copilot-sdk-events.jsonl", evt, cancellationToken).ConfigureAwait(false);
+    public Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
+    {
+        EnqueueJsonLine(runDirectory, "copilot-sdk-events.jsonl", evt);
+        return Task.CompletedTask;
+    }
 
-    private static async Task AppendJsonLineAsync(string runDirectory, string fileName, object evt, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken)
+    {
+        string runDirectoryFull = Path.GetFullPath(runDirectory);
+        string runDirectoryPrefix = runDirectoryFull.EndsWith(Path.DirectorySeparatorChar)
+            ? runDirectoryFull
+            : runDirectoryFull + Path.DirectorySeparatorChar;
+        List<JsonlAppendWriter> toComplete = new();
+        string[] matchingKeys = WRITERS.Keys
+            .Where(key => key.StartsWith(runDirectoryPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        foreach (string key in matchingKeys)
+        {
+            if (WRITERS.TryRemove(key, out JsonlAppendWriter? writer))
+            {
+                toComplete.Add(writer);
+            }
+        }
+        foreach (JsonlAppendWriter writer in toComplete)
+        {
+            await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static void EnqueueJsonLine(string runDirectory, string fileName, object evt)
     {
         string line = Redaction.RedactSecrets(JsonSerializer.Serialize(evt));
-        string eventsPath = Path.Combine(runDirectory, fileName);
-        await using FileStream stream = new FileStream(
-            eventsPath,
-            FileMode.Append,
-            FileAccess.Write,
-            FileShare.ReadWrite,
-            4096,
-            FileOptions.Asynchronous | FileOptions.WriteThrough);
-        await using StreamWriter writer = new StreamWriter(stream);
-        await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
-        await writer.FlushAsync(cancellationToken);
+        string eventsPath = Path.GetFullPath(Path.Combine(runDirectory, fileName));
+        JsonlAppendWriter writer = WRITERS.GetOrAdd(eventsPath, static path => new JsonlAppendWriter(path));
+        writer.Enqueue(line);
+    }
+
+    /// <summary>
+    /// Single-reader channel-backed appender for a JSONL file. Producers call <see cref="Enqueue"/>
+    /// which is non-blocking (unbounded channel). A background pump drains the channel in batches
+    /// and flushes once per drained batch — natural adaptive batching without per-line syncs.
+    /// </summary>
+    private sealed class JsonlAppendWriter
+    {
+        private readonly string _path;
+        private readonly Channel<string> _channel;
+        private readonly Task _pumpTask;
+
+        public JsonlAppendWriter(string path)
+        {
+            this._path = path;
+            this._channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+            {
+                SingleReader = true,
+                SingleWriter = false,
+                AllowSynchronousContinuations = false,
+            });
+            this._pumpTask = Task.Run(this.PumpAsync);
+        }
+
+        public void Enqueue(string line)
+        {
+            // Unbounded + never-completed-while-running: TryWrite only returns false after
+            // the channel has been completed (run drained). Drop silently in that case —
+            // telemetry is best-effort; the run is already shutting down.
+            this._channel.Writer.TryWrite(line);
+        }
+
+        public async Task CompleteAsync(CancellationToken cancellationToken)
+        {
+            this._channel.Writer.TryComplete();
+            Task awaitable = this._pumpTask;
+            if (cancellationToken.CanBeCanceled)
+            {
+                Task cancelWait = Task.Delay(Timeout.Infinite, cancellationToken);
+                Task finished = await Task.WhenAny(awaitable, cancelWait).ConfigureAwait(false);
+                if (finished != awaitable)
+                {
+                    // Cancellation requested — do not await the pump; it will drain on
+                    // its own and the FileStream finalizer / OS flush will persist buffers.
+                    return;
+                }
+            }
+            await awaitable.ConfigureAwait(false);
+        }
+
+        private async Task PumpAsync()
+        {
+            // Long-lived FileStream across batches. WriteThrough intentionally omitted:
+            // JSONL telemetry does not need per-line durability; we rely on the pump's
+            // batch flush and OS write-back cache.
+            await using FileStream stream = new FileStream(
+                this._path,
+                FileMode.Append,
+                FileAccess.Write,
+                FileShare.ReadWrite,
+                bufferSize: 16 * 1024,
+                FileOptions.Asynchronous);
+            await using StreamWriter writer = new StreamWriter(stream);
+            ChannelReader<string> reader = this._channel.Reader;
+
+            try
+            {
+                while (await reader.WaitToReadAsync().ConfigureAwait(false))
+                {
+                    while (reader.TryRead(out string? line))
+                    {
+                        await writer.WriteLineAsync(line.AsMemory()).ConfigureAwait(false);
+                    }
+                    // One flush per drained batch: StreamWriter → FileStream buffers → OS.
+                    // No FlushToDisk / fsync. Under high load batches grow and amortise the
+                    // flush; under low load we flush roughly per-line, which is still cheap
+                    // without WriteThrough.
+                    await writer.FlushAsync().ConfigureAwait(false);
+                }
+            }
+            catch (Exception)
+            {
+                // Swallow: telemetry writer must never crash the host. A final flush is
+                // attempted by the using-dispose below.
+            }
+        }
     }
 
     private static Task WriteRedactedJsonAsync(string runDirectory, string fileName, object payload, CancellationToken cancellationToken)

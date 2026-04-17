@@ -25,6 +25,14 @@ public interface IWebRunSessionManager
     Task<WebRunSnapshot> ResumeRunAsync(PersistedRunState runState, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Regenerates only the megawiki for a completed wikidoc run.
+    /// </summary>
+    /// <param name="runState">The persisted run to regenerate the megawiki for.</param>
+    /// <param name="cancellationToken">Token to cancel startup before regeneration begins.</param>
+    /// <returns>The initial snapshot after regeneration is accepted.</returns>
+    Task<WebRunSnapshot> RegenerateMegaWikiAsync(PersistedRunState runState, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns the current run-session snapshot.
     /// </summary>
     /// <returns>The current run state.</returns>

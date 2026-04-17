@@ -203,6 +203,13 @@ public sealed class WebRunExecutionRunnerTests
             Action<string, string>? onRunContextEstablished = null,
             CancellationToken cancellationToken = default)
             => this.ResumeHandler(runState, progress, onRunContextEstablished, cancellationToken);
+
+        public Task<RunArtefacts> RegenerateMegaWikiAsync(
+            PersistedRunState runState,
+            IProgress<RuntimeProgressEvent>? progress = null,
+            Action<string, string>? onRunContextEstablished = null,
+            CancellationToken cancellationToken = default)
+            => this.ResumeHandler(runState, progress, onRunContextEstablished, cancellationToken);
     }
 
     private sealed class TestWebRunEventHub : IWebRunEventHub

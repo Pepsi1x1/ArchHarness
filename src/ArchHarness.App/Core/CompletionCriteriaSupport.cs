@@ -1,3 +1,5 @@
+using ArchHarness.App.Constants;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -9,7 +11,8 @@ internal static class CompletionCriteriaSupport
         => IsBuildCriterion(criterion)
             || IsSecurityCriterion(criterion)
             || IsArchitectureCriterion(criterion)
-            || IsCodingStyleCriterion(criterion);
+            || IsCodingStyleCriterion(criterion)
+            || WikiDocCompletionCriteriaSupport.IsSupportedCriterion(criterion);
 
     public static bool IsBuildCriterion(string criterion)
         => Normalize(criterion).Contains("build", StringComparison.Ordinal);
@@ -53,6 +56,11 @@ internal static class CompletionCriteriaSupport
             return EvaluateCodingStyleCriterion(criterion, request);
         }
 
+        if (WikiDocCompletionCriteriaSupport.IsSupportedCriterion(criterion))
+        {
+            return WikiDocCompletionCriteriaSupport.EvaluateCriterion(criterion, request);
+        }
+
         VerificationEvidence? explicitEvidence = FindEvidenceForCriterion(request.VerificationEvidence, criterion);
         if (explicitEvidence is not null)
         {
@@ -88,7 +96,8 @@ internal static class CompletionCriteriaSupport
         CompletionValidationRequest request,
         ReviewLoopAgentSelection reviewLoopAgents)
     {
-        if (!reviewLoopAgents.ArchitectureEnabled)
+        if (!reviewLoopAgents.ArchitectureEnabled
+            || string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
         {
             return new CriterionResult(criterion, true, "Architecture review is disabled for this run.");
         }

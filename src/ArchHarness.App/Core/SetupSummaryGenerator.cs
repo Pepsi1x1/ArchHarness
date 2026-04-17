@@ -134,6 +134,14 @@ public sealed class SetupSummaryGenerator
 
     private static string BuildFallbackTitle(RunRequest request)
     {
+        if (string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
+        {
+            string workspaceName = Path.GetFileName(Path.GetFullPath(request.WorkspacePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            return string.IsNullOrWhiteSpace(workspaceName)
+                ? "WikiDoc Scan"
+                : $"WikiDoc {workspaceName}";
+        }
+
         string source = request.ArchitectureLoopMode && !string.IsNullOrWhiteSpace(request.ArchitectureLoopPrompt)
             ? request.ArchitectureLoopPrompt
             : request.TaskPrompt;

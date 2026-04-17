@@ -53,9 +53,8 @@ public sealed class OrchestratedRunProcessorPlanningTests
             CreateServices(copilotClient, runStateStore),
             CreateStateAccessors(),
             new StubRunAgentModelUsageBuilder(),
-            orchestrationAgent,
-            planningAgent,
-            new StubRunVerificationWorkflow(),
+            new OrchestratorPlanningServices(orchestrationAgent, planningAgent, new StubRunVerificationWorkflow()),
+            new WikiDocRunServices(new StubWikiDocWorkflow(), new WikiDocResumeStateBuilder(), new WikiDocRepositoryDiscoverer(), new WikiDocOutputResolver()),
             approvalBridge: null,
             userInputBridge: null);
 
@@ -223,6 +222,32 @@ public sealed class OrchestratedRunProcessorPlanningTests
             => Task.FromResult(new VerificationWorkflowResult(new CompletionValidationResult(true, Array.Empty<CriterionResult>()), Array.Empty<string>(), null));
     }
 
+    private sealed class StubWikiDocWorkflow : IWikiDocWorkflow
+    {
+        public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+            => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
+
+        public Task<WikiDocWorkflowResult> RegenerateAggregateAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+            => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
+
+        public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, WikiDocResumeState? resumeState, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+        {
+            _ = request;
+            _ = runDirectory;
+            _ = progress;
+            _ = cancellationToken;
+            return Task.FromResult(new WikiDocWorkflowResult(
+                Array.Empty<string>(),
+                new CompletionValidationResult(true, Array.Empty<CriterionResult>()),
+                new WikiDocExecutionReport(
+                    "C:\\workspace",
+                    0,
+                    Array.Empty<WikiDocRepositoryOutput>(),
+                    new WikiDocAggregateOutput("C:\\workspace\\wiki", "C:\\workspace\\wiki\\MegaWiki.md", Array.Empty<string>(), false, null, null, null),
+                    Array.Empty<WikiDocFallbackRecord>())));
+        }
+    }
+
     private sealed class StubRunArtifactWriter : IRunArtifactWriter
     {
         public string CreateRunDirectory(string workspaceRoot) => Path.Combine(workspaceRoot, ".agent-harness", "runs", "test-run");
@@ -242,6 +267,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
         public Task AppendEventAsync(string runDirectory, object eventData, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PumpSessionEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task PumpAgentEventsAsync(string runDirectory, string runId, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class StubRunStateStore : IRunStateStore

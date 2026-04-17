@@ -20,13 +20,15 @@ public sealed record AgentModelSettingsRequest(
     string Build,
     string CodingStyle,
     string Security,
-    string Architecture);
+    string Architecture,
+    string WikiDoc);
 
 /// <summary>
 /// Structured per-agent reasoning selections for the settings UI.
 /// </summary>
 public sealed record AgentReasoningSettingsRequest(
-    string? Planning);
+    string? Planning,
+    string? WikiDoc);
 
 /// <summary>
 /// Structured global defaults surfaced to the shell.
@@ -34,4 +36,5 @@ public sealed record AgentReasoningSettingsRequest(
 public sealed record DefaultSettingsRequest(
     string PermissionHandlerMode,
     bool ArchitectureReviewMode,
-    string? ArchitectureReviewPrompt);
+    string? ArchitectureReviewPrompt,
+    int? WikiDocParallelism = null);

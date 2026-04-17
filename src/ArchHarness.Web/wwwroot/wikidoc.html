@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wiki Docs — ArchHarness</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/styles.css?v=53">
+</head>
+<body>
+  <div class="page-noise"></div>
+  <main class="wikidoc-screen">
+    <header class="wikidoc-header">
+      <h1>Wiki Docs</h1>
+      <p class="wikidoc-header-sub">Generate comprehensive wiki documentation for a workspace.</p>
+    </header>
+
+    <section class="wikidoc-controls panel">
+      <label class="field wikidoc-folder-field">
+        <span>Scan Root</span>
+        <div class="wikidoc-folder-row">
+          <input
+            id="wikidoc-folder"
+            type="text"
+            placeholder="Path to the root folder containing repositories"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          >
+          <button id="wikidoc-browse" class="secondary-button" type="button">Browse</button>
+        </div>
+      </label>
+
+      <label class="field wikidoc-prompt-field">
+        <span>Scope <span class="wikidoc-optional">(optional)</span></span>
+        <input
+          id="wikidoc-prompt"
+          type="text"
+          placeholder="Leave blank to document the full workspace."
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        >
+      </label>
+
+      <div class="wikidoc-actions">
+        <button id="wikidoc-generate" class="primary-button" type="button">Generate</button>
+        <button id="wikidoc-resume" class="secondary-button hidden" type="button">Resume</button>
+        <button id="wikidoc-regenerate-megawiki" class="secondary-button hidden" type="button" title="Re-run only the megawiki synthesis using the repository outputs already on disk.">Regenerate megawiki</button>
+        <span id="wikidoc-status" class="wikidoc-status" aria-live="polite"></span>
+      </div>
+    </section>
+
+    <section id="wikidoc-progress" class="wikidoc-progress panel hidden">
+      <div class="wikidoc-progress-header">
+        <span class="wikidoc-progress-title">Progress</span>
+        <span id="wikidoc-progress-counter" class="wikidoc-progress-counter"></span>
+      </div>
+      <div class="wikidoc-progress-bar-track">
+        <div id="wikidoc-progress-bar" class="wikidoc-progress-bar-fill"></div>
+      </div>
+      <div id="wikidoc-active-agents" class="wikidoc-active-agents"></div>
+    </section>
+
+    <section class="wikidoc-stream-area">
+      <div id="wikidoc-stream-empty" class="stream-empty empty-state">
+        Choose a scan root folder and click Generate to start.
+      </div>
+      <div id="wikidoc-stream-sections" class="stream-sections"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/wikidoc-screen.js?v=3"></script>
+</body>
+</html>

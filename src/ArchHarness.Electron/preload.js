@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld("archHarnessDesktop", {
     titleBarOverlay: process.platform === "win32"
   },
   selectFolder: (options) => ipcRenderer.invoke("archharness:pick-folder", options),
-  setKeepAwake: (enabled) => ipcRenderer.invoke("archharness:set-keep-awake", !!enabled)
+  setKeepAwake: (enabled) => ipcRenderer.invoke("archharness:set-keep-awake", !!enabled),
+  openWikiDocScreen: () => ipcRenderer.invoke("archharness:open-wikidoc-screen")
 });

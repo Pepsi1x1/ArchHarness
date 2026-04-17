@@ -8,6 +8,7 @@ namespace ArchHarness.App.Core;
 public static class CliArgumentParser
 {
     private const string DEFAULT_ARCH_LOOP_TASK_PROMPT = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
+    private const string DEFAULT_WIKIDOC_TASK_PROMPT = DefaultPrompts.WIKIDOC_TASK;
 
     /// <summary>
     /// Attempts to parse CLI arguments into a RunRequest. Returns null when arguments
@@ -18,6 +19,11 @@ public static class CliArgumentParser
     /// <returns>A RunRequest if parsing succeeds, or null.</returns>
     public static RunRequest? TryParseCliArgs(string[] args, AgentsOptions agentsOptions)
     {
+        if (TryParseWikiDocCommand(args, out RunRequest? wikiDocRequest))
+        {
+            return wikiDocRequest;
+        }
+
         if (args.Length < 3 || !args[0].Equals("run", StringComparison.OrdinalIgnoreCase))
         {
             return null;
@@ -55,6 +61,33 @@ public static class CliArgumentParser
         }
 
         return standardRequest;
+    }
+
+    /// <summary>
+    /// Returns whether the CLI arguments should run without interactive setup or post-run screens.
+    /// </summary>
+    public static bool IsNonInteractiveCommand(string[] args)
+        => args.Length > 0
+            && args[0].Equals("wikidoc", StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryParseWikiDocCommand(string[] args, out RunRequest? request)
+    {
+        request = null;
+        if (args.Length < 2 || !args[0].Equals("wikidoc", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        request = new RunRequest(
+            TaskPrompt: DEFAULT_WIKIDOC_TASK_PROMPT,
+            WorkspacePath: args[1],
+            WorkspaceMode: WorkspaceModes.EXISTING_FOLDER,
+            Workflow: WorkflowNames.WIKIDOC,
+            ProjectName: args.Length >= 3 ? args[2] : null,
+            ModelOverrides: args.Length >= 4 ? ParseOverrides(args[3]) : null,
+            BuildCommand: null,
+            PermissionHandlerMode: PermissionHandlerModes.APPROVE_ALL);
+        return true;
     }
 
     private static bool TryParseLoopModePromptless(
@@ -138,11 +171,6 @@ public static class CliArgumentParser
             : inputTaskPrompt;
     }
 
-    /// <summary>
-    /// Parses a comma-separated key=value override string into a dictionary.
-    /// </summary>
-    /// <param name="overrideText">The override text to parse.</param>
-    /// <returns>A dictionary of overrides, or null if empty.</returns>
     /// <summary>
     /// Parses a comma-separated "role=model" override string into a dictionary.
     /// Shared by CLI argument parsing and Desktop setup form building.

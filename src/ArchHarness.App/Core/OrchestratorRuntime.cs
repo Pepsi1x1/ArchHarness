@@ -1,3 +1,4 @@
+using ArchHarness.App.Constants;
 using ArchHarness.App.Storage;
 using ArchHarness.App.Workspace;
 
@@ -9,13 +10,15 @@ namespace ArchHarness.App.Core;
 public sealed class OrchestratorRuntime : IOrchestratorRuntime
 {
     private readonly IOrchestratedRunProcessor _runProcessor;
+    private readonly IWikiDocWorkflow _wikiDocWorkflow;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="OrchestratorRuntime"/> class.
     /// </summary>
-    public OrchestratorRuntime(IOrchestratedRunProcessor runProcessor)
+    public OrchestratorRuntime(IOrchestratedRunProcessor runProcessor, IWikiDocWorkflow wikiDocWorkflow)
     {
         this._runProcessor = runProcessor;
+        this._wikiDocWorkflow = wikiDocWorkflow;
     }
 
     /// <inheritdoc />
@@ -25,18 +28,23 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
         Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
+        request = RunRequestWorkflowDefaults.Apply(request);
         IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create(request.WorkspaceMode, request.WorkspacePath);
         bool initGit = request.WorkspaceMode is "new-project" or "existing-git";
         await adapter.InitializeAsync(request.WorkspaceMode == "new-project" ? request.ProjectName : null, initGit, cancellationToken).ConfigureAwait(false);
 
-        BuildCommandSelection initialBuildSelection = BuildCommandInference.Select(
-            adapter.RootPath,
-            request.BuildCommand,
-            request.WorkspaceMode,
-            request.ProjectName);
-        if (!string.Equals(initialBuildSelection.Command, request.BuildCommand, StringComparison.Ordinal))
+        BuildCommandSelection? initialBuildSelection = null;
+        if (!string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
         {
-            request = request with { BuildCommand = initialBuildSelection.Command };
+            initialBuildSelection = BuildCommandInference.Select(
+                adapter.RootPath,
+                request.BuildCommand,
+                request.WorkspaceMode,
+                request.ProjectName);
+            if (!string.Equals(initialBuildSelection.Command, request.BuildCommand, StringComparison.Ordinal))
+            {
+                request = request with { BuildCommand = initialBuildSelection.Command };
+            }
         }
 
         OrchestratedRunContext runContext = new OrchestratedRunContext(adapter, request, null, initialBuildSelection);
@@ -54,6 +62,7 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
         Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
+        runState = runState with { Request = RunRequestWorkflowDefaults.Apply(runState.Request) };
         string resumeWorkspaceMode = Directory.Exists(Path.Combine(runState.WorkspaceRoot, ".git"))
             ? "existing-git"
             : "existing-folder";
@@ -66,6 +75,25 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
             progress,
             onRunContextEstablished,
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<RunArtefacts> RegenerateMegaWikiAsync(
+        PersistedRunState runState,
+        IProgress<RuntimeProgressEvent>? progress = null,
+        Action<string, string>? onRunContextEstablished = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (runState is null) throw new ArgumentNullException(nameof(runState));
+        RunRequest request = RunRequestWorkflowDefaults.Apply(runState.Request);
+        if (!string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Run '{runState.RunId}' is not a wikidoc run (workflow='{request.Workflow}'); megawiki regeneration is only supported for wikidoc runs.");
+        }
+
+        onRunContextEstablished?.Invoke(runState.RunId, runState.RunDirectory);
+        await this._wikiDocWorkflow.RegenerateAggregateAsync(request, runState.RunDirectory, progress, cancellationToken).ConfigureAwait(false);
+        return new RunArtefacts(runState.RunId, runState.RunDirectory);
     }
 
     /// <summary>

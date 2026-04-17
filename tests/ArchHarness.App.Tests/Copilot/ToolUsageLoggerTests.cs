@@ -80,5 +80,8 @@ public sealed class ToolUsageLoggerTests
 
         public Task WritePlanApprovalAsync(string runDirectory, PlanApproval approval, CancellationToken cancellationToken)
             => Task.CompletedTask;
+
+        public Task CompleteRunAsync(string runDirectory, CancellationToken cancellationToken)
+            => Task.CompletedTask;
     }
 }

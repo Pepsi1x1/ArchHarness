@@ -2,10 +2,10 @@ import { RUN_STATUSES, STREAM_CONNECTION_STATES, DEFAULT_STREAM_EMPTY_MESSAGE } 
 import { state, elements, getActiveProject, getSelectedRun, isSelectedRunLive, getSelectedProjectAndRun } from './state.js';
 import { requestJson } from './api.js';
 import { formatRunTimestamp, setSelectValue } from './utils.js';
-import { renderComposerState, collectRunRequest, canPauseActiveRun } from './composer.js';
+import { renderComposerState, collectRunRequest, canPauseActiveRun, isWikiDocModeEnabled } from './composer.js';
 import { resetStream, showStreamStarting, closeEventStream, connectEventStream, syncSubmittedPromptSection, applyPersistedRunEvents, scrollStreamToBottom } from './stream.js';
 import { renderTopbar, loadProjects } from './projects.js';
-import { syncKeepAwake } from './desktop-bridge.js';
+import { syncKeepAwake, desktopBridge } from './desktop-bridge.js';
 import { saveShellState } from './shell-persistence.js';
 import { openModal } from './modals.js';
 
@@ -100,6 +100,15 @@ export async function loadSelectedRunStream() {
 }
 
 export async function startRun() {
+  if (isWikiDocModeEnabled()) {
+    if (desktopBridge?.openWikiDocScreen) {
+      void desktopBridge.openWikiDocScreen();
+    } else {
+      globalThis.open("/wikidoc.html", "_blank");
+    }
+    return;
+  }
+
   const request = collectRunRequest();
   await submitRunRequest(request);
 }

@@ -102,6 +102,33 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
     }
 
     /// <inheritdoc />
+    public async Task<WebRunSnapshot> RegenerateMegaWikiAsync(PersistedRunState runState, CancellationToken cancellationToken)
+    {
+        await this._runGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            this._eventHub.Reset();
+            CancellationTokenSource runCts = this._snapshotStore.BeginRunSession(new WebRunSessionStart(
+                this._disposeCts.Token,
+                RunStatuses.RESUMING,
+                runState.StartedAtUtc,
+                runState.RunId,
+                runState.RunDirectory,
+                ResolveSnapshotPrompt(runState.Request),
+                runState.WorkspaceRoot,
+                null));
+            this._eventHub.Publish(new WebRunEvent(DateTimeOffset.UtcNow, RUN_STATE_EVENT_KIND, WEB_HOST_EVENT_SOURCE, $"Run {runState.RunId} megawiki regeneration accepted by local web host."));
+            this._activeExecutionTask = Task.Run(() => this._executionRunner.ExecuteRegenerateMegaWikiAsync(runState, runCts, this._disposeCts.Token), CancellationToken.None);
+            return this._snapshotStore.GetSnapshot();
+        }
+        finally
+        {
+            this._runGate.Release();
+        }
+    }
+
+    /// <inheritdoc />
     public WebRunSnapshot GetSnapshot()
         => this._snapshotStore.GetSnapshot();
 
@@ -196,6 +223,7 @@ public sealed class WebRunSessionManager : IWebRunSessionManager, IAsyncDisposab
 
     private static string? ResolveSnapshotPrompt(RunRequest request)
     {
+        request = RunRequestWorkflowDefaults.Apply(request);
         if (!string.IsNullOrWhiteSpace(request.TaskPrompt))
         {
             return request.TaskPrompt;

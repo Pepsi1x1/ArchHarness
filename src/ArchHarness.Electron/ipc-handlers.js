@@ -1,4 +1,4 @@
-const { dialog, ipcMain, powerSaveBlocker } = require("electron");
+const { BrowserWindow, dialog, ipcMain, powerSaveBlocker } = require("electron");
 
 let activePowerSaveBlockerId = null;
 
@@ -35,9 +35,9 @@ const handlers = [
   },
   {
     channel: "archharness:pick-folder",
-    handler: (windowProvider) => async (_, options) => {
-      const window = windowProvider();
-      const owner = window && !window.isDestroyed() ? window : null;
+    handler: () => async (event, options) => {
+      const sender = BrowserWindow.fromWebContents(event.sender);
+      const owner = sender && !sender.isDestroyed() ? sender : null;
       const { title } = sanitizePickFolderOptions(options);
       const result = await dialog.showOpenDialog(owner, {
         properties: ["openDirectory", "createDirectory"],
@@ -50,16 +50,26 @@ const handlers = [
 
       return result.filePaths[0];
     }
+  },
+  {
+    channel: "archharness:open-wikidoc-screen",
+    handler: ({ hostUrlProvider, windowManager }) => () => {
+      const hostUrl = hostUrlProvider();
+      if (!hostUrl) {
+        return;
+      }
+      windowManager.createWikiDocWindow(`${hostUrl}/wikidoc.html`);
+    }
   }
 ];
 
 /**
  * Registers all IPC handlers.
- * @param {{ windowProvider: () => BrowserWindow | null }} deps - injected dependencies
+ * @param {{ windowProvider: () => BrowserWindow | null, hostUrlProvider: () => string | null, windowManager: import('./window-manager').WindowManager }} deps
  */
-function registerAll({ windowProvider }) {
+function registerAll({ windowProvider, hostUrlProvider, windowManager }) {
   for (const entry of handlers) {
-    ipcMain.handle(entry.channel, entry.handler(windowProvider));
+    ipcMain.handle(entry.channel, entry.handler({ windowProvider, hostUrlProvider, windowManager }));
   }
 }
 

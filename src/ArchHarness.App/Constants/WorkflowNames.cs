@@ -14,6 +14,9 @@ public static class WorkflowNames
     /// <summary>The workflow that drives the architecture review remediation loop.</summary>
     public const string ARCHITECTURE_LOOP = "architecture-loop";
 
+    /// <summary>The workflow that generates wiki-style documentation for the workspace without interactive steps.</summary>
+    public const string WIKIDOC = "wikidoc";
+
     /// <summary>The legacy workflow identifier used when no explicit workflow is provided by the CLI.</summary>
     public const string FRONTEND_FEATURE = "frontend_feature";
 }

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/styles.css?v=50">
+  <link rel="stylesheet" href="/styles.css?v=51">
 </head>
 <body>
   <div class="page-noise"></div>
@@ -27,6 +27,7 @@
       <div class="sidebar-footer">
         <button id="new-project-button" class="primary-button" type="button">New Project</button>
         <button id="review-pr-button" class="secondary-button" type="button">Review PR</button>
+        <button id="wikidoc-screen-button" class="secondary-button" type="button">Wiki Docs</button>
       </div>
     </aside>
 
@@ -101,6 +102,7 @@
                 <option value="standard">Standard</option>
                 <option value="planning">Planning</option>
                 <option value="architecture-review">Architecture Review</option>
+                <option value="wikidoc">Wiki Docs</option>
               </select>
             </div>
             <div id="architecture-review-chip" class="composer-dropdown hidden">
@@ -203,24 +205,31 @@
 
       <form id="settings-form" class="modal-form">
         <div id="settings-tab-agent" class="settings-tab-panel" role="tabpanel" aria-labelledby="settings-tab-button-agent">
+          <h3 class="settings-section-heading">Agent Models</h3>
           <div id="settings-grid" class="settings-grid"></div>
 
-          <div class="modal-grid">
-            <label class="field">
+          <h3 class="settings-section-heading">Defaults</h3>
+          <div class="settings-defaults-grid">
+            <div class="field settings-field">
               <span>Default Permission Mode</span>
-              <select id="settings-permission-mode"></select>
-            </label>
+              <div id="settings-permission-mode-wrap"></div>
+            </div>
 
             <label class="chip-toggle modal-toggle">
               <input id="settings-architecture-mode" type="checkbox">
               <span>Default to architecture review mode</span>
             </label>
-          </div>
 
-          <label class="field">
-            <span>Default Architecture Prompt</span>
-            <input id="settings-architecture-prompt" type="text" placeholder="Optional default architecture prompt">
-          </label>
+            <label class="field settings-field">
+              <span>Default Architecture Prompt</span>
+              <input id="settings-architecture-prompt" type="text" placeholder="Optional default architecture prompt">
+            </label>
+
+            <label class="field settings-field">
+              <span>WikiDoc Parallel Agents</span>
+              <input id="settings-wikidoc-parallelism" type="number" min="1" max="16" step="1" value="4">
+            </label>
+          </div>
         </div>
 
         <div id="settings-tab-providers" class="settings-tab-panel hidden" role="tabpanel" aria-labelledby="settings-tab-button-providers" hidden>
@@ -487,6 +496,6 @@
     </div>
   </div>
 
-  <script type="module" src="/app.js?v=36"></script>
+  <script type="module" src="/app.js?v=38"></script>
 </body>
 </html>

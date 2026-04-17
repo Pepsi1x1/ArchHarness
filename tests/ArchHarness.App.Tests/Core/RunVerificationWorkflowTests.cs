@@ -18,6 +18,8 @@ public sealed class RunVerificationWorkflowTests
         {
             IWorkspaceAdapter adapter = WorkspaceAdapterFactory.Create("existing-folder", workspaceRoot);
             await adapter.InitializeAsync(null, initGit: false, CancellationToken.None);
+            string runDirectory = Path.Combine(workspaceRoot, ".agent-harness", "runs", "verification");
+            Directory.CreateDirectory(runDirectory);
 
             RuntimeStateAccessors accessors = new RuntimeStateAccessors(
                 new PermissionHandlerModeAccessor(),
@@ -36,6 +38,7 @@ public sealed class RunVerificationWorkflowTests
             VerificationWorkflowResult result = await workflow.RunAsync(
                 new RunVerificationRequest(
                     new RunRequest("Fix tests", workspaceRoot, "existing-folder", "auto", null, null, null),
+                    runDirectory,
                     new ExecutionPlan(
                         new[] { new ExecutionPlanStep(1, "BackendDeveloper", "Implement fix") },
                         new IterationStrategy(1, false),

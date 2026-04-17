@@ -173,7 +173,10 @@ public sealed record CompletionValidationRequest(
     ClarificationSpec? Spec = null,
     BuildOutcome? BuildOutcome = null,
     IReadOnlyList<VerificationEvidence>? VerificationEvidence = null,
-    IReadOnlyList<string>? FilesTouched = null);
+    IReadOnlyList<string>? FilesTouched = null,
+    string? WorkspaceRoot = null,
+    string? RunDirectory = null,
+    string? Workflow = null);
 
 /// <summary>
 /// Request payload for the architecture review remediation loop.
