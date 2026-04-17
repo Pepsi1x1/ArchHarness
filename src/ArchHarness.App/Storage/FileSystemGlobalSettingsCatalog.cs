@@ -172,7 +172,23 @@ public sealed class FileSystemGlobalSettingsCatalog : IGlobalSettingsCatalog
         => string.IsNullOrWhiteSpace(model) ? fallback : model.Trim();
 
     private static int NormalizeParallelism(int value, int fallback)
-        => value >= 1 ? value : (fallback >= 1 ? fallback : 4);
+    {
+        const int minParallelism = 1;
+        const int maxParallelism = 16;
+        const int defaultParallelism = 4;
+        int normalizedFallback = fallback switch
+        {
+            < minParallelism => defaultParallelism,
+            > maxParallelism => maxParallelism,
+            _ => fallback
+        };
+        return value switch
+        {
+            < minParallelism => normalizedFallback,
+            > maxParallelism => maxParallelism,
+            _ => value
+        };
+    }
 
     private static string? NormalizeReasoningEffort(string? reasoningEffort)
     {

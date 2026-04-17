@@ -79,6 +79,7 @@ public sealed class ModelResolver : IModelResolver
         return role.ToLowerInvariant() switch
         {
             PLANNING_ROLE => NormalizeReasoningEffort(settings.PlanningReasoningEffort),
+            "wikidoc" => NormalizeReasoningEffort(settings.WikiDocReasoningEffort),
             _ => NormalizeReasoningEffort(this._agentOptions.ForRole(role).ReasoningEffort)
         };
     }

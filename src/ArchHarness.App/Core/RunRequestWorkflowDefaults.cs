@@ -22,7 +22,7 @@ public static class RunRequestWorkflowDefaults
             WorkflowNames.WIKIDOC => request with
             {
                 Workflow = WorkflowNames.WIKIDOC,
-                WorkspaceMode = workspaceMode,
+                WorkspaceMode = WorkspaceModes.EXISTING_FOLDER,
                 ReviewLoopAgents = new ReviewLoopAgentSelection(
                     CodingStyleEnabled: false,
                     SecurityEnabled: false,
@@ -42,5 +42,5 @@ public static class RunRequestWorkflowDefaults
     private static string NormalizeWorkflow(string? workflow)
         => string.IsNullOrWhiteSpace(workflow)
             ? WorkflowNames.AUTO
-            : workflow.Trim();
+            : workflow.Trim().ToLowerInvariant();
 }

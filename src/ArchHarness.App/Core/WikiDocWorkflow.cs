@@ -325,6 +325,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
             () => this._agent.SynthesizeMegaWikiAsync(
                 scanRoot,
                 repositorySummaryPayload,
+                resolution.OutputRoot,
                 request.ModelOverrides,
                 "wikidoc-megawiki",
                 cancellationToken)).ConfigureAwait(false);
@@ -338,8 +339,14 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
             Directory.CreateDirectory(conceptsDir);
             foreach (string slug in synthesis.ConceptSlugs)
             {
-                string conceptFilePath = Path.Combine(conceptsDir, $"{slug}.md");
-                await File.WriteAllTextAsync(conceptFilePath, $"# {slug}\n\nPlaceholder concept page.", cancellationToken).ConfigureAwait(false);
+                string safeSlug = SanitizeSlug(slug);
+                if (string.IsNullOrWhiteSpace(safeSlug))
+                {
+                    continue;
+                }
+
+                string conceptFilePath = Path.Combine(conceptsDir, $"{safeSlug}.md");
+                await File.WriteAllTextAsync(conceptFilePath, $"# {safeSlug}\n\nPlaceholder concept page.", cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -481,6 +488,16 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
 
     private static string ToMarkdownRelativePath(string baseDirectory, string targetPath)
         => Path.GetRelativePath(baseDirectory, targetPath).Replace('\\', '/');
+
+    private static string SanitizeSlug(string slug)
+    {
+        string normalized = new string(slug
+            .Trim()
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray());
+        return string.Join("-", normalized.Split('-', StringSplitOptions.RemoveEmptyEntries));
+    }
 
     private static CompletionValidationResult BuildValidationResult(WikiDocExecutionReport report)
     {

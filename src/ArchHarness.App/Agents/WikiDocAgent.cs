@@ -167,6 +167,7 @@ public sealed class WikiDocAgent : AgentBase
     public Task<WikiDocMegaWikiIndex> SynthesizeMegaWikiAsync(
         string scanRoot,
         string repositorySummaryPayload,
+        string outputTarget,
         IDictionary<string, string>? modelOverrides,
         string agentId,
         CancellationToken cancellationToken)
@@ -175,7 +176,8 @@ public sealed class WikiDocAgent : AgentBase
         string prompt = PromptLoader.Render(
             template,
             ("{{ScanRoot}}", scanRoot),
-            ("{{RepositorySummaryPayload}}", repositorySummaryPayload));
+            ("{{RepositorySummaryPayload}}", repositorySummaryPayload),
+            ("{{OutputTarget}}", outputTarget));
 
         return this.CompleteJsonAsync<WikiDocMegaWikiIndex>(
             prompt,

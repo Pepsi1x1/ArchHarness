@@ -86,8 +86,13 @@ public sealed class WikiDocMarkdownWriter : IWikiDocMarkdownWriter
 
     private static string GetSafeOutputPath(string root, string relativePath)
     {
-        string fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
-        if (!fullPath.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
+        string fullRoot = Path.GetFullPath(root);
+        string fullPath = Path.GetFullPath(Path.Combine(fullRoot, relativePath));
+        string relativeToRoot = Path.GetRelativePath(fullRoot, fullPath);
+        if (Path.IsPathRooted(relativeToRoot) ||
+            relativeToRoot.Equals("..", StringComparison.Ordinal) ||
+            relativeToRoot.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+            relativeToRoot.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"WikiDoc attempted to write outside the output root: {relativePath}");
         }
