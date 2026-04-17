@@ -103,6 +103,7 @@ public static class ArchHarnessServiceCollectionExtensions
         services.AddSingleton<WikiDocRepositoryDiscoverer>();
         services.AddSingleton<WikiDocOutputResolver>();
         services.AddSingleton<IWikiDocMarkdownWriter, WikiDocMarkdownWriter>();
+        services.AddSingleton<WikiDocResumeStateBuilder>();
         services.AddSingleton<WikiDocRunServices>();
         services.AddSingleton<SetupSummaryGenerator>();
         services.AddSingleton<RunInfrastructure>();

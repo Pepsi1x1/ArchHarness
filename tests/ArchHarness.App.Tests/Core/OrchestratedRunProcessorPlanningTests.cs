@@ -54,7 +54,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
             CreateStateAccessors(),
             new StubRunAgentModelUsageBuilder(),
             new OrchestratorPlanningServices(orchestrationAgent, planningAgent, new StubRunVerificationWorkflow()),
-            new WikiDocRunServices(new StubWikiDocWorkflow()),
+            new WikiDocRunServices(new StubWikiDocWorkflow(), new WikiDocResumeStateBuilder(), new WikiDocRepositoryDiscoverer(), new WikiDocOutputResolver()),
             approvalBridge: null,
             userInputBridge: null);
 
@@ -225,6 +225,9 @@ public sealed class OrchestratedRunProcessorPlanningTests
     private sealed class StubWikiDocWorkflow : IWikiDocWorkflow
     {
         public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+            => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
+
+        public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, WikiDocResumeState? resumeState, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
         {
             _ = request;
             _ = runDirectory;

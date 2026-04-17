@@ -1050,9 +1050,19 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             null,
             cancellationToken).ConfigureAwait(false);
 
+        // Attempt to reconstruct resume state from a prior run's checkpoint or SDK events.
+        string scanRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(request.WorkspacePath));
+        IReadOnlyList<WikiDocRepositoryInfo> repositories = this._wikiDocServices.Discoverer.Discover(scanRoot);
+        WikiDocResumeState? wikiDocResume = this._wikiDocServices.ResumeStateBuilder.TryBuild(
+            checkpoint.RunDirectory,
+            scanRoot,
+            repositories,
+            this._wikiDocServices.Resolver);
+
         WikiDocWorkflowResult result = await this._wikiDocServices.Workflow.ExecuteAsync(
             request,
             checkpoint.RunDirectory,
+            wikiDocResume,
             progress,
             cancellationToken).ConfigureAwait(false);
 

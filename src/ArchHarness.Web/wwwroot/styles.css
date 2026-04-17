@@ -2572,7 +2572,7 @@ html[data-desktop-platform="win32"] .field select option:hover {
 
 .wikidoc-screen {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 14px;
   height: 100vh;
   padding: 0 20px 20px;
@@ -2666,4 +2666,89 @@ html[data-desktop-platform="win32"] .field select option:hover {
 
 .wikidoc-screen .stream-empty {
   margin: 0;
+}
+
+/* ── WikiDoc progress tracker ──────────────────────────────────────────────── */
+
+.wikidoc-progress {
+  padding: 14px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.wikidoc-progress.hidden {
+  display: none;
+}
+
+.wikidoc-progress-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.wikidoc-progress-title {
+  font-weight: 500;
+  font-size: 0.88rem;
+}
+
+.wikidoc-progress-counter {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.wikidoc-progress-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2, #2a2d35);
+  overflow: hidden;
+}
+
+.wikidoc-progress-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent, #6c8cff);
+  width: 0%;
+  transition: width 0.4s ease;
+}
+
+.wikidoc-active-agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wikidoc-agent-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface-2, #2a2d35);
+  font-size: 0.82rem;
+  color: var(--fg);
+  white-space: nowrap;
+  animation: wikidoc-slot-in 0.2s ease;
+}
+
+@keyframes wikidoc-slot-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.wikidoc-agent-slot-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, #6c8cff);
+  animation: wikidoc-pulse 1.6s ease-in-out infinite;
+}
+
+.wikidoc-agent-slot-dot.megawiki {
+  background: var(--warning, #e8a855);
+}
+
+@keyframes wikidoc-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
 }

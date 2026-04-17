@@ -15,6 +15,11 @@ public interface IWikiDocWorkflow
     /// Executes wiki documentation generation for the supplied run request.
     /// </summary>
     Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Resumes a prior WikiDoc run, skipping repositories that already completed.
+    /// </summary>
+    Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, WikiDocResumeState? resumeState, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -28,6 +33,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
     private readonly WikiDocOutputResolver _resolver;
     private readonly IWikiDocMarkdownWriter _writer;
     private readonly IGlobalSettingsCatalog _settingsCatalog;
+    private readonly SemaphoreSlim _checkpointLock = new SemaphoreSlim(1, 1);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WikiDocWorkflow"/> class.
@@ -49,9 +55,18 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
     }
 
     /// <inheritdoc />
+    public Task<WikiDocWorkflowResult> ExecuteAsync(
+        RunRequest request,
+        string runDirectory,
+        IProgress<RuntimeProgressEvent>? progress,
+        CancellationToken cancellationToken)
+        => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
+
+    /// <inheritdoc />
     public async Task<WikiDocWorkflowResult> ExecuteAsync(
         RunRequest request,
         string runDirectory,
+        WikiDocResumeState? resumeState,
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
@@ -62,75 +77,163 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         ConcurrentBag<WikiDocRepositoryOutput> repositoryOutputs = new ConcurrentBag<WikiDocRepositoryOutput>();
         ConcurrentBag<WikiDocFallbackRecord> fallbackRecords = new ConcurrentBag<WikiDocFallbackRecord>();
 
-        int parallelism = Math.Max(1, this._settingsCatalog.GetSettings().WikiDocParallelism);
-        await Parallel.ForEachAsync(
-            repositories,
-            new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = cancellationToken },
-            async (repository, ct) =>
+        // Seed with already-completed repos from the resume state.
+        HashSet<string> completedSessionKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (resumeState is not null)
         {
-            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"Documenting repository {repository.DisplayName}"));
+            progress?.Report(new RuntimeProgressEvent(
+                DateTimeOffset.UtcNow,
+                WellKnownSources.WIKIDOC,
+                $"Resuming: {resumeState.CompletedRepositories.Count} repositories already completed, skipping."));
+            foreach (WikiDocCompletedRepository completed in resumeState.CompletedRepositories)
+            {
+                completedSessionKeys.Add(completed.DocumentationSessionKey);
+                repositoryOutputs.Add(new WikiDocRepositoryOutput(
+                    completed.RepositoryRoot,
+                    completed.RepositoryRelativePath,
+                    completed.RepositoryDisplayName,
+                    completed.OutputRoot,
+                    completed.RequestedLocalRoot,
+                    completed.HomePath,
+                    completed.UsedFallback,
+                    completed.DocumentationSessionKey,
+                    completed.RenameCandidate,
+                    completed.RenameCandidateWasEligible,
+                    completed.RenamedFrom,
+                    completed.FallbackReasonCode,
+                    completed.FallbackReason,
+                    completed.Summary,
+                    completed.Concepts));
 
-            string fallbackRoot = Path.Combine(runDirectory, "wikidoc-fallback", repository.SafeKey);
-            WikiDocOutputResolution resolution = this._resolver.Resolve(repository.RepositoryRoot, fallbackRoot);
-            string documentationSessionKey = $"wikidoc-{repository.SafeKey}";
-            WikiDocRepositoryIndex index = await this.WithWorkspaceRootAsync(
-                repository.RepositoryRoot,
-                () => this._agent.DocumentRepositoryAsync(
-                    scanRoot,
+                // Collect files already written by the prior run.
+                if (Directory.Exists(completed.OutputRoot))
+                {
+                    foreach (string mdFile in Directory.GetFiles(completed.OutputRoot, "*.md", SearchOption.AllDirectories))
+                    {
+                        filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, mdFile));
+                    }
+                }
+            }
+
+            progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"Resumed with {completedSessionKeys.Count} completed repositories, {repositories.Count - completedSessionKeys.Count} remaining"));
+        }
+
+        // Filter to only repositories that still need processing.
+        IReadOnlyList<WikiDocRepositoryInfo> pendingRepositories = repositories
+            .Where(r => !completedSessionKeys.Contains($"wikidoc-{r.SafeKey}"))
+            .ToList();
+
+        int totalRepositories = repositories.Count;
+        int alreadyCompleted = completedSessionKeys.Count;
+        int completedCount = alreadyCompleted;
+        int parallelism = Math.Max(1, this._settingsCatalog.GetSettings().WikiDocParallelism);
+
+        progress?.Report(new RuntimeProgressEvent(
+            DateTimeOffset.UtcNow,
+            WellKnownSources.WIKIDOC,
+            $"wikidoc:progress:{alreadyCompleted}/{totalRepositories}:Starting documentation ({pendingRepositories.Count} repositories, {parallelism} parallel agents)"));
+
+        try
+        {
+            await Parallel.ForEachAsync(
+                pendingRepositories,
+                new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = cancellationToken },
+                async (repository, ct) =>
+            {
+                progress?.Report(new RuntimeProgressEvent(
+                    DateTimeOffset.UtcNow,
+                    WellKnownSources.WIKIDOC,
+                    $"wikidoc:repo-started:{repository.DisplayName}:{Volatile.Read(ref completedCount)}/{totalRepositories}"));
+
+                string fallbackRoot = Path.Combine(runDirectory, "wikidoc-fallback", repository.SafeKey);
+                WikiDocOutputResolution resolution = this._resolver.Resolve(repository.RepositoryRoot, fallbackRoot);
+                string documentationSessionKey = $"wikidoc-{repository.SafeKey}";
+                WikiDocRepositoryIndex index = await this.WithWorkspaceRootAsync(
+                    repository.RepositoryRoot,
+                    () => this._agent.DocumentRepositoryAsync(
+                        scanRoot,
+                        repository.RepositoryRoot,
+                        repository.RelativePath,
+                        repository.DisplayName,
+                        resolution.OutputRoot,
+                        request.ModelOverrides,
+                        documentationSessionKey,
+                        ct)).ConfigureAwait(false);
+
+                string homePath = Path.Combine(resolution.OutputRoot, "Home.md");
+                if (!File.Exists(homePath))
+                {
+                    // Fallback: agent did not write Home.md (test stubs or tool failure).
+                    homePath = await this._writer.WriteMarkdownAsync(
+                        resolution.OutputRoot,
+                        "Home.md",
+                        WikiDocPathHelper.EnsureHeading($"# {index.RepositoryName}\n\n{index.Summary}", index.RepositoryName),
+                        ct).ConfigureAwait(false);
+                }
+
+                // Track all .md files the agent wrote under the output root, not just Home.md.
+                foreach (string mdFile in Directory.GetFiles(resolution.OutputRoot, "*.md", SearchOption.AllDirectories))
+                {
+                    filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, mdFile));
+                }
+
+                WikiDocRepositoryOutput output = new WikiDocRepositoryOutput(
                     repository.RepositoryRoot,
                     repository.RelativePath,
                     repository.DisplayName,
                     resolution.OutputRoot,
-                    request.ModelOverrides,
-                    documentationSessionKey,
-                    ct)).ConfigureAwait(false);
-
-            string homePath = Path.Combine(resolution.OutputRoot, "Home.md");
-            if (!File.Exists(homePath))
-            {
-                // Fallback: agent did not write Home.md (test stubs or tool failure).
-                homePath = await this._writer.WriteMarkdownAsync(
-                    resolution.OutputRoot,
-                    "Home.md",
-                    WikiDocPathHelper.EnsureHeading($"# {index.RepositoryName}\n\n{index.Summary}", index.RepositoryName),
-                    ct).ConfigureAwait(false);
-            }
-
-            // Track all .md files the agent wrote under the output root, not just Home.md.
-            foreach (string mdFile in Directory.GetFiles(resolution.OutputRoot, "*.md", SearchOption.AllDirectories))
-            {
-                filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, mdFile));
-            }
-
-            WikiDocRepositoryOutput output = new WikiDocRepositoryOutput(
-                repository.RepositoryRoot,
-                repository.RelativePath,
-                repository.DisplayName,
-                resolution.OutputRoot,
-                resolution.RequestedLocalRoot,
-                homePath,
-                resolution.UsedFallback,
-                documentationSessionKey,
-                resolution.RenameCandidate,
-                resolution.RenameCandidateWasEligible,
-                resolution.RenamedFrom,
-                resolution.FallbackReasonCode,
-                resolution.FallbackReason,
-                index.Summary,
-                index.Concepts);
-            repositoryOutputs.Add(output);
-
-            if (resolution.UsedFallback)
-            {
-                fallbackRecords.Add(new WikiDocFallbackRecord(
-                    "repository",
-                    repository.RepositoryRoot,
                     resolution.RequestedLocalRoot,
-                    resolution.OutputRoot,
-                    resolution.FallbackReasonCode ?? "unknown",
-                    resolution.FallbackReason ?? "The repository-local wiki path could not be used."));
+                    homePath,
+                    resolution.UsedFallback,
+                    documentationSessionKey,
+                    resolution.RenameCandidate,
+                    resolution.RenameCandidateWasEligible,
+                    resolution.RenamedFrom,
+                    resolution.FallbackReasonCode,
+                    resolution.FallbackReason,
+                    index.Summary,
+                    index.Concepts);
+                repositoryOutputs.Add(output);
+
+                if (resolution.UsedFallback)
+                {
+                    fallbackRecords.Add(new WikiDocFallbackRecord(
+                        "repository",
+                        repository.RepositoryRoot,
+                        resolution.RequestedLocalRoot,
+                        resolution.OutputRoot,
+                        resolution.FallbackReasonCode ?? "unknown",
+                        resolution.FallbackReason ?? "The repository-local wiki path could not be used."));
+                }
+
+                int done = Interlocked.Increment(ref completedCount);
+                progress?.Report(new RuntimeProgressEvent(
+                    DateTimeOffset.UtcNow,
+                    WellKnownSources.WIKIDOC,
+                    $"wikidoc:repo-completed:{repository.DisplayName}:{done}/{totalRepositories}"));
+
+                // Write incremental checkpoint so progress survives crashes.
+                await this.WriteCheckpointLockedAsync(runDirectory, repositoryOutputs.ToList(), megaWikiCompleted: false, ct).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Ensure a checkpoint is persisted even when the loop exits due to error or cancellation,
+            // so that already-completed repositories are not re-processed on resume.
+            List<WikiDocRepositoryOutput> snapshot = repositoryOutputs.ToList();
+            if (snapshot.Count > 0)
+            {
+                try
+                {
+                    await WriteCheckpointAsync(runDirectory, snapshot, megaWikiCompleted: false, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (IOException)
+                {
+                    // Best-effort: the incremental checkpoint from the last successful iteration
+                    // may still exist on disk.
+                }
             }
-        }).ConfigureAwait(false);
+        }
 
         // Snapshot to lists for downstream consumption (order not significant).
         List<WikiDocRepositoryOutput> repositoryOutputsList = repositoryOutputs.ToList();
@@ -205,7 +308,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                 resolution.FallbackReason);
         }
 
-        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, "Synthesizing megawiki and concept pages"));
+        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"wikidoc:megawiki-started:megawiki:{repositoryOutputs.Count}/{repositoryOutputs.Count}"));
         string repositorySummaryPayload = JsonSerializer.Serialize(
             repositoryOutputs.Select(output => new
             {
@@ -259,6 +362,9 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                 cancellationToken).ConfigureAwait(false);
         }
         filesTouched.Add(WikiDocPathHelper.ToWorkspaceRelativePath(scanRoot, megaWikiPath));
+
+        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.WIKIDOC, $"wikidoc:megawiki-completed:megawiki:{repositoryOutputs.Count}/{repositoryOutputs.Count}"));
+
         return new WikiDocAggregateOutput(
             resolution.OutputRoot,
             megaWikiPath,
@@ -281,6 +387,55 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
         {
             this._stateAccessors.WorkspaceRoot.SetCurrent(previous);
         }
+    }
+
+    private async Task WriteCheckpointLockedAsync(
+        string runDirectory,
+        IReadOnlyList<WikiDocRepositoryOutput> completedOutputs,
+        bool megaWikiCompleted,
+        CancellationToken cancellationToken)
+    {
+        await this._checkpointLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await WriteCheckpointAsync(runDirectory, completedOutputs, megaWikiCompleted, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            this._checkpointLock.Release();
+        }
+    }
+
+    private static async Task WriteCheckpointAsync(
+        string runDirectory,
+        IReadOnlyList<WikiDocRepositoryOutput> completedOutputs,
+        bool megaWikiCompleted,
+        CancellationToken cancellationToken)
+    {
+        List<WikiDocCompletedRepository> completedRepos = completedOutputs.Select(output =>
+            new WikiDocCompletedRepository(
+                output.DocumentationSessionKey,
+                output.RepositoryRoot,
+                output.RepositoryRelativePath,
+                output.RepositoryDisplayName,
+                output.OutputRoot,
+                output.RequestedLocalRoot,
+                output.HomePath,
+                output.UsedFallback,
+                output.RenameCandidate,
+                output.RenameCandidateWasEligible,
+                output.RenamedFrom,
+                output.FallbackReasonCode,
+                output.FallbackReason,
+                output.Summary,
+                output.Concepts)).ToList();
+
+        WikiDocCheckpoint checkpoint = new WikiDocCheckpoint(completedRepos, megaWikiCompleted, DateTimeOffset.UtcNow);
+        string targetPath = Path.Combine(runDirectory, "WikiDocCheckpoint.json");
+        string tempPath = targetPath + ".tmp";
+        string json = JsonSerializer.Serialize(checkpoint, JsonDefaults.WEB_INDENTED);
+        await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
+        File.Move(tempPath, targetPath, overwrite: true);
     }
 
     private static string BuildMegaWikiFallbackMarkdown(

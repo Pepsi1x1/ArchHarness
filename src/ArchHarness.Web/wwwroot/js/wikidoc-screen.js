@@ -18,9 +18,14 @@ const folderInput = document.getElementById("wikidoc-folder");
 const browseButton = document.getElementById("wikidoc-browse");
 const promptInput = document.getElementById("wikidoc-prompt");
 const generateButton = document.getElementById("wikidoc-generate");
+const resumeButton = document.getElementById("wikidoc-resume");
 const statusEl = document.getElementById("wikidoc-status");
 const streamEmptyEl = document.getElementById("wikidoc-stream-empty");
 const streamSectionsEl = document.getElementById("wikidoc-stream-sections");
+const progressPanel = document.getElementById("wikidoc-progress");
+const progressCounter = document.getElementById("wikidoc-progress-counter");
+const progressBar = document.getElementById("wikidoc-progress-bar");
+const activeAgentsEl = document.getElementById("wikidoc-active-agents");
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -31,6 +36,10 @@ let streamSections = {};
 let streamOrder = [];
 let streamAutoScroll = true;
 let refreshHandle = null;
+let resumableRun = null;
+let progressTotal = 0;
+let progressDone = 0;
+let activeAgents = new Map(); // repoName → startTime
 
 // ── Folder browsing ───────────────────────────────────────────────────────────
 
@@ -42,6 +51,7 @@ async function browseScanRoot() {
   });
   if (selected) {
     folderInput.value = selected;
+    void checkForResumableRun();
   }
 }
 
@@ -58,6 +68,7 @@ async function startWikiDocRun() {
 
   generateButton.disabled = true;
   generateButton.textContent = "Generating…";
+  hideResumeButton();
   setStatus("Starting run…");
 
   resetStream();
@@ -95,6 +106,84 @@ async function startWikiDocRun() {
   }
 }
 
+// ── Resume detection ──────────────────────────────────────────────────────────
+
+async function checkForResumableRun() {
+  const scanRoot = folderInput.value.trim();
+  if (!scanRoot) {
+    hideResumeButton();
+    return;
+  }
+
+  try {
+    const runs = await requestJson(`/api/runs?workspacePath=${encodeURIComponent(scanRoot)}&maxCount=5`);
+    if (!Array.isArray(runs) || runs.length === 0) {
+      hideResumeButton();
+      return;
+    }
+
+    for (const run of runs) {
+      try {
+        const state = await requestJson(
+          `/api/runs/${encodeURIComponent(run.runId)}/state?workspacePath=${encodeURIComponent(scanRoot)}`
+        );
+        if (state?.workflow === WIKIDOC_WORKFLOW && state?.canResume) {
+          resumableRun = { runId: run.runId, workspacePath: scanRoot };
+          showResumeButton();
+          return;
+        }
+      } catch {
+        // Skip runs whose state cannot be read.
+      }
+    }
+
+    hideResumeButton();
+  } catch {
+    hideResumeButton();
+  }
+}
+
+function showResumeButton() {
+  resumeButton.classList.remove("hidden");
+}
+
+function hideResumeButton() {
+  resumableRun = null;
+  resumeButton.classList.add("hidden");
+}
+
+async function resumeWikiDocRun() {
+  if (!resumableRun) return;
+
+  const { runId, workspacePath } = resumableRun;
+  resumeButton.disabled = true;
+  resumeButton.textContent = "Resuming…";
+  generateButton.disabled = true;
+  setStatus("Resuming run…");
+
+  resetStream();
+  showStreamStarting();
+
+  try {
+    const snapshot = await requestJson(
+      `/api/runs/${encodeURIComponent(runId)}/resume?workspacePath=${encodeURIComponent(workspacePath)}`,
+      { method: "POST" }
+    );
+
+    activeRunId = snapshot?.runId || runId;
+    isRunning = true;
+    hideResumeButton();
+    setStatus("Running… (resumed)");
+    connectEventStream();
+  } catch (error) {
+    resumeButton.disabled = false;
+    resumeButton.textContent = "Resume";
+    generateButton.disabled = false;
+    setStatus(`Failed to resume: ${error.message || "Unknown error"}`, "error");
+    hideStreamStarting();
+  }
+}
+
 // ── SSE stream ────────────────────────────────────────────────────────────────
 
 function connectEventStream() {
@@ -121,7 +210,9 @@ function connectEventStream() {
     } else if (kind === "runtime-progress") {
       const message = readEventField(payload, "message") || "";
       const source = readEventField(payload, "source") || "";
-      if (message.endsWith("prompt started") && source) {
+      if (message.startsWith("wikidoc:")) {
+        handleWikiDocProgress(message);
+      } else if (message.endsWith("prompt started") && source) {
         showAgentSpinningUp(source);
       }
     }
@@ -171,8 +262,11 @@ function onRunFinished(snapshot) {
   showStreamCompleted();
   generateButton.disabled = false;
   generateButton.textContent = "Generate";
+  resumeButton.disabled = false;
+  resumeButton.textContent = "Resume";
   const status = snapshot?.status || "completed";
   setStatus(status === "completed" ? "Completed successfully." : `Finished with status: ${status}`);
+  void checkForResumableRun();
 }
 
 // ── Stream rendering ──────────────────────────────────────────────────────────
@@ -586,6 +680,96 @@ function resetStream() {
   streamSectionsEl.replaceChildren();
   streamEmptyEl.classList.remove("hidden");
   streamAutoScroll = true;
+  resetProgressTracker();
+}
+
+// ── Progress tracker ──────────────────────────────────────────────────────────
+
+function handleWikiDocProgress(message) {
+  // Format: wikidoc:<action>:<detail>:<done>/<total>
+  const parts = message.split(":");
+  if (parts.length < 4) return;
+
+  const action = parts[1];
+  const detail = parts[2];
+  const fraction = parts[3];
+  const [doneStr, totalStr] = fraction.split("/");
+  const done = parseInt(doneStr, 10);
+  const total = parseInt(totalStr, 10);
+
+  if (!isNaN(total) && total > 0) progressTotal = total;
+  if (!isNaN(done)) progressDone = done;
+
+  switch (action) {
+    case "progress":
+      showProgressPanel();
+      updateProgressBar();
+      break;
+    case "repo-started":
+      activeAgents.set(detail, Date.now());
+      showProgressPanel();
+      updateProgressBar();
+      renderActiveAgents();
+      break;
+    case "repo-completed":
+      activeAgents.delete(detail);
+      updateProgressBar();
+      renderActiveAgents();
+      break;
+    case "megawiki-started":
+      activeAgents.clear();
+      activeAgents.set("Megawiki synthesis", Date.now());
+      updateProgressBar();
+      renderActiveAgents(true);
+      break;
+    case "megawiki-completed":
+      activeAgents.clear();
+      updateProgressBar();
+      renderActiveAgents();
+      break;
+  }
+}
+
+function showProgressPanel() {
+  progressPanel.classList.remove("hidden");
+}
+
+function hideProgressPanel() {
+  progressPanel.classList.add("hidden");
+}
+
+function updateProgressBar() {
+  if (progressTotal <= 0) return;
+  const pct = Math.min(100, Math.round((progressDone / progressTotal) * 100));
+  progressBar.style.width = `${pct}%`;
+  progressCounter.textContent = `${progressDone} / ${progressTotal} repositories`;
+}
+
+function renderActiveAgents(isMegawiki = false) {
+  activeAgentsEl.replaceChildren();
+  for (const [name] of activeAgents) {
+    const slot = document.createElement("span");
+    slot.className = "wikidoc-agent-slot";
+
+    const dot = document.createElement("span");
+    dot.className = "wikidoc-agent-slot-dot" + (isMegawiki ? " megawiki" : "");
+
+    const label = document.createElement("span");
+    label.textContent = name;
+
+    slot.append(dot, label);
+    activeAgentsEl.append(slot);
+  }
+}
+
+function resetProgressTracker() {
+  progressTotal = 0;
+  progressDone = 0;
+  activeAgents.clear();
+  progressBar.style.width = "0%";
+  progressCounter.textContent = "";
+  activeAgentsEl.replaceChildren();
+  hideProgressPanel();
 }
 
 // ── Status display ─────────────────────────────────────────────────────────────
@@ -625,9 +809,33 @@ generateButton.addEventListener("click", () => {
   }
 });
 
+resumeButton.addEventListener("click", () => {
+  if (!isRunning) {
+    void resumeWikiDocRun().catch(error => {
+      console.error("Wiki doc resume failed:", error);
+      resumeButton.disabled = false;
+      resumeButton.textContent = "Resume";
+      generateButton.disabled = false;
+      setStatus(`Error: ${error.message || "Unknown error"}`, "error");
+    });
+  }
+});
+
 browseButton.addEventListener("click", () => {
   void browseScanRoot();
 });
+
+let _resumeCheckHandle = null;
+function scheduleResumeCheck() {
+  if (_resumeCheckHandle) clearTimeout(_resumeCheckHandle);
+  _resumeCheckHandle = setTimeout(() => {
+    _resumeCheckHandle = null;
+    void checkForResumableRun();
+  }, 400);
+}
+
+folderInput.addEventListener("input", scheduleResumeCheck);
+folderInput.addEventListener("change", scheduleResumeCheck);
 
 if (!desktopBridge?.selectFolder) {
   browseButton.classList.add("hidden");
