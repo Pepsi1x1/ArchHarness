@@ -706,7 +706,7 @@ function handleWikiDocProgress(message) {
       updateProgressBar();
       break;
     case "repo-started":
-      activeAgents.set(detail, Date.now());
+      activeAgents.set(detail, { startTime: Date.now(), streamStartIdx: streamOrder.length });
       showProgressPanel();
       updateProgressBar();
       renderActiveAgents();
@@ -718,7 +718,7 @@ function handleWikiDocProgress(message) {
       break;
     case "megawiki-started":
       activeAgents.clear();
-      activeAgents.set("Megawiki synthesis", Date.now());
+      activeAgents.set("Megawiki synthesis", { startTime: Date.now(), streamStartIdx: streamOrder.length });
       updateProgressBar();
       renderActiveAgents(true);
       break;
@@ -747,9 +747,12 @@ function updateProgressBar() {
 
 function renderActiveAgents(isMegawiki = false) {
   activeAgentsEl.replaceChildren();
-  for (const [name] of activeAgents) {
+  for (const [name, info] of activeAgents) {
     const slot = document.createElement("span");
     slot.className = "wikidoc-agent-slot";
+    slot.setAttribute("role", "button");
+    slot.setAttribute("tabindex", "0");
+    slot.title = `Scroll to ${name}`;
 
     const dot = document.createElement("span");
     dot.className = "wikidoc-agent-slot-dot" + (isMegawiki ? " megawiki" : "");
@@ -759,6 +762,19 @@ function renderActiveAgents(isMegawiki = false) {
 
     slot.append(dot, label);
     activeAgentsEl.append(slot);
+
+    const scrollToSection = () => {
+      const sectionId = streamOrder[info.streamStartIdx];
+      if (!sectionId) return;
+      const body = streamSectionsEl.querySelector(`[data-agent-id="${CSS.escape(sectionId)}"]`);
+      const target = body?.closest(".stream-section") ?? body;
+      if (!target) return;
+      streamAutoScroll = false;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    slot.addEventListener("click", scrollToSection);
+    slot.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); scrollToSection(); } });
   }
 }
 

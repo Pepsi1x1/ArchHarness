@@ -2728,7 +2728,14 @@ html[data-desktop-platform="win32"] .field select option:hover {
   font-size: 0.82rem;
   color: var(--fg);
   white-space: nowrap;
+  cursor: pointer;
   animation: wikidoc-slot-in 0.2s ease;
+}
+
+.wikidoc-agent-slot:hover,
+.wikidoc-agent-slot:focus-visible {
+  background: var(--surface-3, #353840);
+  outline: none;
 }
 
 @keyframes wikidoc-slot-in {
