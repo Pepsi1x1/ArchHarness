@@ -140,14 +140,14 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                 new ParallelOptions { MaxDegreeOfParallelism = parallelism, CancellationToken = cancellationToken },
                 async (repository, ct) =>
             {
+                string documentationSessionKey = $"wikidoc-{repository.SafeKey}";
                 progress?.Report(new RuntimeProgressEvent(
                     DateTimeOffset.UtcNow,
                     WellKnownSources.WIKIDOC,
-                    $"wikidoc:repo-started:{repository.DisplayName}:{Volatile.Read(ref completedCount)}/{totalRepositories}"));
+                    $"wikidoc:repo-started:{repository.DisplayName}:{Volatile.Read(ref completedCount)}/{totalRepositories}:{documentationSessionKey}"));
 
                 string fallbackRoot = Path.Combine(runDirectory, "wikidoc-fallback", repository.SafeKey);
                 WikiDocOutputResolution resolution = this._resolver.Resolve(repository.RepositoryRoot, fallbackRoot);
-                string documentationSessionKey = $"wikidoc-{repository.SafeKey}";
                 WikiDocRepositoryIndex index = await this.WithWorkspaceRootAsync(
                     repository.RepositoryRoot,
                     () => this._agent.DocumentRepositoryAsync(
@@ -210,7 +210,7 @@ public sealed class WikiDocWorkflow : IWikiDocWorkflow
                 progress?.Report(new RuntimeProgressEvent(
                     DateTimeOffset.UtcNow,
                     WellKnownSources.WIKIDOC,
-                    $"wikidoc:repo-completed:{repository.DisplayName}:{done}/{totalRepositories}"));
+                    $"wikidoc:repo-completed:{repository.DisplayName}:{done}/{totalRepositories}:{documentationSessionKey}"));
 
                 // Write incremental checkpoint so progress survives crashes.
                 await this.WriteCheckpointLockedAsync(runDirectory, repositoryOutputs.ToList(), megaWikiCompleted: false, ct).ConfigureAwait(false);

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
 
@@ -22,21 +21,25 @@ public interface ICopilotClientProvider
 }
 
 /// <summary>
-/// Manages the lifecycle of the underlying GitHub Copilot SDK client.
+/// Manages the lifecycle of a single shared GitHub Copilot SDK client.
+/// The client process is started once with an initial cwd; per-session cwd is carried
+/// on <c>SessionConfig.WorkingDirectory</c> / <c>ResumeSessionConfig.WorkingDirectory</c>
+/// so parallel sessions against different workspace roots do not require separate clients
+/// and never cause the shared client to be disposed mid-turn.
 /// </summary>
 public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDisposable
 {
     private readonly CopilotOptions _options;
     private readonly IWorkspaceRootAccessor _workspaceRootAccessor;
-    private readonly ConcurrentDictionary<string, Lazy<Task<GitHub.Copilot.SDK.CopilotClient>>> _clients
-        = new ConcurrentDictionary<string, Lazy<Task<GitHub.Copilot.SDK.CopilotClient>>>(StringComparer.Ordinal);
+    private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
+    private Task<GitHub.Copilot.SDK.CopilotClient>? _clientTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CopilotClientProvider"/> class
     /// and defers SDK client startup until first use.
     /// </summary>
     /// <param name="options">Copilot configuration options.</param>
-    /// <param name="workspaceRootAccessor">Accessor for the active workspace root.</param>
+    /// <param name="workspaceRootAccessor">Accessor for the active workspace root, used only to pick the CLI's initial cwd on first start.</param>
     public CopilotClientProvider(IOptions<CopilotOptions> options, IWorkspaceRootAccessor workspaceRootAccessor)
     {
         this._options = options.Value;
@@ -44,69 +47,65 @@ public sealed class CopilotClientProvider : ICopilotClientProvider, IAsyncDispos
     }
 
     /// <summary>
-    /// Returns the initialized SDK client for the current async-local workspace root,
-    /// spawning a new CLI process only when no client has yet been created for that directory.
-    /// Separate working directories keep separate clients so that parallel work against
-    /// different workspaces does not dispose each other's sessions.
+    /// Returns the initialized SDK client, awaiting startup if still in progress.
+    /// The CLI process is started exactly once per provider lifetime (or after an
+    /// explicit <see cref="InvalidateAsync"/>) and is reused across all workspace roots.
     /// </summary>
     /// <returns>The fully initialized SDK client.</returns>
-    public Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync()
+    public async Task<GitHub.Copilot.SDK.CopilotClient> GetClientAsync()
     {
-        string desiredWorkingDirectory = ResolveWorkingDirectory(this._workspaceRootAccessor.Current);
-        Lazy<Task<GitHub.Copilot.SDK.CopilotClient>> lazy = this._clients.GetOrAdd(
-            desiredWorkingDirectory,
-            cwd => new Lazy<Task<GitHub.Copilot.SDK.CopilotClient>>(
-                () => InitializeClientAsync(this._options, cwd),
-                LazyThreadSafetyMode.ExecutionAndPublication));
+        if (this._clientTask is { } existing)
+        {
+            return await existing.ConfigureAwait(false);
+        }
 
-        return this.AwaitClientAsync(desiredWorkingDirectory, lazy);
-    }
-
-    private async Task<GitHub.Copilot.SDK.CopilotClient> AwaitClientAsync(
-        string workingDirectory,
-        Lazy<Task<GitHub.Copilot.SDK.CopilotClient>> lazy)
-    {
+        await this._gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await lazy.Value.ConfigureAwait(false);
+            if (this._clientTask is null)
+            {
+                string initialCwd = ResolveWorkingDirectory(this._workspaceRootAccessor.Current);
+                this._clientTask = InitializeClientAsync(this._options, initialCwd);
+            }
+
+            return await this._clientTask.ConfigureAwait(false);
         }
-        catch
+        finally
         {
-            // Startup failures should not poison the cache; allow the next caller to retry.
-            this._clients.TryRemove(new KeyValuePair<string, Lazy<Task<GitHub.Copilot.SDK.CopilotClient>>>(workingDirectory, lazy));
-            throw;
+            this._gate.Release();
         }
     }
 
     /// <inheritdoc />
     public async Task InvalidateAsync()
     {
-        string desiredWorkingDirectory = ResolveWorkingDirectory(this._workspaceRootAccessor.Current);
-        if (!this._clients.TryRemove(desiredWorkingDirectory, out Lazy<Task<GitHub.Copilot.SDK.CopilotClient>>? removed))
+        await this._gate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            if (this._clientTask is not null && this._clientTask.IsCompletedSuccessfully)
+            {
+                try { await this._clientTask.Result.DisposeAsync().ConfigureAwait(false); } catch { /* best-effort */ }
+            }
 
-        if (removed.IsValueCreated && removed.Value.IsCompletedSuccessfully)
+            this._clientTask = null;
+        }
+        finally
         {
-            try { await removed.Value.Result.DisposeAsync().ConfigureAwait(false); } catch { /* best-effort */ }
+            this._gate.Release();
         }
     }
 
     /// <summary>
-    /// Disposes all cached SDK clients.
+    /// Disposes the underlying SDK client if it was successfully started.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
-        foreach (Lazy<Task<GitHub.Copilot.SDK.CopilotClient>> lazy in this._clients.Values)
+        if (this._clientTask is not null && this._clientTask.IsCompletedSuccessfully)
         {
-            if (lazy.IsValueCreated && lazy.Value.IsCompletedSuccessfully)
-            {
-                try { await lazy.Value.Result.DisposeAsync().ConfigureAwait(false); } catch { /* best-effort */ }
-            }
+            await this._clientTask.Result.DisposeAsync();
         }
 
-        this._clients.Clear();
+        this._gate.Dispose();
     }
 
     private static async Task<GitHub.Copilot.SDK.CopilotClient> InitializeClientAsync(CopilotOptions options, string workingDirectory)

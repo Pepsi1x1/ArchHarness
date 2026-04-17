@@ -686,13 +686,14 @@ function resetStream() {
 // ── Progress tracker ──────────────────────────────────────────────────────────
 
 function handleWikiDocProgress(message) {
-  // Format: wikidoc:<action>:<detail>:<done>/<total>
+  // Format: wikidoc:<action>:<detail>:<done>/<total>:<sessionKey>
   const parts = message.split(":");
   if (parts.length < 4) return;
 
   const action = parts[1];
   const detail = parts[2];
   const fraction = parts[3];
+  const sessionKey = parts[4] || null;
   const [doneStr, totalStr] = fraction.split("/");
   const done = parseInt(doneStr, 10);
   const total = parseInt(totalStr, 10);
@@ -706,7 +707,7 @@ function handleWikiDocProgress(message) {
       updateProgressBar();
       break;
     case "repo-started":
-      activeAgents.set(detail, { startTime: Date.now(), streamStartIdx: streamOrder.length });
+      activeAgents.set(detail, { startTime: Date.now(), sessionKey });
       showProgressPanel();
       updateProgressBar();
       renderActiveAgents();
@@ -718,7 +719,7 @@ function handleWikiDocProgress(message) {
       break;
     case "megawiki-started":
       activeAgents.clear();
-      activeAgents.set("Megawiki synthesis", { startTime: Date.now(), streamStartIdx: streamOrder.length });
+      activeAgents.set("Megawiki synthesis", { startTime: Date.now(), sessionKey: "wikidoc-megawiki" });
       updateProgressBar();
       renderActiveAgents(true);
       break;
@@ -764,7 +765,9 @@ function renderActiveAgents(isMegawiki = false) {
     activeAgentsEl.append(slot);
 
     const scrollToSection = () => {
-      const sectionId = streamOrder[info.streamStartIdx];
+      const { sessionKey } = info;
+      if (!sessionKey) return;
+      const sectionId = streamOrder.find(id => id === sessionKey || id.startsWith(`${sessionKey}#`));
       if (!sectionId) return;
       const body = streamSectionsEl.querySelector(`[data-agent-id="${CSS.escape(sectionId)}"]`);
       const target = body?.closest(".stream-section") ?? body;
