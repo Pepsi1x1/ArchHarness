@@ -142,7 +142,6 @@ export function applyBootstrap(bootstrap) {
   state.selectedReviewLoopAgents = normalizeReviewLoopAgents(
     state.selectedReviewLoopAgents || bootstrap.reviewLoopAgents
   );
-  console.log("DEBUG permissionMode:", elements.permissionMode, "newProjectPermission:", elements.newProjectPermission);
   populateSelect(elements.permissionMode, bootstrap.permissionModes || []);
   populateSelect(elements.newProjectPermission, bootstrap.permissionModes || []);
   populateSettingsPermissionMode();
