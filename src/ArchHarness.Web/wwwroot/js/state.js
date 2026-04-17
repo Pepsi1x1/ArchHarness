@@ -136,7 +136,7 @@ export const elements = {
   settingsModal: document.getElementById("settings-modal"),
   settingsForm: document.getElementById("settings-form"),
   settingsGrid: document.getElementById("settings-grid"),
-  settingsPermissionMode: document.getElementById("settings-permission-mode"),
+  settingsPermissionModeWrap: document.getElementById("settings-permission-mode-wrap"),
   settingsArchitectureMode: document.getElementById("settings-architecture-mode"),
   settingsArchitecturePrompt: document.getElementById("settings-architecture-prompt"),
   settingsWikidocParallelism: document.getElementById("settings-wikidoc-parallelism"),

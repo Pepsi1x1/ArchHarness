@@ -368,6 +368,7 @@ body {
 .stream-sections,
 .composer-controls,
 .settings-grid,
+.settings-defaults-grid,
 .artifact-list,
 .modal-grid,
 .run-details-layout {
@@ -1470,9 +1471,30 @@ html[data-desktop-platform="win32"] .field select option:hover {
 }
 
 .modal-grid,
-.settings-grid,
+.settings-defaults-grid,
 .run-details-layout {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-grid {
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 10px;
+}
+
+.settings-grid-label {
+  color: var(--muted-strong);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.settings-grid-label--dim {
+  opacity: 0.65;
+}
+
+.settings-grid-empty {
+  display: none;
 }
 
 .settings-dropdown {
@@ -2091,9 +2113,17 @@ html[data-desktop-platform="win32"] .field select option:hover {
 }
 
 @media(max-width: 1180px) {
+  .settings-grid {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-grid-empty {
+    display: none;
+  }
+
   .run-details-layout,
   .git-diff-layout,
-  .settings-grid,
+  .settings-defaults-grid,
   .modal-grid,
   .composer-controls,
   .path-row {

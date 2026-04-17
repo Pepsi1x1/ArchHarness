@@ -1,10 +1,12 @@
 import { ROLE_LABELS } from './constants.js';
 import { state, elements } from './state.js';
 import { requestJson } from './api.js';
-import { populateSelect, setSelectValue } from './utils.js';
+import { setSelectValue } from './utils.js';
 import { closeModal } from './modals.js';
+import { createDropdown, updateDropdown, createDropdownRegistry } from './dropdown.js';
 
-let settingsMenuOpen = null;
+const settingsRegistry = createDropdownRegistry();
+let permissionDropdown = null;
 
 export async function loadSettings() {
   state.settings = await requestJson("/api/settings");
@@ -20,11 +22,33 @@ export function applySettingsDefaults() {
   }
 
   setSelectValue(elements.permissionMode, state.settings.defaults.permissionHandlerMode);
-  setSelectValue(elements.settingsPermissionMode, state.settings.defaults.permissionHandlerMode);
+  if (permissionDropdown) {
+    updateDropdown(permissionDropdown, getPermissionOptions(), state.settings.defaults.permissionHandlerMode || "");
+  }
   setSelectValue(elements.runMode, state.settings.defaults.architectureReviewMode ? "architecture-review" : "standard");
   elements.settingsArchitectureMode.checked = !!state.settings.defaults.architectureReviewMode;
   elements.settingsArchitecturePrompt.value = state.settings.defaults.architectureReviewPrompt || "";
   elements.settingsWikidocParallelism.value = state.settings.defaults.wikidocParallelism ?? 4;
+}
+
+function getPermissionOptions() {
+  const modes = state.bootstrap?.permissionModes || [];
+  return modes.map(m => ({ value: m, label: m }));
+}
+
+export function populateSettingsPermissionMode() {
+  const options = getPermissionOptions();
+  const current = state.settings?.defaults?.permissionHandlerMode || "";
+  if (!permissionDropdown) {
+    permissionDropdown = createDropdown("settings-permission-mode", options, current, {
+      onSelect: () => {},
+      registry: settingsRegistry,
+      extraClass: "settings-dropdown"
+    });
+    elements.settingsPermissionModeWrap.replaceChildren(permissionDropdown);
+  } else {
+    updateDropdown(permissionDropdown, options, current);
+  }
 }
 
 export function renderSettingsForm() {
@@ -39,46 +63,55 @@ export function renderSettingsForm() {
       label: model.costBand ? `${model.displayName} • ${model.costBand}` : model.displayName
     }));
 
-    const modelDropdown = createSettingsDropdown(
+    const hasReasoning = key === "planning" || key === "wikidoc";
+
+    const modelDropdown = createDropdown(
       `settings-model-${key}`,
       modelOptions,
       state.settings.agentModels?.[key] || "",
-      (value) => {
-        if (key === "planning" || key === "wikidoc") {
-          const rWrap = document.querySelector(`[data-dropdown-id="settings-reasoning-${key}"]`);
-          if (rWrap) {
-            const newOpts = getReasoningOptions(value);
-            updateSettingsDropdown(rWrap, newOpts, newOpts.length ? rWrap.dataset.value || "" : "");
+      {
+        onSelect: (value) => {
+          if (hasReasoning) {
+            const rWrap = document.querySelector(`[data-dropdown-id="settings-reasoning-${key}"]`);
+            if (rWrap) {
+              const newOpts = getReasoningOptions(value);
+              updateDropdown(rWrap, newOpts, rWrap.dataset.value || "");
+            }
           }
-        }
+        },
+        registry: settingsRegistry,
+        extraClass: "settings-dropdown"
       }
     );
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "field settings-field";
-    const title = document.createElement("span");
-    title.textContent = label;
-    wrapper.append(title, modelDropdown);
-    elements.settingsGrid.append(wrapper);
+    const agentLabel = document.createElement("span");
+    agentLabel.className = "settings-grid-label";
+    agentLabel.textContent = label;
 
-    if (key === "planning" || key === "wikidoc") {
+    const modelCell = document.createElement("div");
+    modelCell.append(modelDropdown);
+
+    const rLabelEl = document.createElement("span");
+    const rCell = document.createElement("div");
+
+    if (hasReasoning) {
       const reasoningOpts = getReasoningOptions(state.settings.agentModels?.[key] || "");
       const currentReasoning = state.settings.agentReasoningEfforts?.[key] || "";
-      const reasoningDropdown = createSettingsDropdown(
+      const reasoningDropdown = createDropdown(
         `settings-reasoning-${key}`,
         reasoningOpts,
         reasoningOpts.find(o => o.value === currentReasoning) ? currentReasoning : "",
-        () => {}
+        { onSelect: () => {}, registry: settingsRegistry, extraClass: "settings-dropdown" }
       );
-
-      const reasoningWrapper = document.createElement("div");
-      reasoningWrapper.className = "field settings-field";
-      reasoningWrapper.style.gridColumn = key === "wikidoc" ? "2" : "1";
-      const reasoningTitle = document.createElement("span");
-      reasoningTitle.textContent = key === "wikidoc" ? "Wiki Docs Reasoning" : "Planning Reasoning";
-      reasoningWrapper.append(reasoningTitle, reasoningDropdown);
-      elements.settingsGrid.append(reasoningWrapper);
+      rLabelEl.className = "settings-grid-label settings-grid-label--dim";
+      rLabelEl.textContent = "Reasoning";
+      rCell.append(reasoningDropdown);
+    } else {
+      rLabelEl.className = "settings-grid-empty";
+      rCell.className = "settings-grid-empty";
     }
+
+    elements.settingsGrid.append(agentLabel, modelCell, rLabelEl, rCell);
   });
 }
 
@@ -97,96 +130,8 @@ function getReasoningOptions(modelId) {
   ];
 }
 
-function createSettingsDropdown(id, options, selectedValue, onSelect) {
-  const wrap = document.createElement("div");
-  wrap.className = "settings-dropdown composer-dropdown";
-  wrap.dataset.dropdownId = id;
-  wrap.dataset.value = selectedValue || "";
-
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "settings-dropdown-button composer-dropdown-button";
-  button.setAttribute("aria-haspopup", "menu");
-  button.setAttribute("aria-expanded", "false");
-
-  const labelSpan = document.createElement("span");
-  labelSpan.textContent = options.find(o => o.value === selectedValue)?.label || selectedValue || "";
-
-  const chevron = document.createElement("i");
-  chevron.className = "fa-solid fa-chevron-down";
-  chevron.setAttribute("aria-hidden", "true");
-  button.append(labelSpan, chevron);
-
-  const menu = document.createElement("div");
-  menu.className = "composer-dropdown-menu hidden";
-  menu.setAttribute("role", "menu");
-
-  function buildMenuItems(opts, val) {
-    menu.replaceChildren();
-    opts.forEach(opt => {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "composer-dropdown-item";
-      item.setAttribute("role", "menuitemradio");
-      item.setAttribute("aria-checked", opt.value === val ? "true" : "false");
-      item.classList.toggle("current", opt.value === val);
-      item.textContent = opt.label;
-      item.disabled = !!opt.disabled;
-      item.addEventListener("click", e => {
-        e.stopPropagation();
-        wrap.dataset.value = opt.value;
-        labelSpan.textContent = opt.label;
-        menu.querySelectorAll(".composer-dropdown-item").forEach(i => {
-          const active = i === item;
-          i.classList.toggle("current", active);
-          i.setAttribute("aria-checked", active ? "true" : "false");
-        });
-        onSelect(opt.value);
-        closeSettingsDropdowns();
-      });
-      menu.append(item);
-    });
-  }
-
-  buildMenuItems(options, selectedValue);
-  wrap._buildMenuItems = buildMenuItems;
-
-  const hasChoices = options.filter(o => !o.disabled).length > 0;
-  button.disabled = !hasChoices;
-
-  button.addEventListener("click", e => {
-    e.stopPropagation();
-    const isOpen = settingsMenuOpen === id;
-    closeSettingsDropdowns();
-    if (!isOpen && hasChoices) {
-      settingsMenuOpen = id;
-      wrap.classList.add("open");
-      menu.classList.remove("hidden");
-      button.setAttribute("aria-expanded", "true");
-    }
-  });
-
-  wrap.append(button, menu);
-  return wrap;
-}
-
-function updateSettingsDropdown(wrap, options, value) {
-  wrap.dataset.value = value || "";
-  const labelSpan = wrap.querySelector(".composer-dropdown-button span");
-  const selectedOpt = options.find(o => o.value === value);
-  if (labelSpan) labelSpan.textContent = selectedOpt?.label || value || "";
-  if (wrap._buildMenuItems) wrap._buildMenuItems(options, value);
-  const btn = wrap.querySelector(".settings-dropdown-button");
-  if (btn) btn.disabled = options.filter(o => !o.disabled).length === 0;
-}
-
 export function closeSettingsDropdowns() {
-  settingsMenuOpen = null;
-  document.querySelectorAll(".settings-dropdown.open").forEach(el => {
-    el.classList.remove("open");
-    el.querySelector(".composer-dropdown-menu")?.classList.add("hidden");
-    el.querySelector(".settings-dropdown-button")?.setAttribute("aria-expanded", "false");
-  });
+  settingsRegistry.close();
 }
 
 function collectSettingsPayload() {
@@ -206,7 +151,7 @@ function collectSettingsPayload() {
       wikidoc: wikidocWrap?.dataset.value || null
     },
     defaults: {
-      permissionHandlerMode: elements.settingsPermissionMode.value,
+      permissionHandlerMode: permissionDropdown?.dataset.value || "",
       architectureReviewMode: elements.settingsArchitectureMode.checked,
       architectureReviewPrompt: elements.settingsArchitecturePrompt.value.trim() || null,
       wikidocParallelism: parseInt(elements.settingsWikidocParallelism.value, 10) || 4

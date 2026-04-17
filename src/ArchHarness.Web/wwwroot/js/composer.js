@@ -3,6 +3,7 @@ import { state, elements, getActiveProject, getSelectedRun, isSelectedRunLive } 
 import { setSelectValue, getSelectDisplayLabel } from './utils.js';
 import { saveShellState } from './shell-persistence.js';
 import { closeWorkspaceBranchMenu } from './branch.js';
+import { buildDropdownMenuItems } from './dropdown.js';
 
 export function normalizeReviewLoopAgents(selection) {
   const normalized = {
@@ -232,24 +233,12 @@ function renderReviewLoopAgentDropdown() {
 
 function renderComposerDropdown(config) {
   const isOpen = state.composerMenuOpen === config.id;
-  const options = Array.from(config.select.options);
+  const options = Array.from(config.select.options).map(o => ({ value: o.value, label: o.textContent || o.value }));
   config.label.textContent = getSelectDisplayLabel(config.select);
   config.button.setAttribute("aria-expanded", isOpen ? "true" : "false");
-  config.menu.replaceChildren();
 
-  options.forEach(option => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "composer-dropdown-item";
-    item.textContent = option.textContent || option.value;
-    item.setAttribute("role", "menuitemradio");
-    item.setAttribute("aria-checked", option.value === config.select.value ? "true" : "false");
-    item.classList.toggle("current", option.value === config.select.value);
-    item.addEventListener("click", event => {
-      event.stopPropagation();
-      selectComposerDropdownValue(config.id, option.value);
-    });
-    config.menu.append(item);
+  buildDropdownMenuItems(config.menu, options, config.select.value, value => {
+    selectComposerDropdownValue(config.id, value);
   });
 
   config.menu.classList.toggle("hidden", !isOpen || options.length === 0);

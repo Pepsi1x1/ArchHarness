@@ -9,6 +9,7 @@ import { saveShellState } from './shell-persistence.js';
 import { openModal, closeModal } from './modals.js';
 import { desktopBridge, selectFolderWithDesktopBridge } from './desktop-bridge.js';
 import { renderActiveRun, loadSelectedRunStream, openRunDetails } from './runs.js';
+import { populateSettingsPermissionMode } from './settings.js';
 
 export function renderTopbar() {
   const activeProject = getActiveProject();
@@ -141,9 +142,10 @@ export function applyBootstrap(bootstrap) {
   state.selectedReviewLoopAgents = normalizeReviewLoopAgents(
     state.selectedReviewLoopAgents || bootstrap.reviewLoopAgents
   );
+  console.log("DEBUG permissionMode:", elements.permissionMode, "newProjectPermission:", elements.newProjectPermission);
   populateSelect(elements.permissionMode, bootstrap.permissionModes || []);
   populateSelect(elements.newProjectPermission, bootstrap.permissionModes || []);
-  populateSelect(elements.settingsPermissionMode, bootstrap.permissionModes || []);
+  populateSettingsPermissionMode();
 
   setSelectValue(elements.permissionMode, bootstrap.defaultPermissionHandlerMode);
   setSelectValue(elements.newProjectPermission, bootstrap.defaultPermissionHandlerMode);
