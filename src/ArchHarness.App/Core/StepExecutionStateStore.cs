@@ -81,7 +81,13 @@ public sealed class StepExecutionStateStore : IStepExecutionStateStore
                 FailureMessage: null,
                 Spec: existingState?.Spec,
                 Approval: existingState?.Approval,
-                LastBuildOutcome: state.LastBuildOutcome ?? existingState?.LastBuildOutcome),
+                LastBuildOutcome: state.LastBuildOutcome ?? existingState?.LastBuildOutcome,
+                CompletionValidation: existingState?.CompletionValidation,
+                ClarificationAnswers: existingState?.ClarificationAnswers,
+                HandoffRunId: existingState?.HandoffRunId,
+                PlanningSessionId: existingState?.PlanningSessionId ?? request.PlanningSessionId,
+                ConversationHistory: existingState?.ConversationHistory,
+                CurrentWave: existingState?.CurrentWave ?? 0),
             cancellationToken);
     }
 }

@@ -38,7 +38,7 @@ public interface IPlanningSessionStore
 public sealed class PlanningSessionStore : IPlanningSessionStore
 {
     private const string PLANNING_SESSIONS_DIRECTORY = "planning-sessions";
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> WriteGates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> writeGates = new(StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public PlanningSession? Get(string workspaceRoot, string sessionId)
@@ -56,7 +56,7 @@ public sealed class PlanningSessionStore : IPlanningSessionStore
         }
 
         string filePath = GetSessionFilePath(workspaceRoot, session.Id);
-        SemaphoreSlim gate = GetWriteGate(filePath);
+        SemaphoreSlim gate = this.GetWriteGate(filePath);
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -81,7 +81,7 @@ public sealed class PlanningSessionStore : IPlanningSessionStore
         }
 
         string filePath = GetSessionFilePath(workspaceRoot, sessionId);
-        SemaphoreSlim gate = GetWriteGate(filePath);
+        SemaphoreSlim gate = this.GetWriteGate(filePath);
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -150,8 +150,8 @@ public sealed class PlanningSessionStore : IPlanningSessionStore
         }
     }
 
-    private static SemaphoreSlim GetWriteGate(string filePath)
-        => WriteGates.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
+    private SemaphoreSlim GetWriteGate(string filePath)
+        => this.writeGates.GetOrAdd(filePath, _ => new SemaphoreSlim(1, 1));
 
     private static string SanitizeSessionId(string sessionId)
     {
