@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using ArchHarness.App.Core;
+using LibGit2Sharp;
 
 namespace ArchHarness.App.Workspace;
 
@@ -48,54 +48,44 @@ public sealed class GitWorkspaceAdapter : FileSystemWorkspaceAdapter
 
     private async Task<IReadOnlyCollection<string>> GetGitChangedPathsAsync(CancellationToken cancellationToken)
     {
+        await Task.Yield();
+        cancellationToken.ThrowIfCancellationRequested();
         HashSet<string> changed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string? repositoryPath = Repository.Discover(this.RootPath);
+        if (string.IsNullOrWhiteSpace(repositoryPath))
+        {
+            return changed;
+        }
 
-        string tracked = await this.RunGitCommandAsync("diff --name-only --relative HEAD", cancellationToken);
-        AddPaths(changed, tracked);
+        using Repository repository = new Repository(repositoryPath);
+        string repositoryRoot = Path.GetFullPath(repository.Info.WorkingDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string workspaceRoot = Path.GetFullPath(this.RootPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        RepositoryStatus status = repository.RetrieveStatus(new StatusOptions
+        {
+            IncludeUntracked = true,
+            RecurseUntrackedDirs = true
+        });
 
-        string untracked = await this.RunGitCommandAsync("ls-files --others --exclude-standard", cancellationToken);
-        AddPaths(changed, untracked);
+        foreach (StatusEntry entry in status.Where(entry => entry.State != FileStatus.Unaltered && !entry.State.HasFlag(FileStatus.Ignored)))
+        {
+            AddRepositoryRelativePath(changed, entry.FilePath, repositoryRoot, workspaceRoot);
+        }
 
         return changed;
     }
 
-    private async Task<string> RunGitCommandAsync(string arguments, CancellationToken cancellationToken)
+    private static void AddRepositoryRelativePath(ISet<string> output, string repositoryRelativePath, string repositoryRoot, string workspaceRoot)
     {
-        ProcessStartInfo info = new ProcessStartInfo("git")
+        string fullPath = Path.GetFullPath(Path.Combine(repositoryRoot, repositoryRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!WorkspaceSnapshotHelper.IsUnderRoot(fullPath, workspaceRoot))
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        info.ArgumentList.Add("-C");
-        info.ArgumentList.Add(this.RootPath);
-        foreach (string arg in arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))
-        {
-            info.ArgumentList.Add(arg);
+            return;
         }
 
-        using Process process = new Process { StartInfo = info };
-        process.Start();
-        string stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-        _ = await process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-
-        if (process.ExitCode != 0)
+        string workspaceRelativePath = Path.GetRelativePath(workspaceRoot, fullPath);
+        if (!WorkspaceSnapshotHelper.IsIgnoredPath(workspaceRelativePath))
         {
-            return string.Empty;
-        }
-
-        return stdout;
-    }
-
-    private static void AddPaths(ISet<string> output, string raw)
-    {
-        string[] lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (string line in lines.Where(line => !string.IsNullOrWhiteSpace(line) && !WorkspaceSnapshotHelper.IsIgnoredPath(line)))
-        {
-            output.Add(line);
+            output.Add(workspaceRelativePath);
         }
     }
 }

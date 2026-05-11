@@ -93,6 +93,11 @@ function attachHandlers() {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     state.streamAutoScroll = atBottom;
   });
+  globalThis.addEventListener("archharness:stream-rendered", () => {
+    if (state.pendingInteraction?.kind === "plan-approval") {
+      renderInlineInteraction();
+    }
+  });
   elements.startRun.addEventListener("click", () => startRun().catch(error => {
     console.error("Run submission failed:", error);
   }));

@@ -16,7 +16,7 @@ public sealed class PlanningAgentTests
     }
 
     [Fact]
-    public async Task BuildClarificationSpecAsync_UsesPlanningPromptGroup()
+    public async Task BuildClarificationSpecAsync_UsesPlanningPromptGroupAsync()
     {
         RecordingCopilotClient copilotClient = new(new[]
         {
@@ -32,15 +32,15 @@ public sealed class PlanningAgentTests
               "likelyTouchpoints": [],
               "openQuestions": [],
               "decisionNotes": [],
-                            "verificationCommands": [
-                                {
-                                    "name": "Run API tests",
-                                    "command": "dotnet test tests/ArchHarness.App.Tests/ArchHarness.App.Tests.csproj --filter WebApiTests",
-                                    "evidenceType": "test",
-                                    "criterion": "Build passes",
-                                    "required": true
-                                }
-                            ]
+              "verificationCommands": [
+                {
+                  "name": "Run API tests",
+                  "command": "dotnet test tests/ArchHarness.App.Tests/ArchHarness.App.Tests.csproj --filter WebApiTests",
+                  "evidenceType": "test",
+                  "criterion": "Build passes",
+                  "required": true
+                }
+              ]
             }
             """
         });
@@ -64,7 +64,7 @@ public sealed class PlanningAgentTests
     }
 
     [Fact]
-    public async Task BuildExecutionPlanAsync_UsesPlanningPromptGroupAndPlanningRole()
+    public async Task BuildExecutionPlanAsync_UsesPlanningPromptGroupAndPlanningRoleAsync()
     {
         RecordingCopilotClient copilotClient = new(new[]
         {
@@ -89,6 +89,80 @@ public sealed class PlanningAgentTests
         Assert.Contains("You are the planner", copilotClient.Prompts.Single(), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("orchestration planner", copilotClient.Prompts.Single(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("initial implementation plan", copilotClient.Prompts.Single(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task BuildExecutionPlanAsync_RetrySendsOnlyValidationErrorFollowUpAsync()
+    {
+        RecordingCopilotClient copilotClient = new(new[]
+        {
+            """
+            {
+              "steps": [
+                                {"id":1,"agent":"BackendDeveloper","parallelGroup":1}
+              ],
+              "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+              "completionCriteria": ["Build passes"]
+            }
+            """,
+            """
+            {
+              "steps": [{"id":1,"agent":"BackendDeveloper","objective":"Implement the change","parallelGroup":1}],
+              "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+              "completionCriteria": ["Build passes"]
+            }
+            """
+        });
+        PlanningAgent agent = CreateAgent(copilotClient);
+
+        ExecutionPlan plan = await agent.BuildExecutionPlanAsync(
+            CreatePlanningRequest(),
+            "C:\\workspace",
+            cancellationToken: CancellationToken.None);
+
+        Assert.Contains(plan.Steps, step => step.Agent == AgentNames.BACKEND_DEVELOPER && step.Objective == "Implement the change");
+        Assert.Equal(2, copilotClient.Prompts.Count);
+        Assert.Equal("Validation error: Step 0: missing or empty 'objective' field.", copilotClient.Prompts[1]);
+        Assert.DoesNotContain("Previous response", copilotClient.Prompts[1], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("initial implementation plan", copilotClient.Prompts[1], StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task BuildExecutionPlanAsync_FollowUpOnlyPromptSendsCompactPlanningLedgerAsync()
+    {
+        RecordingCopilotClient copilotClient = new(new[]
+        {
+            """
+            {
+              "steps": [{"id":1,"agent":"BackendDeveloper","objective":"Revise the plan","parallelGroup":1}],
+              "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+              "completionCriteria": ["Build passes"]
+            }
+            """
+        });
+        PlanningAgent agent = CreateAgent(copilotClient);
+        PlanningContext planningContext = new(
+            Spec: null,
+            ClarificationAnswers: null,
+            ConversationHistory: new[]
+            {
+                CreateConversationMessage(ConversationMessageKinds.PLAN_DECISION, "regenerate"),
+                CreateConversationMessage(ConversationMessageKinds.PLAN_REVISION, "Do not commit or push to git as part of the plan")
+            },
+            UseFollowUpOnlyPrompt: true);
+
+        _ = await agent.BuildExecutionPlanAsync(
+            CreatePlanningRequest(),
+            "C:\\workspace",
+            planningContext,
+            cancellationToken: CancellationToken.None);
+
+        Assert.Equal(
+            $"[plan-decision] user: regenerate{Environment.NewLine}[plan-revision] user: Do not commit or push to git as part of the plan",
+            copilotClient.Prompts.Single());
+        Assert.DoesNotContain("TaskPrompt:", copilotClient.Prompts.Single(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PlanRevisionRequest:", copilotClient.Prompts.Single(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("You are the planner", copilotClient.Options.Single().SystemMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     private static PlanningAgent CreateAgent(RecordingCopilotClient copilotClient, RecordingModelResolver? modelResolver = null)
@@ -116,6 +190,15 @@ public sealed class PlanningAgentTests
             "Prompts",
             "Orchestration",
             "system.md"));
+
+    private static ConversationMessage CreateConversationMessage(string kind, string text)
+        => new(
+            Guid.NewGuid().ToString("N"),
+            ConversationRoles.USER,
+            kind,
+            text,
+            Array.Empty<PromptAttachment>(),
+            DateTimeOffset.UtcNow);
 
     private sealed class RecordingCopilotClient : ICopilotClient
     {

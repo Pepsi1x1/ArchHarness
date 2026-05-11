@@ -154,6 +154,7 @@ public sealed class WebInteractionCoordinatorTests
         Assert.NotNull(pending);
         Assert.True(state.IsAwaitingInput);
         Assert.Equal("plan-approval", pending.Kind);
+        Assert.Equal("Review the proposed plan in chat, then approve it or describe what should change.", pending.Question);
         Assert.Equal("session-1", pending.SessionId);
         Assert.Equal("run-1", pending.RunId);
         Assert.Equal("# Spec\nTask: test", pending.SpecMarkdown);

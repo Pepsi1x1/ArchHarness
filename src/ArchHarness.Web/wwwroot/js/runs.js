@@ -9,6 +9,7 @@ import { syncKeepAwake, desktopBridge } from './desktop-bridge.js';
 import { saveShellState } from './shell-persistence.js';
 import { openModal } from './modals.js';
 import { clearComposerAttachments, collectSubmissionAttachments } from './attachments.js';
+import { submitPlanApproval } from './interactions.js';
 
 export function renderActiveRun() {
   const activeRun = state.activeRun;
@@ -200,10 +201,11 @@ function renderPlanningFollowUpButton() {
   const runState = state.selectedRunState;
   const isPlanningRun = !!runState && typeof runState.workflow === "string"
     && runState.workflow.toLowerCase() === "planning";
+  const isPendingPlanApproval = state.pendingInteraction?.kind === "plan-approval";
   const hasText = (elements.taskPrompt?.value || "").trim().length > 0;
-  const canSend = isPlanningRun && !!project?.workspacePath && !!run?.runId && hasText;
+  const canSend = (isPlanningRun || isPendingPlanApproval) && !!project?.workspacePath && !!run?.runId && hasText;
 
-  button.classList.toggle("hidden", !isPlanningRun);
+  button.classList.toggle("hidden", !(isPlanningRun || isPendingPlanApproval));
   button.disabled = !canSend;
 }
 
@@ -223,13 +225,18 @@ export async function sendPlanningFollowUp() {
   const originalLabel = elements.planningFollowUp.textContent;
   elements.planningFollowUp.textContent = "Sending...";
   try {
-    await postPlanningFollowUp(run.runId, {
-      workspacePath: project.workspacePath,
-      text,
-      attachments,
-      relatedRunId: run.runId,
-      kind: state.selectedRunState?.handoffRunId ? "follow-up" : "plan-revision"
-    });
+    if (state.pendingInteraction?.kind === "plan-approval") {
+      await submitPlanApproval("regenerate", text);
+    } else {
+      await postPlanningFollowUp(run.runId, {
+        workspacePath: project.workspacePath,
+        text,
+        attachments,
+        relatedRunId: run.runId,
+        kind: state.selectedRunState?.handoffRunId ? "follow-up" : "plan-revision"
+      });
+    }
+
     elements.taskPrompt.value = "";
     clearComposerAttachments();
     saveShellState();
@@ -292,20 +299,24 @@ export async function startImplementationFromPlanningRun() {
     return;
   }
 
+  setSelectValue(elements.runMode, "standard");
   elements.implementRun.disabled = true;
   elements.implementRun.textContent = "Starting...";
+  renderComposerState();
 
   try {
     state.activeRun = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/handoff?workspacePath=${encodeURIComponent(project.workspacePath)}`, {
       method: "POST"
     });
     state.activeRunId = state.activeRun?.runId || null;
-    setSelectValue(elements.runMode, "standard");
     saveShellState();
     renderActiveRun();
     connectEventStream();
     await loadProjects();
     await syncSelectedRunStateToCurrentSelection();
+    setSelectValue(elements.runMode, "standard");
+    renderComposerState();
+    saveShellState();
   } catch (error) {
     console.error("Implementation handoff failed:", error);
     renderComposerState();

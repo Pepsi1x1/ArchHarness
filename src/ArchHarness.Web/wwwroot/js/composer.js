@@ -73,6 +73,10 @@ export function syncComposerFromProject(project) {
   }
 
   setSelectValue(elements.permissionMode, project.permissionHandlerMode);
+  if (isPlanningModeEnabled() || state.activeRun?.isRunning) {
+    return;
+  }
+
   setSelectValue(elements.runMode, project.architectureReviewMode ? "architecture-review" : "standard");
 }
 

@@ -107,10 +107,9 @@ public class OrchestrationAgent : AgentBase
 
         for (int attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt++)
         {
-            string? priorResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse;
             string promptForAttempt = attempt == 1
                 ? planningPrompt
-                : $"{planningPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nValidation error: {lastValidationError ?? "Unknown validation error."}\nPrevious response:\n{priorResponsePreview}";
+                : BuildValidationFollowUpPrompt(lastValidationError);
 
             lastResponse = await base.CopilotClient.CompleteAsync(
                 model,
@@ -380,10 +379,9 @@ public class OrchestrationAgent : AgentBase
         string? lastResponse = null;
         for (int attempt = 1; attempt <= MAX_VERIFIER_ATTEMPTS; attempt++)
         {
-            string previousResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse ?? string.Empty;
             string promptForAttempt = attempt == 1
                 ? prompt
-                : $"{prompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{previousResponsePreview}";
+                : BuildValidationFollowUpPrompt("Your previous response could not be parsed. Return the corrected raw JSON object.");
 
             lastResponse = await base.CopilotClient.CompleteAsync(
                 model,

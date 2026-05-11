@@ -1411,6 +1411,15 @@ html[data-desktop-platform="win32"] .field select option:hover {
   overflow: hidden;
 }
 
+.inline-interaction.question-batch {
+  padding: 0;
+  gap: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: min(56vh, 620px);
+  overflow: hidden;
+}
+
 .inline-interaction-scroll {
   flex: 1;
   overflow-y: auto;
@@ -1447,6 +1456,10 @@ html[data-desktop-platform="win32"] .field select option:hover {
   width: 100%;
 }
 
+.inline-interaction-free-text {
+  padding-top: 4px;
+}
+
 .inline-interaction-revision {
   padding-top: 2px;
 }
@@ -1456,11 +1469,45 @@ html[data-desktop-platform="win32"] .field select option:hover {
   flex-shrink: 0;
 }
 
+.inline-interaction.question-batch > .inline-interaction-copy {
+  padding: 12px 12px 0;
+  flex-shrink: 0;
+}
+
+.inline-interaction.question-batch > .button-row {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .plan-approval-actions {
   flex-shrink: 0;
   padding: 10px 12px;
   border-top: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.stream-plan-approval-actions {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  display: grid;
+  gap: 10px;
+}
+
+.stream-plan-approval-actions p {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 0.85rem;
+}
+
+.stream-plan-approval-actions .plan-approval-actions {
+  padding: 0;
+  border-top: 0;
+  background: transparent;
 }
 
 .inline-interaction-plan pre {

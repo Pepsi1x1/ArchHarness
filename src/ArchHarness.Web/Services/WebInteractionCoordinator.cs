@@ -281,13 +281,13 @@ public sealed class WebInteractionCoordinator
         await this._interactionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            string question = $"Review and approve the execution plan:\n{request.SpecMarkdown}";
+            string question = "Review the proposed plan in chat, then approve it or describe what should change.";
             this._state.SetAwaiting(question);
             TaskCompletionSource<object> responseSource = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             PendingInteractionSnapshot snapshot = new PendingInteractionSnapshot(
                 Kind: "plan-approval",
                 Question: question,
-                Choices: new[] { "Approve", "Regenerate", "Cancel" },
+                Choices: new[] { "Approve", "Cancel" },
                 PermissionKind: null,
                 SessionId: request.PlanningSessionId,
                 ToolName: null,

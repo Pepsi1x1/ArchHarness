@@ -96,11 +96,9 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
     private Dictionary<string, FileSignature> BuildSnapshot()
     {
         Dictionary<string, FileSignature> snapshot = new Dictionary<string, FileSignature>(StringComparer.OrdinalIgnoreCase);
-        foreach (string filePath in Directory
-                     .GetFiles(this.RootPath, "*", SearchOption.AllDirectories)
-                     .Where(filePath => !this.IsExcludedPath(filePath)))
+        foreach (string relativePath in WorkspaceSnapshotHelper.EnumerateSnapshotFiles(this.RootPath))
         {
-            string relativePath = Path.GetRelativePath(this.RootPath, filePath);
+            string filePath = Path.GetFullPath(Path.Combine(this.RootPath, relativePath));
             if (TryGetFileSignature(filePath, out FileSignature signature))
             {
                 snapshot[relativePath] = signature;
@@ -108,12 +106,6 @@ public class FileSystemWorkspaceAdapter : IWorkspaceAdapter
         }
 
         return snapshot;
-    }
-
-    private bool IsExcludedPath(string fullPath)
-    {
-        string relativePath = Path.GetRelativePath(this.RootPath, fullPath);
-        return WorkspaceSnapshotHelper.IsIgnoredPath(relativePath);
     }
 
     private static bool TryGetFileSignature(string filePath, out FileSignature signature)

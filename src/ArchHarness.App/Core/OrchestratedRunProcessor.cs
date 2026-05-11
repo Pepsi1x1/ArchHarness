@@ -477,7 +477,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         string planHash = ComputePlanHash(plan);
 
         await this.RecordPlanProposalAsync(request, checkpoint.WorkspaceRoot, runId, spec, planReviewMarkdown, planHash, cancellationToken).ConfigureAwait(false);
-        await this.PublishPlanReviewAsync(runId, runDirectory, planReviewMarkdown, progress, cancellationToken).ConfigureAwait(false);
+        await this.PublishPlanReviewAsync(runId, runDirectory, planReviewMarkdown, planHash, progress, cancellationToken).ConfigureAwait(false);
 
         PlanApprovalResponse response = await this._approvalBridge.RequestApprovalAsync(
             new PlanApprovalRequest(
@@ -681,15 +681,24 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             }
 
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, WellKnownSources.ORCHESTRATOR, "Regenerating execution plan", approval.Reason));
+            ConversationMessage revisionMessage = ArchHarness.App.Storage.PlanningSessionRecorder.CreateMessage(
+                ConversationRoles.USER,
+                ConversationMessageKinds.PLAN_REVISION,
+                approval.Reason ?? string.Empty);
+
             await this.AppendPlanningSessionMessageAsync(
                 request,
                 adapter.RootPath,
                 checkpoint.RunId,
-                ArchHarness.App.Storage.PlanningSessionRecorder.CreateMessage(
-                    ConversationRoles.USER,
-                    ConversationMessageKinds.PLAN_REVISION,
-                    approval.Reason ?? string.Empty),
+                revisionMessage,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            IReadOnlyList<ConversationMessage> followUpPromptHistory = this.BuildPlanRegenerationPromptHistory(
+                request,
+                adapter.RootPath,
+                checkpoint.RunId,
+                revisionMessage);
+
             plan = await this._services.RunPhases.PlanExecutor.BuildPlanAsync(
                 request,
                 adapter,
@@ -698,9 +707,10 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                 new PlanningContext(
                     spec,
                     clarificationAnswers,
-                    approval.Reason,
-                    this.GetPlanningConversationHistory(request, adapter.RootPath, checkpoint.RunId),
-                    ResolvePlanningSessionId(request, checkpoint.RunId)),
+                    PlanRevisionRequest: null,
+                    ConversationHistory: followUpPromptHistory,
+                    PlanningSessionId: ResolvePlanningSessionId(request, checkpoint.RunId),
+                    UseFollowUpOnlyPrompt: true),
                 cancellationToken).ConfigureAwait(false);
         }
     }
@@ -1507,9 +1517,12 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         PlanApproval approval,
         CancellationToken cancellationToken)
     {
-        string text = string.IsNullOrWhiteSpace(approval.Reason)
-            ? approval.Decision
-            : $"{approval.Decision}: {approval.Reason}";
+        string text = approval.Decision;
+        if (!string.Equals(approval.Decision, PlanApprovalDecisions.REGENERATE, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(approval.Reason))
+        {
+            text = $"{approval.Decision}: {approval.Reason}";
+        }
         await this.AppendPlanningSessionMessageAsync(
             request,
             workspaceRoot,
@@ -1541,20 +1554,36 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         }
     }
 
+    private IReadOnlyList<ConversationMessage> BuildPlanRegenerationPromptHistory(
+        RunRequest request,
+        string workspaceRoot,
+        string runId,
+        ConversationMessage revisionMessage)
+    {
+        ConversationMessage? decisionMessage = this.GetPlanningConversationHistory(request, workspaceRoot, runId)?
+            .LastOrDefault(message => string.Equals(message.Kind, ConversationMessageKinds.PLAN_DECISION, StringComparison.Ordinal));
+
+        return decisionMessage is null
+            ? new[] { revisionMessage }
+            : new[] { decisionMessage, revisionMessage };
+    }
+
     private async Task PublishPlanReviewAsync(
         string runId,
         string runDirectory,
         string planReviewMarkdown,
+        string planHash,
         IProgress<RuntimeProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Planning", "Plan review ready", planReviewMarkdown));
+        string planReviewAgentId = BuildPlanReviewAgentId(runId, planHash);
+        progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, "Planning", "Plan review ready", planReviewMarkdown, planReviewAgentId));
         await this._services.RunInfrastructure.EventLogger.AppendEventAsync(runDirectory, new
         {
             runId,
             kind = "agent-delta",
             source = WellKnownSources.ORCHESTRATOR,
-            agentId = $"planning-review-{runId}",
+            agentId = planReviewAgentId,
             agentRole = "Planning",
             message = planReviewMarkdown,
             contentFormat = "markdown",
@@ -1562,6 +1591,14 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             title = "Plan Review",
             timestampUtc = DateTimeOffset.UtcNow
         }, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string BuildPlanReviewAgentId(string runId, string planHash)
+    {
+        string hashSuffix = string.IsNullOrWhiteSpace(planHash)
+            ? Guid.NewGuid().ToString("N")[..12]
+            : planHash[..Math.Min(12, planHash.Length)];
+        return $"planning-review-{runId}-{hashSuffix}";
     }
 
     private static bool IsPlanningWorkflow(string? workflow)

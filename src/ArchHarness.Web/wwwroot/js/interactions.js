@@ -59,6 +59,7 @@ function setPendingInteraction(pending) {
 
 export function renderInlineInteraction() {
   const pending = state.pendingInteraction;
+  clearPlanApprovalChatControls();
   if (!pending) {
     elements.inlineInteraction.classList.add("hidden");
     elements.inlineInteraction.replaceChildren();
@@ -72,10 +73,19 @@ export function renderInlineInteraction() {
 
   elements.inlineInteraction.classList.remove("hidden");
   elements.inlineInteraction.replaceChildren();
-  elements.inlineInteraction.classList.toggle("plan-approval", pending.kind === "plan-approval");
+
   const hasQuestionBatch = pending.kind === "user-input"
     && Array.isArray(pending.questions)
     && pending.questions.length > 0;
+
+  elements.inlineInteraction.classList.toggle("plan-approval", pending.kind === "plan-approval");
+  elements.inlineInteraction.classList.toggle("question-batch", hasQuestionBatch);
+
+  if (pending.kind === "plan-approval") {
+    renderPlanApprovalInteraction(pending);
+    renderTopbar();
+    return;
+  }
 
   const label = document.createElement("div");
   label.className = "inline-interaction-copy";
@@ -104,8 +114,6 @@ export function renderInlineInteraction() {
 
   if (pending.kind === "permission") {
     renderPermissionInteraction();
-  } else if (pending.kind === "plan-approval") {
-    renderPlanApprovalInteraction();
   } else if (hasQuestionBatch) {
     renderQuestionBatchInteraction(pending);
   } else {
@@ -117,7 +125,7 @@ export function renderInlineInteraction() {
 
 function getLabelTitle(kind, isPlanningQuestion, hasQuestionBatch) {
   if (kind === "permission") return "Permission";
-  if (kind === "plan-approval") return "Plan Approval";
+  if (kind === "plan-approval") return "Planning";
   if (isPlanningQuestion) return hasQuestionBatch ? "Planning Questions" : "Planning Question";
   return hasQuestionBatch ? "Questions" : "Input";
 }
@@ -132,41 +140,69 @@ function renderPermissionInteraction() {
   elements.inlineInteraction.append(actions);
 }
 
-function renderPlanApprovalInteraction() {
-  const scroll = document.createElement("div");
-  scroll.className = "inline-interaction-scroll";
-  const planHint = document.createElement("p");
-  planHint.className = "inline-interaction-field-copy";
-  planHint.textContent = "Review the Planning message in the agent stream, then approve it or describe what should change.";
-  scroll.append(planHint);
-  const revisionField = document.createElement("label");
-  revisionField.className = "inline-interaction-field inline-interaction-revision";
-  const revisionTitle = document.createElement("span");
-  revisionTitle.textContent = "Revision request";
-  const revisionCopy = document.createElement("p");
-  revisionCopy.className = "inline-interaction-field-copy";
-  revisionCopy.textContent = "Describe specific changes or request a materially different plan.";
-  const revisionInput = document.createElement("textarea");
-  revisionInput.rows = 4;
-  revisionInput.placeholder = "Examples: split backend and frontend work, add migration steps, or reduce scope to API only.";
-  revisionInput.value = state.pendingPlanRevisionDraft;
-  revisionInput.addEventListener("input", () => {
-    state.pendingPlanRevisionDraft = revisionInput.value;
-  });
-  revisionField.append(revisionTitle, revisionCopy, revisionInput);
-  scroll.append(revisionField);
-  elements.inlineInteraction.append(scroll);
+function renderPlanApprovalInteraction(pending) {
+  if (renderPlanApprovalChatControls(pending)) {
+    elements.inlineInteraction.classList.add("hidden");
+    elements.inlineInteraction.replaceChildren();
+    return;
+  }
+
   const actions = document.createElement("div");
   actions.className = "button-row plan-approval-actions";
   actions.append(
     interactionAction("Approve", "primary", () => submitPlanApproval("approved", null)),
-    interactionAction("Revise Plan", "secondary", () => submitPlanApproval("regenerate", state.pendingPlanRevisionDraft.trim() || null)),
     interactionAction("Cancel", "danger", () => submitPlanApproval("canceled"))
   );
   elements.inlineInteraction.append(actions);
 }
 
+function renderPlanApprovalChatControls(pending) {
+  const runId = pending.runId || state.activeRunId;
+  if (!runId) {
+    return false;
+  }
+
+  const planSurface = findLatestPlanReviewSurface(runId);
+  if (!planSurface) {
+    return false;
+  }
+
+  const controls = document.createElement("section");
+  controls.className = "stream-plan-approval-actions";
+  controls.dataset.planApprovalControls = "true";
+
+  const actions = document.createElement("div");
+  actions.className = "button-row plan-approval-actions";
+  actions.append(
+    interactionAction("Approve", "primary", () => submitPlanApproval("approved", null)),
+    interactionAction("Cancel", "danger", () => submitPlanApproval("canceled"))
+  );
+
+  controls.append(actions);
+  planSurface.append(controls);
+  planSurface.closest("details")?.scrollIntoView({ block: "end", behavior: "smooth" });
+  return true;
+}
+
+function findLatestPlanReviewSurface(runId) {
+  const baseId = `planning-review-${runId}`;
+  const selector = [
+    `[data-agent-id="${CSS.escape(baseId)}"]`,
+    `[data-agent-id^="${CSS.escape(`${baseId}-`)}"]`,
+    `[data-agent-id^="${CSS.escape(`${baseId}#`)}"]`
+  ].join(", ");
+  const surfaces = Array.from(document.querySelectorAll(selector));
+  return surfaces.length > 0 ? surfaces[surfaces.length - 1] : null;
+}
+
+function clearPlanApprovalChatControls() {
+  document.querySelectorAll("[data-plan-approval-controls='true']").forEach(element => element.remove());
+}
+
 function renderQuestionBatchInteraction(pending) {
+  const scrollRegion = document.createElement("div");
+  scrollRegion.className = "inline-interaction-scroll";
+
   const questionList = document.createElement("div");
   questionList.className = "inline-interaction-question-list";
   pending.questions.forEach((question, index) => {
@@ -188,15 +224,19 @@ function renderQuestionBatchInteraction(pending) {
     field.append(title, copy, input);
     questionList.append(field);
   });
+  scrollRegion.append(questionList);
+
   const actions = document.createElement("div");
   actions.className = "button-row";
   actions.append(interactionAction("Submit", "primary", () => submitUserInputs(
     pending.questions.map((_, index) => state.pendingInteractionDrafts[String(index)] || "")
   )));
-  elements.inlineInteraction.append(questionList, actions);
+  elements.inlineInteraction.append(scrollRegion, actions);
 }
 
 function renderFreeTextInteraction() {
+  const field = document.createElement("label");
+  field.className = "inline-interaction-field inline-interaction-free-text";
   const input = document.createElement("textarea");
   input.rows = 3;
   input.placeholder = "Type your response";
@@ -204,10 +244,12 @@ function renderFreeTextInteraction() {
   input.addEventListener("input", () => {
     state.pendingInteractionDraft = input.value;
   });
+  field.append(input);
+
   const actions = document.createElement("div");
   actions.className = "button-row";
   actions.append(interactionAction("Submit", "primary", () => submitUserInput(input.value)));
-  elements.inlineInteraction.append(input, actions);
+  elements.inlineInteraction.append(field, actions);
 }
 
 function interactionAction(label, tone, onClick) {
@@ -324,7 +366,7 @@ async function submitPermission(approved) {
   }
 }
 
-async function submitPlanApproval(decision, reason) {
+export async function submitPlanApproval(decision, reason) {
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
   const pendingSnapshot = state.pendingInteraction;

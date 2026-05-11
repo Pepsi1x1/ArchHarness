@@ -108,12 +108,11 @@ public sealed class WikiDocAgent : AgentBase
         CopilotCompletionOptions options = base.ApplyToolPolicy(baseOptions);
 
         string? lastError = null;
-        string? previousResponsePreview = null;
         for (int attempt = 0; attempt < 3; attempt++)
         {
             string prompt = attempt == 0
                 ? basePrompt
-                : $"{basePrompt}\n\nIMPORTANT: Return ONLY the raw JSON object. No markdown, no commentary.\nValidation error: {lastError ?? "Unknown validation error."}\nPrevious response:\n{previousResponsePreview}";
+                : BuildValidationFollowUpPrompt(lastError);
             string completion = await base.CopilotClient.CompleteAsync(
                 model,
                 prompt,
@@ -126,7 +125,6 @@ public sealed class WikiDocAgent : AgentBase
             if (string.IsNullOrWhiteSpace(json))
             {
                 lastError = "No JSON object was returned.";
-                previousResponsePreview = BuildPreview(completion);
                 continue;
             }
 
@@ -143,15 +141,11 @@ public sealed class WikiDocAgent : AgentBase
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 lastError = ex.Message;
-                previousResponsePreview = BuildPreview(completion);
             }
         }
 
         throw new InvalidOperationException(lastError ?? $"WikiDoc generation failed for {typeof(T).Name}.");
     }
-
-    private static string BuildPreview(string text)
-        => text.Length <= 800 ? text : text[..800];
 
     private static IReadOnlyList<T> NormalizeDocumentList<T>(
         IReadOnlyList<T>? source,

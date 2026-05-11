@@ -4,6 +4,7 @@ import { requestJson } from './api.js';
 import { setSelectValue } from './utils.js';
 import { closeModal } from './modals.js';
 import { createDropdown, updateDropdown, createDropdownRegistry } from './dropdown.js';
+import { isPlanningModeEnabled } from './composer.js';
 
 const settingsRegistry = createDropdownRegistry();
 let permissionDropdown = null;
@@ -25,7 +26,9 @@ export function applySettingsDefaults() {
   if (permissionDropdown) {
     updateDropdown(permissionDropdown, getPermissionOptions(), state.settings.defaults.permissionHandlerMode || "");
   }
-  setSelectValue(elements.runMode, state.settings.defaults.architectureReviewMode ? "architecture-review" : "standard");
+  if (!isPlanningModeEnabled() && !state.activeRun?.isRunning) {
+    setSelectValue(elements.runMode, state.settings.defaults.architectureReviewMode ? "architecture-review" : "standard");
+  }
   elements.settingsArchitectureMode.checked = !!state.settings.defaults.architectureReviewMode;
   elements.settingsArchitecturePrompt.value = state.settings.defaults.architectureReviewPrompt || "";
   elements.settingsWikidocParallelism.value = state.settings.defaults.wikidocParallelism ?? 4;

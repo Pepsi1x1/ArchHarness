@@ -2,7 +2,7 @@ import { MAIN_PANEL_VIEWS } from './constants.js';
 import { state, elements, getActiveProject } from './state.js';
 import { requestJson } from './api.js';
 import { summarizeWorkspacePath, populateSelect, setSelectValue, runDateFromId, timeAgo } from './utils.js';
-import { normalizeReviewLoopAgents, renderComposerState, syncComposerFromProject, closeComposerDropdowns } from './composer.js';
+import { normalizeReviewLoopAgents, renderComposerState, syncComposerFromProject, closeComposerDropdowns, isPlanningModeEnabled } from './composer.js';
 import { renderWorkspaceBranch, ensureActiveProjectBranchInfo, closeWorkspaceBranchMenu } from './branch.js';
 import { renderMainPanelView, loadBranchChangesForActiveProject } from './git-changes.js';
 import { saveShellState } from './shell-persistence.js';
@@ -139,6 +139,7 @@ export async function loadBootstrap() {
 
 export function applyBootstrap(bootstrap) {
   state.bootstrap = bootstrap;
+  state.activeRun = bootstrap.activeRun;
   state.selectedReviewLoopAgents = normalizeReviewLoopAgents(
     state.selectedReviewLoopAgents || bootstrap.reviewLoopAgents
   );
@@ -148,14 +149,15 @@ export function applyBootstrap(bootstrap) {
 
   setSelectValue(elements.permissionMode, bootstrap.defaultPermissionHandlerMode);
   setSelectValue(elements.newProjectPermission, bootstrap.defaultPermissionHandlerMode);
-  setSelectValue(elements.runMode, bootstrap.architectureLoopMode ? "architecture-review" : "standard");
+  if (!isPlanningModeEnabled() && !state.activeRun?.isRunning) {
+    setSelectValue(elements.runMode, bootstrap.architectureLoopMode ? "architecture-review" : "standard");
+  }
   elements.newProjectPath.value = bootstrap.workspacePath || "";
   elements.newProjectArchitecture.checked = !!bootstrap.architectureLoopMode;
   elements.newProjectArchitecturePrompt.value = bootstrap.architectureLoopPrompt || "";
   elements.projectPickerNote.textContent = desktopBridge?.hostMode === "electron-local-web"
     ? "Desktop mode can open the system folder picker."
     : "Paste a workspace path here, or use the desktop picker.";
-  state.activeRun = bootstrap.activeRun;
   renderComposerState();
   renderActiveRun();
 }

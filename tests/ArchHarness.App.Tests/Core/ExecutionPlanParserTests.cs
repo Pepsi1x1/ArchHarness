@@ -101,6 +101,45 @@ public sealed class ExecutionPlanParserTests
         }
     }
 
+    [Fact]
+    public void TryBuildExecutionPlan_MoreThanTenSteps_ReturnsPlan()
+    {
+        string workspaceRoot = CreateTempWorkspace();
+        try
+        {
+            string json = """
+                {
+                    "steps": [
+                        {"id":1,"agent":"BackendDeveloper","objective":"Implement feature area 1"},
+                        {"id":2,"agent":"BackendDeveloper","objective":"Implement feature area 2"},
+                        {"id":3,"agent":"BackendDeveloper","objective":"Implement feature area 3"},
+                        {"id":4,"agent":"BackendDeveloper","objective":"Implement feature area 4"},
+                        {"id":5,"agent":"BackendDeveloper","objective":"Implement feature area 5"},
+                        {"id":6,"agent":"BackendDeveloper","objective":"Implement feature area 6"},
+                        {"id":7,"agent":"BackendDeveloper","objective":"Implement feature area 7"},
+                        {"id":8,"agent":"BackendDeveloper","objective":"Implement feature area 8"},
+                        {"id":9,"agent":"BackendDeveloper","objective":"Implement feature area 9"},
+                        {"id":10,"agent":"BackendDeveloper","objective":"Implement feature area 10"},
+                        {"id":11,"agent":"BackendDeveloper","objective":"Implement feature area 11"}
+                    ],
+                    "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
+                    "completionCriteria": ["Build passes"]
+                }
+                """;
+
+            bool result = this._parser.TryBuildExecutionPlan(json, workspaceRoot, out ExecutionPlan plan, out string? error);
+
+            Assert.True(result, $"Expected success but got error: {error}");
+            Assert.Null(error);
+            Assert.True(plan.Steps.Count >= 11);
+            Assert.Contains(plan.Steps, step => step.Objective == "Implement feature area 11");
+        }
+        finally
+        {
+            CleanupTempWorkspace(workspaceRoot);
+        }
+    }
+
     /// <summary>
     /// Invalid dependency IDs should cause a parse failure.
     /// </summary>

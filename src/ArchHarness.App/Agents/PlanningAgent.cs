@@ -47,31 +47,20 @@ public sealed class PlanningAgent : AgentBase
         CancellationToken cancellationToken = default)
     {
         string model = base.ResolveModel(request.ModelOverrides);
-        string buildCommand = request.BuildCommand ?? NONE_LABEL;
         bool architectureLoopMode = request.ArchitectureLoopMode;
-        string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? NONE_LABEL;
         string effectiveTaskPrompt = ResolveTaskPrompt(request.TaskPrompt, architectureLoopMode);
         ReviewLoopAgentSelection reviewLoopAgents = request.ReviewLoopAgents
             ?? this._reviewLoopAgentSelectionAccessor.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
 
-        string planningTemplate = PromptLoader.Load(PLANNING_PROMPT_GROUP_NAME, "planning.md");
-        string planningPrompt = PromptLoader.Render(
-            planningTemplate,
-            ("{{TaskPrompt}}", effectiveTaskPrompt),
-            ("{{WorkspaceRoot}}", workspaceRoot),
-            ("{{WorkspaceMode}}", request.WorkspaceMode),
-            ("{{BuildCommand}}", buildCommand),
-            ("{{ArchitectureLoopMode}}", architectureLoopMode.ToString()),
-            ("{{ArchitectureLoopPrompt}}", architectureLoopPrompt),
-            ("{{ClarificationSpecSection}}", BuildClarificationSpecSection(planningContext?.Spec)),
-            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(planningContext?.ClarificationAnswers)),
-            ("{{PlanRevisionRequestSection}}", BuildPlanRevisionRequestSection(planningContext?.PlanRevisionRequest)),
-            ("{{ConversationHistorySection}}", BuildConversationHistorySection(planningContext?.ConversationHistory)),
-            ("{{AttachmentContextSection}}", BuildAttachmentContextSection(planningContext?.Attachments ?? request.Attachments)),
-            ("{{EnabledReviewLoopAgents}}", reviewLoopAgents.DescribeEnabledAgents()),
-            ("{{DisabledReviewLoopAgents}}", reviewLoopAgents.DescribeDisabledAgents()),
-            ("{{ReviewLoopCompletionCriteria}}", string.Join(Environment.NewLine, reviewLoopAgents.BuildCompletionCriteria().Select(criteria => $"- {criteria}"))));
+        string planningPrompt = planningContext?.UseFollowUpOnlyPrompt == true
+            ? BuildFollowUpOnlyPrompt(planningContext)
+            : BuildPlanningPrompt(
+                request,
+                planningContext,
+                workspaceRoot,
+                effectiveTaskPrompt,
+                reviewLoopAgents);
 
         CopilotCompletionOptions options = base.ApplyToolPolicy(CreatePlanningCompletionOptions());
         const int MAX_PLANNING_ATTEMPTS = 3;
@@ -80,10 +69,9 @@ public sealed class PlanningAgent : AgentBase
 
         for (int attempt = 1; attempt <= MAX_PLANNING_ATTEMPTS; attempt++)
         {
-            string? priorResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse;
             string promptForAttempt = attempt == 1
                 ? planningPrompt
-                : $"{planningPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nValidation error: {lastValidationError ?? "Unknown validation error."}\nPrevious response:\n{priorResponsePreview}";
+                : BuildValidationFollowUpPrompt(lastValidationError);
 
             lastResponse = await base.CopilotClient.CompleteAsync(
                 model,
@@ -139,10 +127,9 @@ public sealed class PlanningAgent : AgentBase
 
         for (int attempt = 1; attempt <= MAX_SPEC_ATTEMPTS; attempt++)
         {
-            string previousResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse ?? string.Empty;
             string promptForAttempt = attempt == 1
                 ? specPrompt
-                : $"{specPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{previousResponsePreview}";
+                : BuildValidationFollowUpPrompt("Your previous response could not be parsed. Return the corrected raw JSON object.");
 
             lastResponse = await base.CopilotClient.CompleteAsync(
                 model,
@@ -173,6 +160,50 @@ public sealed class PlanningAgent : AgentBase
             SystemMessageMode = CopilotSystemMessageMode.Append,
             ExcludedTools = new[] { "edit_file" }
         };
+    }
+
+    private static string BuildPlanningPrompt(
+        RunRequest request,
+        PlanningContext? planningContext,
+        string workspaceRoot,
+        string effectiveTaskPrompt,
+        ReviewLoopAgentSelection reviewLoopAgents)
+    {
+        string buildCommand = request.BuildCommand ?? NONE_LABEL;
+        bool architectureLoopMode = request.ArchitectureLoopMode;
+        string architectureLoopPrompt = request.ArchitectureLoopPrompt ?? NONE_LABEL;
+        string planningTemplate = PromptLoader.Load(PLANNING_PROMPT_GROUP_NAME, "planning.md");
+        return PromptLoader.Render(
+            planningTemplate,
+            ("{{TaskPrompt}}", effectiveTaskPrompt),
+            ("{{WorkspaceRoot}}", workspaceRoot),
+            ("{{WorkspaceMode}}", request.WorkspaceMode),
+            ("{{BuildCommand}}", buildCommand),
+            ("{{ArchitectureLoopMode}}", architectureLoopMode.ToString()),
+            ("{{ArchitectureLoopPrompt}}", architectureLoopPrompt),
+            ("{{ClarificationSpecSection}}", BuildClarificationSpecSection(planningContext?.Spec)),
+            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(planningContext?.ClarificationAnswers)),
+            ("{{PlanRevisionRequestSection}}", BuildPlanRevisionRequestSection(planningContext?.PlanRevisionRequest)),
+            ("{{ConversationHistorySection}}", BuildConversationHistorySection(planningContext?.ConversationHistory)),
+            ("{{AttachmentContextSection}}", BuildAttachmentContextSection(planningContext?.Attachments ?? request.Attachments)),
+            ("{{EnabledReviewLoopAgents}}", reviewLoopAgents.DescribeEnabledAgents()),
+            ("{{DisabledReviewLoopAgents}}", reviewLoopAgents.DescribeDisabledAgents()),
+            ("{{ReviewLoopCompletionCriteria}}", string.Join(Environment.NewLine, reviewLoopAgents.BuildCompletionCriteria().Select(criteria => $"- {criteria}"))));
+    }
+
+    private static string BuildFollowUpOnlyPrompt(PlanningContext planningContext)
+    {
+        if (planningContext.ConversationHistory is { Count: > 0 })
+        {
+            return string.Join(Environment.NewLine, planningContext.ConversationHistory.Select(FormatConversationLine));
+        }
+
+        if (!string.IsNullOrWhiteSpace(planningContext.PlanRevisionRequest))
+        {
+            return $"[{ConversationMessageKinds.PLAN_REVISION}] {ConversationRoles.USER}: {planningContext.PlanRevisionRequest.Trim()}";
+        }
+
+        return $"[{ConversationMessageKinds.PLAN_REVISION}] {ConversationRoles.USER}:";
     }
 
     private static string BuildClarificationSpecSection(ClarificationSpec? spec)
@@ -241,6 +272,17 @@ public sealed class PlanningAgent : AgentBase
         }
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string FormatConversationLine(ConversationMessage message)
+    {
+        string authorLabel = string.IsNullOrWhiteSpace(message.AuthorAgent)
+            ? message.Role
+            : $"{message.Role}/{message.AuthorAgent}";
+        string text = string.IsNullOrWhiteSpace(message.Text) ? string.Empty : message.Text.Trim();
+        int attachmentCount = message.Attachments?.Count ?? 0;
+        string attachmentSuffix = attachmentCount > 0 ? $" [+{attachmentCount} attachment(s)]" : string.Empty;
+        return $"[{message.Kind}] {authorLabel}: {text}{attachmentSuffix}";
     }
 
     private static string BuildAttachmentContextSection(IReadOnlyList<PromptAttachment>? attachments)

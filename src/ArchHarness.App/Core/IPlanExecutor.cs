@@ -14,13 +14,15 @@ public sealed record PlanResumeContext(string RunId, string RunDirectory, Persis
 /// <param name="ConversationHistory">The planning-session conversation ledger up to (but not including) the current plan build. Used so the planning agent can consume chat history, attachment context, and post-handoff follow-up messages.</param>
 /// <param name="PlanningSessionId">Optional durable planning-session identifier linking this plan build to a shared session.</param>
 /// <param name="Attachments">Optional prompt attachments accompanying the latest user message (e.g., images).</param>
+/// <param name="UseFollowUpOnlyPrompt">When true, send only the latest follow-up ledger lines as the user prompt because the planning agent already has the broader session context.</param>
 public sealed record PlanningContext(
     ClarificationSpec? Spec,
     IReadOnlyList<ClarificationAnswer>? ClarificationAnswers,
     string? PlanRevisionRequest = null,
     IReadOnlyList<ConversationMessage>? ConversationHistory = null,
     string? PlanningSessionId = null,
-    IReadOnlyList<PromptAttachment>? Attachments = null);
+    IReadOnlyList<PromptAttachment>? Attachments = null,
+    bool UseFollowUpOnlyPrompt = false);
 
 /// <summary>
 /// Builds the execution plan via the orchestration agent and dispatches step execution.

@@ -232,7 +232,7 @@ public sealed record CopilotModelUsage(string Model, int Calls, int PromptCharac
 /// <param name="Source">The component or agent that generated the event.</param>
 /// <param name="Message">A human-readable progress message.</param>
 /// <param name="Prompt">Optional prompt text associated with the event for diagnostics.</param>
-public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string Source, string Message, string? Prompt = null);
+public sealed record RuntimeProgressEvent(DateTimeOffset TimestampUtc, string Source, string Message, string? Prompt = null, string? AgentId = null);
 
 /// <summary>
 /// Represents a streaming content delta from an agent during execution.

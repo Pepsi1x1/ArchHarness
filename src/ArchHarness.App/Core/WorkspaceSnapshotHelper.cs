@@ -1,3 +1,5 @@
+using LibGit2Sharp;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -13,11 +15,10 @@ internal static class WorkspaceSnapshotHelper
     public static Dictionary<string, (long Length, long LastWriteUtcTicks)> CaptureSnapshot(string workspaceRoot)
     {
         Dictionary<string, (long Length, long LastWriteUtcTicks)> snapshot = new Dictionary<string, (long Length, long LastWriteUtcTicks)>(StringComparer.OrdinalIgnoreCase);
-        foreach (string fullPath in Directory
-                     .GetFiles(workspaceRoot, "*", SearchOption.AllDirectories)
-                     .Where(fullPath => !IsIgnoredPath(Path.GetRelativePath(workspaceRoot, fullPath))))
+        string normalizedRoot = NormalizeRoot(workspaceRoot);
+        foreach (string relativePath in EnumerateSnapshotFiles(normalizedRoot))
         {
-            string relativePath = Path.GetRelativePath(workspaceRoot, fullPath);
+            string fullPath = Path.GetFullPath(Path.Combine(normalizedRoot, relativePath));
             FileInfo info = new FileInfo(fullPath);
             snapshot[relativePath] = (info.Length, info.LastWriteTimeUtc.Ticks);
         }
@@ -68,9 +69,144 @@ internal static class WorkspaceSnapshotHelper
         string normalized = relativePath.Replace('\\', '/');
         return normalized.StartsWith(".git/", StringComparison.OrdinalIgnoreCase)
             || normalized.StartsWith(".agent-harness/", StringComparison.OrdinalIgnoreCase)
+            || normalized.StartsWith("node_modules/", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("/bin/", StringComparison.OrdinalIgnoreCase)
             || normalized.Contains("/obj/", StringComparison.OrdinalIgnoreCase)
+            || normalized.Contains("/node_modules/", StringComparison.OrdinalIgnoreCase)
             || normalized.StartsWith("bin/", StringComparison.OrdinalIgnoreCase)
             || normalized.StartsWith("obj/", StringComparison.OrdinalIgnoreCase);
     }
+
+    internal static IReadOnlyList<string> EnumerateSnapshotFiles(string workspaceRoot)
+    {
+        string normalizedRoot = NormalizeRoot(workspaceRoot);
+        if (TryGetGitVisibleFiles(normalizedRoot, out IReadOnlyList<string> gitVisibleFiles))
+        {
+            return gitVisibleFiles;
+        }
+
+        return EnumerateFileSystemFiles(normalizedRoot).ToArray();
+    }
+
+    private static string NormalizeRoot(string workspaceRoot)
+        => Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static bool TryGetGitVisibleFiles(string workspaceRoot, out IReadOnlyList<string> relativePaths)
+    {
+        relativePaths = Array.Empty<string>();
+        try
+        {
+            string? repositoryPath = Repository.Discover(workspaceRoot);
+            if (string.IsNullOrWhiteSpace(repositoryPath))
+            {
+                return false;
+            }
+
+            using Repository repository = new Repository(repositoryPath);
+            relativePaths = EnumerateGitVisibleFiles(repository, workspaceRoot).ToArray();
+            return true;
+        }
+        catch (Exception ex) when (ex is RepositoryNotFoundException or LibGit2SharpException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateGitVisibleFiles(Repository repository, string workspaceRoot)
+    {
+        string repositoryRoot = NormalizeRoot(repository.Info.WorkingDirectory);
+        string normalizedWorkspaceRoot = NormalizeRoot(workspaceRoot);
+        HashSet<string> output = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (IndexEntry entry in repository.Index)
+        {
+            AddRepositoryRelativePath(entry.Path, repositoryRoot, normalizedWorkspaceRoot, output);
+        }
+
+        RepositoryStatus status = repository.RetrieveStatus(new StatusOptions
+        {
+            IncludeUntracked = true,
+            RecurseUntrackedDirs = true
+        });
+
+        foreach (StatusEntry entry in status.Where(entry => entry.State.HasFlag(FileStatus.NewInWorkdir)))
+        {
+            AddRepositoryRelativePath(entry.FilePath, repositoryRoot, normalizedWorkspaceRoot, output);
+        }
+
+        return output.OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void AddRepositoryRelativePath(string repositoryRelativePath, string repositoryRoot, string workspaceRoot, ISet<string> output)
+    {
+        string fullPath = Path.GetFullPath(Path.Combine(repositoryRoot, repositoryRelativePath.Replace('/', Path.DirectorySeparatorChar)));
+        if (!IsUnderRoot(fullPath, workspaceRoot) || !File.Exists(fullPath))
+        {
+            return;
+        }
+
+        string workspaceRelativePath = Path.GetRelativePath(workspaceRoot, fullPath);
+        if (!IsIgnoredPath(workspaceRelativePath))
+        {
+            output.Add(workspaceRelativePath);
+        }
+    }
+
+    internal static bool IsUnderRoot(string fullPath, string rootPath)
+        => fullPath.Equals(rootPath, StringComparison.OrdinalIgnoreCase)
+            || fullPath.StartsWith(rootPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || fullPath.StartsWith(rootPath + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> EnumerateFileSystemFiles(string workspaceRoot)
+    {
+        Stack<string> pendingDirectories = new Stack<string>();
+        pendingDirectories.Push(workspaceRoot);
+
+        while (pendingDirectories.Count > 0)
+        {
+            string currentDirectory = pendingDirectories.Pop();
+            foreach (string directory in EnumerateDirectories(currentDirectory))
+            {
+                string relativeDirectory = Path.GetRelativePath(workspaceRoot, directory);
+                if (!IsIgnoredPath(relativeDirectory + Path.DirectorySeparatorChar))
+                {
+                    pendingDirectories.Push(directory);
+                }
+            }
+
+            foreach (string file in EnumerateFiles(currentDirectory))
+            {
+                string relativeFile = Path.GetRelativePath(workspaceRoot, file);
+                if (!IsIgnoredPath(relativeFile))
+                {
+                    yield return relativeFile;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDirectories(string directory)
+    {
+        try
+        {
+            return Directory.EnumerateDirectories(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static IEnumerable<string> EnumerateFiles(string directory)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
 }

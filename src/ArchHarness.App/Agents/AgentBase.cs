@@ -96,6 +96,14 @@ public abstract class AgentBase
         };
     }
 
+    /// <summary>
+    /// Builds a compact follow-up for JSON retry loops that keeps the existing agent session context intact.
+    /// </summary>
+    /// <param name="validationError">The validation or parsing failure to send back to the agent.</param>
+    /// <returns>A concise validation prompt.</returns>
+    protected static string BuildValidationFollowUpPrompt(string? validationError)
+        => $"Validation error: {validationError ?? "Unknown validation error."}";
+
     private static IReadOnlyList<string>? MergeTools(IReadOnlyList<string> primary, IReadOnlyList<string>? secondary)
     {
         string[] merged = primary

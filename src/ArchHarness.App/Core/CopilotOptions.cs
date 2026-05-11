@@ -43,11 +43,11 @@ public sealed class CopilotOptions
     /// <summary>Gets or sets the list of globally excluded tools.</summary>
     public List<string> ExcludedTools { get; set; } = new List<string>();
 
-    /// <summary>Gets or sets the maximum prompt character count before truncation.</summary>
-    public int MaxPromptCharacters { get; set; } = 12000;
+    /// <summary>Gets or sets the maximum prompt character count before truncation. Zero disables app-level truncation.</summary>
+    public int MaxPromptCharacters { get; set; } = 0;
 
-    /// <summary>Gets or sets the maximum completion character count before truncation.</summary>
-    public int MaxCompletionCharacters { get; set; } = 16000;
+    /// <summary>Gets or sets the maximum completion character count before truncation. Zero disables app-level truncation.</summary>
+    public int MaxCompletionCharacters { get; set; } = 0;
 
     /// <summary>Gets or sets the inactivity timeout in seconds between SDK events. Zero disables the timeout.</summary>
     public int SessionResponseTimeoutSeconds { get; set; } = 0;
