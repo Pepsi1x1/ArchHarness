@@ -1567,8 +1567,8 @@ internal static class ProgramHandlers
                 a.FileName,
                 a.SizeBytes ?? 0L,
                 a.DataBase64,
-                a.StoragePath,
-                a.Caption))
+                a.StoragePath)
+            { Caption = a.Caption })
             .ToArray();
 
         string workspaceRoot = Path.GetFullPath(request.WorkspacePath);

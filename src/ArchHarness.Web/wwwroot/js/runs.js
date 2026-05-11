@@ -228,7 +228,9 @@ export async function sendPlanningFollowUp() {
     if (state.pendingInteraction?.kind === "plan-approval") {
       await submitPlanApproval("regenerate", text);
     } else {
-      const sessionId = state.selectedRunState?.planningSessionId || run.runId;
+      const sessionId = state.selectedRunState?.planningSessionId
+        || state.pendingInteraction?.sessionId
+        || run.runId;
       await postPlanningFollowUp(sessionId, {
         workspacePath: project.workspacePath,
         text,

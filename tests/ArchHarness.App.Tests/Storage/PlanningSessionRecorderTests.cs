@@ -67,13 +67,13 @@ public sealed class PlanningSessionRecorderTests : IDisposable
         await recorder.EnsureAsync(this._workspaceRoot, "session-a", "run-1", CancellationToken.None);
 
         PromptAttachment attachment = new PromptAttachment(
-            Id: "att-1",
-            Kind: PromptAttachmentKinds.IMAGE,
-            MimeType: "image/png",
-            FileName: "mock.png",
-            SizeBytes: 512,
-            DataBase64: "AAA=",
-            Caption: "mock screenshot");
+            id: "att-1",
+            kind: PromptAttachmentKinds.IMAGE,
+            mimeType: "image/png",
+            fileName: "mock.png",
+            sizeBytes: 512,
+            dataBase64: "AAA=")
+        { Caption = "mock screenshot" };
 
         PlanningSession? updated = await recorder.AppendMessageAsync(
             this._workspaceRoot,

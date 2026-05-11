@@ -56,27 +56,84 @@ public static class PromptAttachmentKinds
 
 /// <summary>
 /// A single attachment carried by a prompt or conversation message.
-/// Attachments may be inlined via <paramref name="DataBase64"/> for small payloads,
-/// or referenced via <paramref name="StoragePath"/> when persisted on disk.
-/// Exactly one of the two MUST be populated.
+/// Attachments may be inlined via <see cref="DataBase64"/> for small payloads,
+/// or referenced via <see cref="StoragePath"/> when persisted on disk.
+/// Exactly one of the two MUST be populated; the constructor enforces this invariant.
 /// </summary>
-/// <param name="Id">Stable identifier for the attachment within its owning session/message.</param>
-/// <param name="Kind">The attachment kind (e.g., <see cref="PromptAttachmentKinds.IMAGE"/>).</param>
-/// <param name="MimeType">The IANA media type (e.g., "image/png").</param>
-/// <param name="FileName">Optional original file name supplied by the user.</param>
-/// <param name="SizeBytes">The size of the underlying content in bytes.</param>
-/// <param name="DataBase64">Optional base64-encoded inline payload.</param>
-/// <param name="StoragePath">Optional path to the persisted attachment payload.</param>
-/// <param name="Caption">Optional user-supplied caption or description.</param>
-public sealed record PromptAttachment(
-    string Id,
-    string Kind,
-    string MimeType,
-    string? FileName,
-    long SizeBytes,
-    string? DataBase64 = null,
-    string? StoragePath = null,
-    string? Caption = null);
+public sealed record PromptAttachment
+{
+    /// <summary>
+    /// Initializes a new <see cref="PromptAttachment"/>.
+    /// </summary>
+    /// <param name="id">Stable identifier for the attachment within its owning session/message.</param>
+    /// <param name="kind">The attachment kind (e.g., <see cref="PromptAttachmentKinds.IMAGE"/>).</param>
+    /// <param name="mimeType">The IANA media type (e.g., "image/png").</param>
+    /// <param name="fileName">Optional original file name supplied by the user.</param>
+    /// <param name="sizeBytes">The size of the underlying content in bytes.</param>
+    /// <param name="dataBase64">Optional base64-encoded inline payload.</param>
+    /// <param name="storagePath">Optional path to the persisted attachment payload.</param>
+    /// <exception cref="ArgumentException">
+    /// Thrown when neither <paramref name="dataBase64"/> nor <paramref name="storagePath"/> is populated,
+    /// or when both are populated.
+    /// </exception>
+    public PromptAttachment(
+        string id,
+        string kind,
+        string mimeType,
+        string? fileName,
+        long sizeBytes,
+        string? dataBase64 = null,
+        string? storagePath = null)
+    {
+        bool hasData = !string.IsNullOrWhiteSpace(dataBase64);
+        bool hasStorage = !string.IsNullOrWhiteSpace(storagePath);
+        if (!hasData && !hasStorage)
+        {
+            throw new ArgumentException(
+                "Exactly one of dataBase64 or storagePath must be populated.",
+                nameof(dataBase64));
+        }
+
+        if (hasData && hasStorage)
+        {
+            throw new ArgumentException(
+                "Exactly one of dataBase64 or storagePath must be populated; both are set.",
+                nameof(dataBase64));
+        }
+
+        this.Id = id;
+        this.Kind = kind;
+        this.MimeType = mimeType;
+        this.FileName = fileName;
+        this.SizeBytes = sizeBytes;
+        this.DataBase64 = dataBase64;
+        this.StoragePath = storagePath;
+    }
+
+    /// <summary>Stable identifier for the attachment within its owning session/message.</summary>
+    public string Id { get; init; }
+
+    /// <summary>The attachment kind (e.g., <see cref="PromptAttachmentKinds.IMAGE"/>).</summary>
+    public string Kind { get; init; }
+
+    /// <summary>The IANA media type (e.g., "image/png").</summary>
+    public string MimeType { get; init; }
+
+    /// <summary>Optional original file name supplied by the user.</summary>
+    public string? FileName { get; init; }
+
+    /// <summary>The size of the underlying content in bytes.</summary>
+    public long SizeBytes { get; init; }
+
+    /// <summary>Base64-encoded inline payload. Exactly one of <see cref="DataBase64"/> or <see cref="StoragePath"/> is set.</summary>
+    public string? DataBase64 { get; init; }
+
+    /// <summary>Path to the persisted attachment payload. Exactly one of <see cref="DataBase64"/> or <see cref="StoragePath"/> is set.</summary>
+    public string? StoragePath { get; init; }
+
+    /// <summary>Optional user-supplied caption or description.</summary>
+    public string? Caption { get; init; }
+}
 
 /// <summary>
 /// A single message in a planning-session conversation ledger.
