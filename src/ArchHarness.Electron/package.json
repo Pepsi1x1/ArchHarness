@@ -3,7 +3,7 @@
   "author": {
     "name": "Pepsi1x1"
   },
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "commonjs",
   "description": "Electron desktop wrapper for the local ArchHarness web host",
