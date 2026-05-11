@@ -160,7 +160,7 @@ public sealed class CopilotStartupPreflightValidator : IStartupPreflightValidato
     {
         try
         {
-            List<ModelInfo> discovered = await client.ListModelsAsync();
+            IList<ModelInfo> discovered = await client.ListModelsAsync();
             DiscoveredModel[] models = discovered
                 .Select(model =>
                 {

@@ -10,10 +10,17 @@ internal static class PromptLoader
     /// </summary>
     /// <param name="subfolder">The subfolder within Prompts.</param>
     /// <param name="fileName">The prompt file name.</param>
-    /// <param name="fallbackText">Fallback prompt text used when the file is not found.</param>
-    /// <returns>The prompt file content, or the fallback text if not found.</returns>
-    public static string Load(string subfolder, string fileName, string fallbackText)
-        => FileSearchHelper.LoadFromSearchRoots("Prompts", subfolder, fileName, fallbackText);
+    /// <returns>The prompt file content.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the prompt file cannot be loaded.</exception>
+    public static string Load(string subfolder, string fileName)
+    {
+        if (FileSearchHelper.TryLoadFromSearchRoots("Prompts", subfolder, fileName, out string content))
+        {
+            return content;
+        }
+
+        throw new InvalidOperationException($"Required prompt file could not be loaded: Prompts/{subfolder}/{fileName}.");
+    }
 
     /// <summary>
     /// Replaces placeholder tokens in a prompt template.

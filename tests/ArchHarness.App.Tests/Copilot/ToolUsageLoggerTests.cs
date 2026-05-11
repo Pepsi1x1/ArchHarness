@@ -68,7 +68,7 @@ public sealed class ToolUsageLoggerTests
 
         public Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
         {
-            AppendedEvents.Add(evt);
+            this.AppendedEvents.Add(evt);
             return Task.CompletedTask;
         }
 

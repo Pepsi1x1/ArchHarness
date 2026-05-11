@@ -12,5 +12,5 @@ public sealed record ParsedFile(string Path, SyntaxNode Root)
     /// <summary>
     /// Returns the file path relative to the current directory.
     /// </summary>
-    public string RelativePath => System.IO.Path.GetRelativePath(Directory.GetCurrentDirectory(), Path);
+    public string RelativePath => System.IO.Path.GetRelativePath(Directory.GetCurrentDirectory(), this.Path);
 }

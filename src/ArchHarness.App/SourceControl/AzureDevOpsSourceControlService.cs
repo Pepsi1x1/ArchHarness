@@ -66,7 +66,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         if (!string.IsNullOrWhiteSpace(projectName))
         {
-            return await GetPullRequestsForExplicitProjectAsync(
+            return await this.GetPullRequestsForExplicitProjectAsync(
                 settings,
                 projectName,
                 repositoryName,
@@ -78,7 +78,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
 
         if (!string.IsNullOrWhiteSpace(projectFilter))
         {
-            return await GetPullRequestsForFilteredProjectAsync(
+            return await this.GetPullRequestsForFilteredProjectAsync(
                 settings,
                 projectFilter,
                 repositoryName,
@@ -87,7 +87,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
                 cancellationToken);
         }
 
-        return await GetPullRequestsAcrossProjectsAsync(
+        return await this.GetPullRequestsAcrossProjectsAsync(
             settings,
             repositoryName,
             repositoryFilter,
@@ -107,7 +107,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         if (!string.IsNullOrWhiteSpace(projectName))
         {
-            await foreach (IReadOnlyList<PullRequestSummary> batch in StreamPullRequestsForExplicitProjectAsync(
+            await foreach (IReadOnlyList<PullRequestSummary> batch in this.StreamPullRequestsForExplicitProjectAsync(
                 settings,
                 projectName,
                 repositoryName,
@@ -124,7 +124,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
 
         if (!string.IsNullOrWhiteSpace(projectFilter))
         {
-            await foreach (IReadOnlyList<PullRequestSummary> batch in StreamPullRequestsForFilteredProjectAsync(
+            await foreach (IReadOnlyList<PullRequestSummary> batch in this.StreamPullRequestsForFilteredProjectAsync(
                 settings,
                 projectFilter,
                 repositoryName,
@@ -138,7 +138,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
             yield break;
         }
 
-        await foreach (IReadOnlyList<PullRequestSummary> batch in StreamPullRequestsAcrossProjectsAsync(
+        await foreach (IReadOnlyList<PullRequestSummary> batch in this.StreamPullRequestsAcrossProjectsAsync(
             settings,
             repositoryName,
             repositoryFilter,
@@ -160,7 +160,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         string checkedProjectName = RequireValue(projectName, "projectName");
         string checkedRepositoryName = RequireValue(repositoryName, "repositoryName");
         string checkedPullRequestId = RequireValue(pullRequestId, "pullRequestId");
-        int latestIterationId = await GetLatestIterationIdAsync(settings, checkedProjectName, checkedRepositoryName, checkedPullRequestId, cancellationToken);
+        int latestIterationId = await this.GetLatestIterationIdAsync(settings, checkedProjectName, checkedRepositoryName, checkedPullRequestId, cancellationToken);
 
         string requestUri = BuildPullRequestIterationChangesEndpoint(settings, checkedProjectName, checkedRepositoryName, checkedPullRequestId, latestIterationId);
         using HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, settings.PersonalAccessToken);
@@ -272,23 +272,23 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         switch (providerType)
         {
             case SourceControlProvider.AzureDevOpsServer:
-            {
-                string checkedServerUrl = RequireValue(serverUrl, "ServerUrl");
-                return BuildServerEndpoint(checkedServerUrl, organization, pathSegments);
-            }
-
-            case SourceControlProvider.AzureDevOpsServices:
-            {
-                string escapedOrganization = Uri.EscapeDataString(organization);
-                StringBuilder builder = new StringBuilder($"https://dev.azure.com/{escapedOrganization}");
-                foreach (string segment in pathSegments)
                 {
-                    builder.Append('/');
-                    builder.Append(Uri.EscapeDataString(RequireValue(segment, "segment")));
+                    string checkedServerUrl = RequireValue(serverUrl, "ServerUrl");
+                    return BuildServerEndpoint(checkedServerUrl, organization, pathSegments);
                 }
 
-                return builder.ToString();
-            }
+            case SourceControlProvider.AzureDevOpsServices:
+                {
+                    string escapedOrganization = Uri.EscapeDataString(organization);
+                    StringBuilder builder = new StringBuilder($"https://dev.azure.com/{escapedOrganization}");
+                    foreach (string segment in pathSegments)
+                    {
+                        builder.Append('/');
+                        builder.Append(Uri.EscapeDataString(RequireValue(segment, "segment")));
+                    }
+
+                    return builder.ToString();
+                }
 
             default:
                 throw new InvalidOperationException("Azure DevOps configuration requires an Azure DevOps provider type.");
@@ -520,14 +520,14 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
                 return Array.Empty<PullRequestSummary>();
             }
 
-            await AddPullRequestsForRepositoryAsync(settings, checkedProjectName, checkedRepositoryName, authorFilter, summaries, cancellationToken);
+            await this.AddPullRequestsForRepositoryAsync(settings, checkedProjectName, checkedRepositoryName, authorFilter, summaries, cancellationToken);
             return summaries;
         }
 
-        IReadOnlyList<string> repositories = await GetRepositoryNamesAsync(settings, checkedProjectName, repositoryFilter, cancellationToken);
+        IReadOnlyList<string> repositories = await this.GetRepositoryNamesAsync(settings, checkedProjectName, repositoryFilter, cancellationToken);
         foreach (string currentRepository in repositories)
         {
-            _ = await TryAddPullRequestsForRepositoryAsync(settings, checkedProjectName, currentRepository, authorFilter, summaries, cancellationToken);
+            _ = await this.TryAddPullRequestsForRepositoryAsync(settings, checkedProjectName, currentRepository, authorFilter, summaries, cancellationToken);
         }
 
         return summaries;
@@ -544,12 +544,12 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         string targetedProjectName = RequireValue(projectFilter, "projectFilter");
         IReadOnlyList<string> repositories = !string.IsNullOrWhiteSpace(repositoryName)
             ? new[] { RequireValue(repositoryName, "repositoryName") }
-            : await GetRepositoryNamesAsync(settings, targetedProjectName, repositoryFilter, cancellationToken);
+            : await this.GetRepositoryNamesAsync(settings, targetedProjectName, repositoryFilter, cancellationToken);
 
         List<PullRequestSummary> summaries = new List<PullRequestSummary>();
         foreach (string currentRepository in repositories)
         {
-            await AddPullRequestsForRepositoryAsync(settings, targetedProjectName, currentRepository, authorFilter, summaries, cancellationToken);
+            await this.AddPullRequestsForRepositoryAsync(settings, targetedProjectName, currentRepository, authorFilter, summaries, cancellationToken);
         }
 
         return summaries;
@@ -563,16 +563,16 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         CancellationToken cancellationToken)
     {
         List<PullRequestSummary> summaries = new List<PullRequestSummary>();
-        IReadOnlyList<string> projects = await GetProjectNamesAsync(settings, projectFilter: null, cancellationToken);
+        IReadOnlyList<string> projects = await this.GetProjectNamesAsync(settings, projectFilter: null, cancellationToken);
         foreach (string currentProject in projects)
         {
             IReadOnlyList<string> repositories = !string.IsNullOrWhiteSpace(repositoryName)
                 ? new[] { RequireValue(repositoryName, "repositoryName") }
-                : await TryGetRepositoryNamesAsync(settings, currentProject, repositoryFilter, cancellationToken);
+                : await this.TryGetRepositoryNamesAsync(settings, currentProject, repositoryFilter, cancellationToken);
 
             foreach (string currentRepository in repositories)
             {
-                _ = await TryAddPullRequestsForRepositoryAsync(settings, currentProject, currentRepository, authorFilter, summaries, cancellationToken);
+                _ = await this.TryAddPullRequestsForRepositoryAsync(settings, currentProject, currentRepository, authorFilter, summaries, cancellationToken);
             }
         }
 
@@ -602,7 +602,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
                 yield break;
             }
 
-            IReadOnlyList<PullRequestSummary> directBatch = await GetPullRequestBatchForRepositoryAsync(
+            IReadOnlyList<PullRequestSummary> directBatch = await this.GetPullRequestBatchForRepositoryAsync(
                 settings,
                 checkedProjectName,
                 checkedRepositoryName,
@@ -616,10 +616,10 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
             yield break;
         }
 
-        IReadOnlyList<string> repositories = await GetRepositoryNamesAsync(settings, checkedProjectName, repositoryFilter, cancellationToken);
+        IReadOnlyList<string> repositories = await this.GetRepositoryNamesAsync(settings, checkedProjectName, repositoryFilter, cancellationToken);
         foreach (string currentRepository in repositories)
         {
-            IReadOnlyList<PullRequestSummary>? batch = await TryGetPullRequestBatchForRepositoryAsync(
+            IReadOnlyList<PullRequestSummary>? batch = await this.TryGetPullRequestBatchForRepositoryAsync(
                 settings,
                 checkedProjectName,
                 currentRepository,
@@ -643,11 +643,11 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         string targetedProjectName = RequireValue(projectFilter, "projectFilter");
         IReadOnlyList<string> repositories = !string.IsNullOrWhiteSpace(repositoryName)
             ? new[] { RequireValue(repositoryName, "repositoryName") }
-            : await GetRepositoryNamesAsync(settings, targetedProjectName, repositoryFilter, cancellationToken);
+            : await this.GetRepositoryNamesAsync(settings, targetedProjectName, repositoryFilter, cancellationToken);
 
         foreach (string currentRepository in repositories)
         {
-            IReadOnlyList<PullRequestSummary> batch = await GetPullRequestBatchForRepositoryAsync(
+            IReadOnlyList<PullRequestSummary> batch = await this.GetPullRequestBatchForRepositoryAsync(
                 settings,
                 targetedProjectName,
                 currentRepository,
@@ -667,16 +667,16 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         string? authorFilter,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        IReadOnlyList<string> projects = await GetProjectNamesAsync(settings, projectFilter: null, cancellationToken);
+        IReadOnlyList<string> projects = await this.GetProjectNamesAsync(settings, projectFilter: null, cancellationToken);
         foreach (string currentProject in projects)
         {
             IReadOnlyList<string> repositories = !string.IsNullOrWhiteSpace(repositoryName)
                 ? new[] { RequireValue(repositoryName, "repositoryName") }
-                : await TryGetRepositoryNamesAsync(settings, currentProject, repositoryFilter, cancellationToken);
+                : await this.TryGetRepositoryNamesAsync(settings, currentProject, repositoryFilter, cancellationToken);
 
             foreach (string currentRepository in repositories)
             {
-                IReadOnlyList<PullRequestSummary>? batch = await TryGetPullRequestBatchForRepositoryAsync(
+                IReadOnlyList<PullRequestSummary>? batch = await this.TryGetPullRequestBatchForRepositoryAsync(
                     settings,
                     currentProject,
                     currentRepository,
@@ -698,7 +698,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
         List<PullRequestSummary> summaries,
         CancellationToken cancellationToken)
     {
-        summaries.AddRange(await GetPullRequestBatchForRepositoryAsync(settings, projectName, repositoryName, authorFilter, cancellationToken));
+        summaries.AddRange(await this.GetPullRequestBatchForRepositoryAsync(settings, projectName, repositoryName, authorFilter, cancellationToken));
     }
 
     private async Task<IReadOnlyList<PullRequestSummary>> GetPullRequestBatchForRepositoryAsync(
@@ -752,7 +752,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         try
         {
-            await AddPullRequestsForRepositoryAsync(settings, projectName, repositoryName, authorFilter, summaries, cancellationToken);
+            await this.AddPullRequestsForRepositoryAsync(settings, projectName, repositoryName, authorFilter, summaries, cancellationToken);
             return true;
         }
         catch (SourceControlRequestFailedException ex) when (IsSkippableEnumerationFailure(ex))
@@ -770,7 +770,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         try
         {
-            return await GetPullRequestBatchForRepositoryAsync(settings, projectName, repositoryName, authorFilter, cancellationToken);
+            return await this.GetPullRequestBatchForRepositoryAsync(settings, projectName, repositoryName, authorFilter, cancellationToken);
         }
         catch (SourceControlRequestFailedException ex) when (IsSkippableEnumerationFailure(ex))
         {
@@ -840,7 +840,7 @@ public sealed class AzureDevOpsSourceControlService : ISourceControlReviewProvid
     {
         try
         {
-            return await GetRepositoryNamesAsync(settings, projectName, repositoryFilter, cancellationToken);
+            return await this.GetRepositoryNamesAsync(settings, projectName, repositoryFilter, cancellationToken);
         }
         catch (SourceControlRequestFailedException ex) when (IsSkippableEnumerationFailure(ex))
         {

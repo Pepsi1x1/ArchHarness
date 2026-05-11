@@ -1,6 +1,5 @@
-using ArchHarness.App.Constants;
-
 using System.Text.Json;
+using ArchHarness.App.Constants;
 using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
 

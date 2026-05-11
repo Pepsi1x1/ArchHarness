@@ -49,7 +49,10 @@ public sealed class PlanningSessionRecorderTests : IDisposable
         PlanningSessionRecorder recorder = CreateRecorder();
         PlanningSession first = await recorder.EnsureAsync(this._workspaceRoot, "session-1", "run-1", CancellationToken.None);
         await recorder.AppendMessageAsync(
-            this._workspaceRoot, "session-1", ConversationRoles.USER, ConversationMessageKinds.CHAT, "hello", cancellationToken: CancellationToken.None);
+            this._workspaceRoot,
+            "session-1",
+            PlanningSessionRecorder.CreateMessage(ConversationRoles.USER, ConversationMessageKinds.CHAT, "hello"),
+            cancellationToken: CancellationToken.None);
 
         PlanningSession again = await recorder.EnsureAsync(this._workspaceRoot, "session-1", "run-1", CancellationToken.None);
 
@@ -75,11 +78,12 @@ public sealed class PlanningSessionRecorderTests : IDisposable
         PlanningSession? updated = await recorder.AppendMessageAsync(
             this._workspaceRoot,
             "session-a",
-            ConversationRoles.USER,
-            ConversationMessageKinds.FOLLOW_UP,
-            "please address this",
-            new[] { attachment },
-            relatedRunId: "impl-1",
+            PlanningSessionRecorder.CreateMessage(
+                ConversationRoles.USER,
+                ConversationMessageKinds.FOLLOW_UP,
+                "please address this",
+                new[] { attachment },
+                relatedRunId: "impl-1"),
             cancellationToken: CancellationToken.None);
 
         Assert.NotNull(updated);
@@ -101,9 +105,7 @@ public sealed class PlanningSessionRecorderTests : IDisposable
         PlanningSession? result = await recorder.AppendMessageAsync(
             this._workspaceRoot,
             "does-not-exist",
-            ConversationRoles.USER,
-            ConversationMessageKinds.CHAT,
-            "hi",
+            PlanningSessionRecorder.CreateMessage(ConversationRoles.USER, ConversationMessageKinds.CHAT, "hi"),
             cancellationToken: CancellationToken.None);
 
         Assert.Null(result);
@@ -122,14 +124,52 @@ public sealed class PlanningSessionRecorderTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateArtifactsAsync_PersistsPlanHashAndApproval()
+    {
+        PlanningSessionRecorder recorder = CreateRecorder();
+        await recorder.EnsureAsync(this._workspaceRoot, "session-plan", "run-plan", CancellationToken.None);
+        ClarificationSpec spec = new(
+            "Plan chat flow",
+            "Plan appears in chat",
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>(),
+            Array.Empty<string>());
+        PlanApproval approval = new(PlanApprovalDecisions.APPROVED, DateTimeOffset.UtcNow, "hash-123");
+
+        PlanningSession? updated = await recorder.UpdateArtifactsAsync(
+            this._workspaceRoot,
+            "session-plan",
+            spec,
+            approval,
+            "hash-123",
+            CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Plan chat flow", updated!.Spec?.Task);
+        Assert.Equal(PlanApprovalDecisions.APPROVED, updated.Approval?.Decision);
+        Assert.Equal("hash-123", updated.CurrentPlanHash);
+    }
+
+    [Fact]
     public async Task MessagesSurviveReopenViaStore()
     {
         PlanningSessionRecorder recorder = CreateRecorder();
         await recorder.EnsureAsync(this._workspaceRoot, "session-c", "run-plan", CancellationToken.None);
         await recorder.AppendMessageAsync(
-            this._workspaceRoot, "session-c", ConversationRoles.USER, ConversationMessageKinds.CHAT, "first", cancellationToken: CancellationToken.None);
+            this._workspaceRoot,
+            "session-c",
+            PlanningSessionRecorder.CreateMessage(ConversationRoles.USER, ConversationMessageKinds.CHAT, "first"),
+            cancellationToken: CancellationToken.None);
         await recorder.AppendMessageAsync(
-            this._workspaceRoot, "session-c", ConversationRoles.ASSISTANT, ConversationMessageKinds.HANDOFF, "handed off", authorAgent: "Orchestrator", cancellationToken: CancellationToken.None);
+            this._workspaceRoot,
+            "session-c",
+            PlanningSessionRecorder.CreateMessage(ConversationRoles.ASSISTANT, ConversationMessageKinds.HANDOFF, "handed off", authorAgent: "Orchestrator"),
+            cancellationToken: CancellationToken.None);
 
         PlanningSessionStore store = new PlanningSessionStore();
         PlanningSession? loaded = store.Get(this._workspaceRoot, "session-c");

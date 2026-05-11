@@ -11,14 +11,14 @@ public sealed class GitWorkspaceAdapterTests : IDisposable
     public async Task DiffAsync_ExcludesAgentHarnessDirectoryChanges()
     {
         Directory.CreateDirectory(this._root);
-        RunGit("init");
-        RunGit("config user.email archharness-tests@example.com");
-        RunGit("config user.name ArchHarnessTests");
+        this.RunGit("init");
+        this.RunGit("config user.email archharness-tests@example.com");
+        this.RunGit("config user.name ArchHarnessTests");
 
         string trackedFile = Path.Combine(this._root, "tracked.txt");
         await File.WriteAllTextAsync(trackedFile, "baseline");
-        RunGit("add tracked.txt");
-        RunGit("commit -m initial");
+        this.RunGit("add tracked.txt");
+        this.RunGit("commit -m initial");
 
         GitWorkspaceAdapter adapter = new GitWorkspaceAdapter(this._root);
         await adapter.InitializeAsync(projectName: null, initGit: false, CancellationToken.None);

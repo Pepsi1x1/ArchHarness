@@ -46,8 +46,8 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
 
             bool hasPersonalAccessToken = !string.IsNullOrWhiteSpace(settings.PersonalAccessToken);
             using HttpResponseMessage response = hasPersonalAccessToken
-                ? await SendRequestAsync(BuildUserEndpoint(), settings.PersonalAccessToken, TOKEN_AUTHORIZATION_SCHEME, cancellationToken)
-                : await SendRequestAsync(BuildOwnerEndpoint(settings), settings.PersonalAccessToken, TOKEN_AUTHORIZATION_SCHEME, cancellationToken);
+                ? await this.SendRequestAsync(BuildUserEndpoint(), settings.PersonalAccessToken, TOKEN_AUTHORIZATION_SCHEME, cancellationToken)
+                : await this.SendRequestAsync(BuildOwnerEndpoint(settings), settings.PersonalAccessToken, TOKEN_AUTHORIZATION_SCHEME, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 return new ConnectionTestResult(false, await BuildFailureMessageAsync(response, hasPersonalAccessToken, cancellationToken));
@@ -90,14 +90,14 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                 return Array.Empty<PullRequestSummary>();
             }
 
-            await AddPullRequestsForRepositoryAsync(settings, owner, checkedRepositoryName, authorFilter, pullRequests, cancellationToken);
+            await this.AddPullRequestsForRepositoryAsync(settings, owner, checkedRepositoryName, authorFilter, pullRequests, cancellationToken);
             return pullRequests;
         }
 
-        IReadOnlyList<string> repositories = await GetRepositoryNamesAsync(settings, repositoryFilter, cancellationToken);
+        IReadOnlyList<string> repositories = await this.GetRepositoryNamesAsync(settings, repositoryFilter, cancellationToken);
         foreach (string currentRepository in repositories)
         {
-            await AddPullRequestsForRepositoryAsync(settings, owner, currentRepository, authorFilter, pullRequests, cancellationToken);
+            await this.AddPullRequestsForRepositoryAsync(settings, owner, currentRepository, authorFilter, pullRequests, cancellationToken);
         }
 
         return pullRequests;
@@ -127,7 +127,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
                 yield break;
             }
 
-            await foreach (IReadOnlyList<PullRequestSummary> batch in GetPullRequestBatchesForRepositoryAsync(
+            await foreach (IReadOnlyList<PullRequestSummary> batch in this.GetPullRequestBatchesForRepositoryAsync(
                 settings,
                 owner,
                 checkedRepositoryName,
@@ -143,10 +143,10 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
             yield break;
         }
 
-        IReadOnlyList<string> repositories = await GetRepositoryNamesAsync(settings, repositoryFilter, cancellationToken);
+        IReadOnlyList<string> repositories = await this.GetRepositoryNamesAsync(settings, repositoryFilter, cancellationToken);
         foreach (string currentRepository in repositories)
         {
-            await foreach (IReadOnlyList<PullRequestSummary> batch in GetPullRequestBatchesForRepositoryAsync(
+            await foreach (IReadOnlyList<PullRequestSummary> batch in this.GetPullRequestBatchesForRepositoryAsync(
                 settings,
                 owner,
                 currentRepository,
@@ -178,7 +178,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         while (hasMorePages)
         {
             string requestUri = $"{BuildRepositoryEndpoint(settings, checkedRepositoryName)}/pulls/{Uri.EscapeDataString(checkedPullRequestId)}/files?per_page={GITHUB_PAGE_SIZE}&page={page}";
-            JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
+            JsonDocument document = await this.SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
                 int fileCount = 0;
@@ -206,7 +206,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         string repositoryName,
         CancellationToken cancellationToken)
     {
-        JsonDocument document = await SendObjectRequestAsync(
+        JsonDocument document = await this.SendObjectRequestAsync(
             BuildRepositoryEndpoint(settings, RequireValue(repositoryName, "repositoryName")),
             settings.PersonalAccessToken,
             cancellationToken);
@@ -413,7 +413,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         List<PullRequestSummary> pullRequests,
         CancellationToken cancellationToken)
     {
-        await foreach (IReadOnlyList<PullRequestSummary> batch in GetPullRequestBatchesForRepositoryAsync(
+        await foreach (IReadOnlyList<PullRequestSummary> batch in this.GetPullRequestBatchesForRepositoryAsync(
             settings,
             owner,
             repositoryName,
@@ -436,7 +436,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         while (hasMorePages)
         {
             string requestUri = $"{BuildRepositoryEndpoint(settings, repositoryName)}/pulls?state=open&per_page={GITHUB_PAGE_SIZE}&page={page}";
-            JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
+            JsonDocument document = await this.SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
                 int pullRequestCount = 0;
@@ -485,7 +485,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         while (hasMorePages)
         {
             string requestUri = $"{BuildRepositoriesEndpoint(settings)}?type=all&per_page={GITHUB_PAGE_SIZE}&page={page}";
-            JsonDocument document = await SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
+            JsonDocument document = await this.SendArrayRequestAsync(requestUri, settings.PersonalAccessToken, cancellationToken);
             using (document)
             {
                 int repositoryCount = 0;
@@ -514,7 +514,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
         string authorizationScheme,
         CancellationToken cancellationToken)
     {
-        _logger.LogDebug("Sending GitHub API request to {RequestUri}.", requestUri);
+        this._logger.LogDebug("Sending GitHub API request to {RequestUri}.", requestUri);
         HttpRequestMessage request = CreateRequest(HttpMethod.Get, requestUri, personalAccessToken, authorizationScheme);
         try
         {
@@ -529,7 +529,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
 
     private async Task<JsonDocument> SendArrayRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response = await SendRequestAsync(requestUri, personalAccessToken, BEARER_AUTHORIZATION_SCHEME, cancellationToken);
+        using HttpResponseMessage response = await this.SendRequestAsync(requestUri, personalAccessToken, BEARER_AUTHORIZATION_SCHEME, cancellationToken);
         return await ParseArrayResponseAsync(
             response,
             "pull request data retrieval",
@@ -539,7 +539,7 @@ public sealed class GitHubSourceControlService : ISourceControlReviewProviderSer
 
     private async Task<JsonDocument> SendObjectRequestAsync(string requestUri, string? personalAccessToken, CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response = await SendRequestAsync(requestUri, personalAccessToken, BEARER_AUTHORIZATION_SCHEME, cancellationToken);
+        using HttpResponseMessage response = await this.SendRequestAsync(requestUri, personalAccessToken, BEARER_AUTHORIZATION_SCHEME, cancellationToken);
         await EnsureSuccessStatusCodeAsync(
             response,
             "repository metadata retrieval",

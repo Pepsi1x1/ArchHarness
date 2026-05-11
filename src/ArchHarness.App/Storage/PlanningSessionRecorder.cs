@@ -48,20 +48,22 @@ public sealed class PlanningSessionRecorder
     }
 
     /// <summary>
-    /// Appends a single message to the session's conversation ledger.
+    /// Loads the session with the given id, or null when absent.
     /// </summary>
-    public Task<PlanningSession?> AppendMessageAsync(
-        string workspaceRoot,
-        string sessionId,
+    public PlanningSession? Get(string workspaceRoot, string sessionId)
+        => this._store.Get(workspaceRoot, sessionId);
+
+    /// <summary>
+    /// Creates a conversation message with recorder-owned id and timestamp metadata.
+    /// </summary>
+    public static ConversationMessage CreateMessage(
         string role,
         string kind,
         string text,
         IReadOnlyList<PromptAttachment>? attachments = null,
         string? authorAgent = null,
-        string? relatedRunId = null,
-        CancellationToken cancellationToken = default)
-    {
-        ConversationMessage message = new(
+        string? relatedRunId = null)
+        => new(
             Guid.NewGuid().ToString("N"),
             role,
             kind,
@@ -71,6 +73,15 @@ public sealed class PlanningSessionRecorder
             authorAgent,
             relatedRunId);
 
+    /// <summary>
+    /// Appends a single message to the session's conversation ledger.
+    /// </summary>
+    public Task<PlanningSession?> AppendMessageAsync(
+        string workspaceRoot,
+        string sessionId,
+        ConversationMessage message,
+        CancellationToken cancellationToken = default)
+    {
         return this._store.UpdateAsync(
             workspaceRoot,
             sessionId,

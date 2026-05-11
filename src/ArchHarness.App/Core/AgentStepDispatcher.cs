@@ -61,53 +61,49 @@ public sealed class AgentStepDispatcher : IAgentStepDispatcher
         switch (step.Agent)
         {
             case AgentNames.FRONTEND_DEVELOPER:
-            {
-                IReadOnlyList<string> newFiles = await this._frontendDeveloper.ImplementAsync(
-                    adapter,
-                    step.Objective,
-                    request.ModelOverrides,
-                    this._frontendDeveloper.Id,
-                    this._frontendDeveloper.Role,
-                    cancellationToken).ConfigureAwait(false);
+                {
+                    IReadOnlyList<string> newFiles = await this._frontendDeveloper.ImplementAsync(
+                        adapter,
+                        step.Objective,
+                        request.ModelOverrides,
+                        this._frontendDeveloper.Id,
+                        this._frontendDeveloper.Role,
+                        cancellationToken).ConfigureAwait(false);
 
-                string frontendPlan = newFiles.Count > 0
-                    ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
-                    : "Frontend developer step executed.";
-                return new StepOutcome(
-                    step.Id,
-                    step.Agent,
-                    newFiles,
-                    FrontendPlanDelta: frontendPlan,
-                    CompletionStatus: StepCompletionStatuses.COMPLETE);
-            }
+                    string frontendPlan = newFiles.Count > 0
+                        ? $"Frontend developer implemented and touched {newFiles.Count} file(s)."
+                        : "Frontend developer step executed.";
+                    return new StepOutcome(
+                        step.Id,
+                        step.Agent,
+                        newFiles,
+                        FrontendPlanDelta: frontendPlan,
+                        CompletionStatus: StepCompletionStatuses.COMPLETE);
+                }
 
             case AgentNames.BACKEND_DEVELOPER:
-            {
-                IReadOnlyList<string> newFiles = await this._backendDeveloper.ImplementAsync(
-                    adapter,
-                    step.Objective,
-                    request.ModelOverrides,
-                    null,
-                    this._backendDeveloper.Id,
-                    this._backendDeveloper.Role,
-                    cancellationToken).ConfigureAwait(false);
+                {
+                    IReadOnlyList<string> newFiles = await this._backendDeveloper.ImplementAsync(
+                        adapter,
+                        step.Objective,
+                        request.ModelOverrides,
+                        null,
+                        this._backendDeveloper.Id,
+                        this._backendDeveloper.Role,
+                        cancellationToken).ConfigureAwait(false);
 
-                return new StepOutcome(
-                    step.Id,
-                    step.Agent,
-                    newFiles,
-                    CompletionStatus: StepCompletionStatuses.COMPLETE);
-            }
+                    return new StepOutcome(
+                        step.Id,
+                        step.Agent,
+                        newFiles,
+                        CompletionStatus: StepCompletionStatuses.COMPLETE);
+                }
 
             case AgentNames.BUILD:
                 BuildOutcome buildOutcome = await this._build.RunBuildAsync(
                     adapter,
-                    step.Objective,
                     request.BuildCommand,
-                    request.ModelOverrides,
                     step.Id,
-                    this._build.Id,
-                    this._build.Role,
                     cancellationToken).ConfigureAwait(false);
                 return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), BuildOutcome: buildOutcome);
 
@@ -162,55 +158,55 @@ public sealed class AgentStepReviewDispatcher
         switch (step.Agent)
         {
             case AgentNames.CODING_STYLE:
-            {
-                string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
-                await this._codingStyle.EnforceAsync(
-                    new StyleEnforcementRequest(
-                        AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
-                        latestDiff,
-                        adapter.RootPath,
-                        accumulatedFilesTouched,
-                        step.Languages,
-                        request.ModelOverrides),
-                    this._codingStyle.Id,
-                    this._codingStyle.Role,
-                    cancellationToken).ConfigureAwait(false);
-                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>());
-            }
+                {
+                    string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
+                    await this._codingStyle.EnforceAsync(
+                        new StyleEnforcementRequest(
+                            AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
+                            latestDiff,
+                            adapter.RootPath,
+                            accumulatedFilesTouched,
+                            step.Languages,
+                            request.ModelOverrides),
+                        this._codingStyle.Id,
+                        this._codingStyle.Role,
+                        cancellationToken).ConfigureAwait(false);
+                    return new StepOutcome(step.Id, step.Agent, Array.Empty<string>());
+                }
 
             case AgentNames.SECURITY:
-            {
-                string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
-                SecurityReview securityReview = await this._security.ReviewAsync(
-                    new SecurityReviewRequest(
-                        AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
-                        latestDiff,
-                        adapter.RootPath,
-                        AgentStepExecutor.ResolveReviewFiles(adapter, request, accumulatedFilesTouched, step.Languages),
-                        step.Languages,
-                        request.ModelOverrides),
-                    this._security.Id,
-                    this._security.Role,
-                    cancellationToken).ConfigureAwait(false);
-                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), SecurityReview: securityReview);
-            }
+                {
+                    string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
+                    SecurityReview securityReview = await this._security.ReviewAsync(
+                        new SecurityReviewRequest(
+                            AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
+                            latestDiff,
+                            adapter.RootPath,
+                            AgentStepExecutor.ResolveReviewFiles(adapter, request, accumulatedFilesTouched, step.Languages),
+                            step.Languages,
+                            request.ModelOverrides),
+                        this._security.Id,
+                        this._security.Role,
+                        cancellationToken).ConfigureAwait(false);
+                    return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), SecurityReview: securityReview);
+                }
 
             case AgentNames.ARCHITECTURE:
-            {
-                string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
-                ArchitectureReview review = await this._architecture.ReviewAsync(
-                    new ArchitectureReviewRequest(
-                        AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
-                        latestDiff,
-                        adapter.RootPath,
-                        AgentStepExecutor.ResolveReviewFiles(adapter, request, accumulatedFilesTouched, step.Languages),
-                        step.Languages,
-                        request.ModelOverrides),
-                    this._architecture.Id,
-                    this._architecture.Role,
-                    cancellationToken).ConfigureAwait(false);
-                return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), Review: review);
-            }
+                {
+                    string latestDiff = await adapter.DiffAsync(cancellationToken).ConfigureAwait(false);
+                    ArchitectureReview review = await this._architecture.ReviewAsync(
+                        new ArchitectureReviewRequest(
+                            AgentStepExecutor.BuildDelegatedPrompt(step.Objective, request),
+                            latestDiff,
+                            adapter.RootPath,
+                            AgentStepExecutor.ResolveReviewFiles(adapter, request, accumulatedFilesTouched, step.Languages),
+                            step.Languages,
+                            request.ModelOverrides),
+                        this._architecture.Id,
+                        this._architecture.Role,
+                        cancellationToken).ConfigureAwait(false);
+                    return new StepOutcome(step.Id, step.Agent, Array.Empty<string>(), Review: review);
+                }
 
             default:
                 throw new InvalidOperationException($"Unrecognized agent role: '{step.Agent}'.");

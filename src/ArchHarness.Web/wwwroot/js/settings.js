@@ -39,16 +39,17 @@ function getPermissionOptions() {
 export function populateSettingsPermissionMode() {
   const options = getPermissionOptions();
   const current = state.settings?.defaults?.permissionHandlerMode || "";
-  if (!permissionDropdown) {
-    permissionDropdown = createDropdown("settings-permission-mode", options, current, {
-      onSelect: () => {},
-      registry: settingsRegistry,
-      extraClass: "settings-dropdown"
-    });
-    elements.settingsPermissionModeWrap.replaceChildren(permissionDropdown);
-  } else {
+  if (permissionDropdown) {
     updateDropdown(permissionDropdown, options, current);
+    return;
   }
+
+  permissionDropdown = createDropdown("settings-permission-mode", options, current, {
+    onSelect: () => {},
+    registry: settingsRegistry,
+    extraClass: "settings-dropdown"
+  });
+  elements.settingsPermissionModeWrap.replaceChildren(permissionDropdown);
 }
 
 export function renderSettingsForm() {
@@ -100,7 +101,7 @@ export function renderSettingsForm() {
       const reasoningDropdown = createDropdown(
         `settings-reasoning-${key}`,
         reasoningOpts,
-        reasoningOpts.find(o => o.value === currentReasoning) ? currentReasoning : "",
+        reasoningOpts.some(o => o.value === currentReasoning) ? currentReasoning : "",
         { onSelect: () => {}, registry: settingsRegistry, extraClass: "settings-dropdown" }
       );
       rLabelEl.className = "settings-grid-label settings-grid-label--dim";
@@ -154,7 +155,7 @@ function collectSettingsPayload() {
       permissionHandlerMode: permissionDropdown?.dataset.value || "",
       architectureReviewMode: elements.settingsArchitectureMode.checked,
       architectureReviewPrompt: elements.settingsArchitecturePrompt.value.trim() || null,
-      wikidocParallelism: parseInt(elements.settingsWikidocParallelism.value, 10) || 4
+      wikidocParallelism: Number.parseInt(elements.settingsWikidocParallelism.value, 10) || 4
     }
   };
 }

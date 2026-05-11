@@ -1,5 +1,5 @@
-using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;

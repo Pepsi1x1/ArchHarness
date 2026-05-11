@@ -1,6 +1,6 @@
 using ArchHarness.App.Constants;
-using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using Microsoft.Extensions.Options;
 
 namespace ArchHarness.App.Agents;
@@ -12,146 +12,7 @@ namespace ArchHarness.App.Agents;
 public class OrchestrationAgent : AgentBase
 {
     private const string ORCHESTRATION_PROMPT_GROUP_NAME = "Orchestration";
-    private const string DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK = DefaultPrompts.ARCHITECTURE_LOOP_TASK;
     private const string NONE_LABEL = "(none)";
-
-    private const string CLARIFICATION_SPEC_PROMPT_FALLBACK = """
-        You are the orchestration planner. Analyze the task prompt and produce a clarification spec as strict JSON with this schema:
-        {
-            "task": "string",
-            "desiredOutcome": "string",
-            "inScope": ["string"],
-            "outOfScope": ["string"],
-            "constraints": ["string"],
-            "assumptions": ["string"],
-            "acceptanceCriteria": ["string"],
-            "likelyTouchpoints": ["string"],
-            "openQuestions": ["string"],
-            "decisionNotes": ["string"],
-            "verificationCommands": [{"name":"string","command":"string","evidenceType":"build|test|lint|typecheck|runtime|manual","criterion":"string","required":true}]
-        }
-
-        TaskPrompt: {{TaskPrompt}}
-        WorkspaceRoot: {{WorkspaceRoot}}
-        WorkspaceMode: {{WorkspaceMode}}
-        BuildCommand: {{BuildCommand}}
-        {{ClarificationAnswersSection}}
-        """;
-
-    private const string ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK = """
-        You are the orchestration planner.
-        Your role is planning and delegation only.
-        Never modify workspace files directly and never perform implementation work.
-        Never invoke file editing tools, including edit_file, this is the delegated agents job.
-        Produce delegated prompts and validation outputs for specialized agents.
-        """;
-    private const string ORCHESTRATION_PLANNING_PROMPT_FALLBACK = """
-        You are the orchestration planner. Return ONLY strict JSON with this schema:
-        {
-            "steps": [{"id":1,"agent":"FrontendDeveloper|BackendDeveloper|Build|CodingStyle|Security|Architecture","objective":"string","parallelGroup":1,"languages":["dotnet","vue3"]}],
-            "iterationStrategy": {"maxIterations": 2, "reviewRequired": true},
-            "completionCriteria": ["string"]
-        }
-
-        Constraints:
-        - Enabled review/enforcement agents for this run: {{EnabledReviewLoopAgents}}.
-        - Disabled review/enforcement agents for this run: {{DisabledReviewLoopAgents}}.
-        - The harness auto-injects only enabled review steps after implementation or build work when they are omitted.
-        - Include FrontendDeveloper when UI/UX work is implied.
-        - Include BackendDeveloper when backend or middle-tier implementation is implied.
-        - Use Build for baseline, intermediate, or final validation build execution and build-result triage.
-        - Do not ask FrontendDeveloper or BackendDeveloper to run baseline or validation builds.
-        - CodingStyle, Security, and Architecture are review/enforcement steps when explicitly included and enabled.
-        - Never include a disabled review/enforcement agent in steps.
-        - When CodingStyle and Security are both enabled, CodingStyle must execute before Security.
-        - When Security and Architecture are both enabled, Security must execute before Architecture.
-        - When Architecture is enabled, it must be a single final review/enforcement step only.
-        - When a final validation build is needed, represent it as a Build step that runs after all enabled review/enforcement steps.
-        - Never use Architecture for solution design/spec generation/planning.
-        - Never use CodingStyle for solution design/spec generation/planning.
-        - Never use Security for solution design/spec generation/planning.
-        - Never use Build for source-code implementation work.
-        - Use parallelGroup to control execution batching. Steps with the same parallelGroup execute concurrently. Lower groups complete before higher groups start.
-        - Assign the same parallelGroup to steps that can safely run at the same time, including steps that write to independent files or modules.
-        - Assign a higher parallelGroup to steps that depend on output from earlier groups.
-        - Use languages on CodingStyle/Security/Architecture steps to declare review scope (dotnet and/or vue3).
-        - All filesystem paths in objectives must be under WorkspaceRoot.
-        - Do not use directories relative to process CWD; always anchor to WorkspaceRoot.
-        - Use as many steps as necessary; do not pad or compress the plan to hit a target step count.
-        - completionCriteria should match the enabled review agents for this run plus build verification:
-        {{ReviewLoopCompletionCriteria}}
-        - Each objective must be a concrete delegated prompt the target agent can execute directly.
-        - If ArchitectureLoopMode is true, enabled Security and Architecture objective(s) must review and enforce over the entire WorkspaceRoot.
-        - Use the approved clarification context when it is present. Treat clarification answers as resolved requirements, not as open design questions.
-        - When PlanRevisionRequest is present, treat it as mandatory feedback for how the plan must change. It may request specific refinements or a materially different plan shape.
-
-        TaskPrompt: {{TaskPrompt}}
-        WorkspaceRoot: {{WorkspaceRoot}}
-        WorkspaceMode: {{WorkspaceMode}}
-        BuildCommand: {{BuildCommand}}
-        ArchitectureLoopMode: {{ArchitectureLoopMode}}
-        ArchitectureLoopPrompt: {{ArchitectureLoopPrompt}}
-        {{ClarificationSpecSection}}
-        {{ClarificationAnswersSection}}
-        {{PlanRevisionRequestSection}}
-        """;
-    private const string ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK = """
-        You are the orchestration planner.
-        Generate a single delegated prompt for the enabled review-loop agents.
-        Focus only on remediation actions from the active review findings.
-        Return plain text only (no markdown, no JSON).
-
-        Iteration: {{Iteration}}
-        OriginalTask: {{OriginalTask}}
-        WorkspaceRoot: {{WorkspaceRoot}}
-        ArchitectureLoopMode: {{ArchitectureLoopMode}}
-        {{RequiredActionsSection}}
-        {{ArchitectureLoopPromptSection}}
-        """;
-    private const string ORCHESTRATION_VERIFIER_PROMPT_FALLBACK = """
-        You are Verifier. Prove or disprove completion with concrete evidence.
-
-        Return ONLY strict JSON with this schema:
-        {
-            "verdict": "PASS|FAIL|INCOMPLETE",
-            "materiallyImplemented": true,
-            "summary": "string",
-            "evidence": ["string"],
-            "gaps": ["string"],
-            "risks": ["string"]
-        }
-
-        Rules:
-        - Verify claims against code, relevant files, diffs, commands, tests, and recorded evidence.
-        - Do not trust unverified implementation claims.
-        - Distinguish missing evidence from failed behavior.
-        - Passing commands alone is insufficient if the core requested behavior or plan outcomes are not materially present in the workspace.
-        - materiallyImplemented must be false when the core requested work is absent, partial, or only weakly evidenced.
-        - Prefer direct evidence over reassurance.
-
-        Task: {{Task}}
-        DesiredOutcome: {{DesiredOutcome}}
-        AcceptanceCriteria:
-        {{AcceptanceCriteriaSection}}
-
-        PlanSteps:
-        {{PlanStepsSection}}
-
-        FilesTouched:
-        {{FilesTouchedSection}}
-
-        BuildOutcome:
-        {{BuildOutcomeSection}}
-
-        VerificationEvidence:
-        {{VerificationEvidenceSection}}
-
-        DeterministicChecks:
-        {{DeterministicChecksSection}}
-
-        ReviewSummary:
-        {{ReviewSummarySection}}
-        """;
 
     private readonly IExecutionPlanParser _executionPlanParser;
     private readonly AgentsOptions _agentsOptions;
@@ -221,7 +82,7 @@ public class OrchestrationAgent : AgentBase
             ?? this._reviewLoopAgentSelectionAccessor.Current
             ?? this._agentsOptions.GetReviewLoopAgentSelection();
 
-        string planningTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "planning.md", ORCHESTRATION_PLANNING_PROMPT_FALLBACK);
+        string planningTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "planning.md");
         string planningPrompt = PromptLoader.Render(
             planningTemplate,
             ("{{TaskPrompt}}", effectiveTaskPrompt),
@@ -272,63 +133,6 @@ public class OrchestrationAgent : AgentBase
             $"Orchestration model did not return a valid ExecutionPlan JSON after {MAX_PLANNING_ATTEMPTS} attempts.\n" +
             $"Validation error: {lastValidationError}\n" +
             $"Last response preview: {preview}");
-    }
-
-    /// <summary>
-    /// Generates a clarification/spec artifact from the task prompt and workspace context.
-    /// The spec becomes the authoritative contract for plan generation and completion validation.
-    /// </summary>
-    public async Task<ClarificationSpec> BuildClarificationSpecAsync(
-        RunRequest request,
-        string workspaceRoot,
-        IReadOnlyList<ClarificationAnswer>? clarificationAnswers = null,
-        IReadOnlyList<ConversationMessage>? conversationHistory = null,
-        string? agentId = null,
-        string? agentRole = null,
-        CancellationToken cancellationToken = default)
-    {
-        string model = base.ResolveModel(request.ModelOverrides);
-        string buildCommand = request.BuildCommand ?? NONE_LABEL;
-
-        string specTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "clarification-spec.md", CLARIFICATION_SPEC_PROMPT_FALLBACK);
-        string specPrompt = PromptLoader.Render(
-            specTemplate,
-            ("{{TaskPrompt}}", request.TaskPrompt),
-            ("{{WorkspaceRoot}}", workspaceRoot),
-            ("{{WorkspaceMode}}", request.WorkspaceMode),
-            ("{{BuildCommand}}", buildCommand),
-            ("{{ClarificationAnswersSection}}", BuildClarificationAnswersSection(clarificationAnswers)),
-            ("{{ConversationHistorySection}}", BuildConversationHistorySection(conversationHistory)));
-
-        CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
-        const int MAX_SPEC_ATTEMPTS = 3;
-        string? lastResponse = null;
-
-        for (int attempt = 1; attempt <= MAX_SPEC_ATTEMPTS; attempt++)
-        {
-            string previousResponsePreview = lastResponse?.Length > 1200 ? lastResponse[..1200] + "..." : lastResponse ?? string.Empty;
-            string promptForAttempt = attempt == 1
-                ? specPrompt
-                : $"{specPrompt}\n\nIMPORTANT: Your previous response could not be parsed. Return ONLY the raw JSON object. No markdown, no code fences, no commentary.\nPrevious response:\n{previousResponsePreview}";
-
-            lastResponse = await base.CopilotClient.CompleteAsync(
-                model,
-                promptForAttempt,
-                options,
-                agentId: agentId ?? base.Id,
-                agentRole: agentRole ?? base.Role,
-                cancellationToken);
-
-            if (TryParseClarificationSpec(lastResponse, out ClarificationSpec? spec))
-            {
-                return spec;
-            }
-        }
-
-        string? responsePreview = lastResponse?.Length > 500 ? lastResponse[..500] + "..." : lastResponse;
-        throw new InvalidOperationException(
-            $"Orchestration model did not return a valid ClarificationSpec JSON after {MAX_SPEC_ATTEMPTS} attempts.\n" +
-            $"Last response preview: {responsePreview}");
     }
 
     private static string BuildClarificationSpecSection(ClarificationSpec? spec)
@@ -451,7 +255,7 @@ public class OrchestrationAgent : AgentBase
             ? string.Empty
             : $"{Environment.NewLine}ArchitectureLoopPrompt:{Environment.NewLine}{request.ArchitectureLoopPrompt}";
 
-        string remediationTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "remediation.md", ORCHESTRATION_REMEDIATION_PROMPT_FALLBACK);
+        string remediationTemplate = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "remediation.md");
         string prompt = PromptLoader.Render(
             remediationTemplate,
             ("{{Iteration}}", iteration.ToString()),
@@ -559,7 +363,7 @@ public class OrchestrationAgent : AgentBase
     {
         string model = base.ResolveModel(request.ModelOverrides);
         CopilotCompletionOptions options = base.ApplyToolPolicy(CreateOrchestrationCompletionOptions());
-        string template = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "verifier.md", ORCHESTRATION_VERIFIER_PROMPT_FALLBACK);
+        string template = PromptLoader.Load(ORCHESTRATION_PROMPT_GROUP_NAME, "verifier.md");
         string prompt = PromptLoader.Render(
             template,
             ("{{Task}}", request.Spec?.Task ?? "(no clarified task)"),
@@ -680,8 +484,7 @@ public class OrchestrationAgent : AgentBase
 
         string defaultArchitectureLoopTaskPrompt = PromptLoader.Load(
             "Orchestration",
-            "default-architecture-loop-task.md",
-            DEFAULT_ARCH_LOOP_TASK_PROMPT_FALLBACK);
+            "default-architecture-loop-task.md");
 
         return string.IsNullOrWhiteSpace(inputTaskPrompt)
             ? defaultArchitectureLoopTaskPrompt
@@ -690,56 +493,13 @@ public class OrchestrationAgent : AgentBase
 
     private static CopilotCompletionOptions CreateOrchestrationCompletionOptions()
     {
-        string systemInstructions = PromptLoader.Load("Orchestration", "system.md", ORCHESTRATION_SYSTEM_INSTRUCTIONS_FALLBACK);
+        string systemInstructions = PromptLoader.Load("Orchestration", "system.md");
         return new CopilotCompletionOptions()
         {
             SystemMessage = systemInstructions,
             SystemMessageMode = CopilotSystemMessageMode.Append,
             ExcludedTools = new[] { "edit_file" }
         };
-    }
-
-    private static bool TryParseClarificationSpec(string? response, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ClarificationSpec? spec)
-    {
-        spec = null;
-        if (string.IsNullOrWhiteSpace(response))
-        {
-            return false;
-        }
-
-        try
-        {
-            string? cleaned = ExecutionPlanParser.ExtractJson(response);
-            if (cleaned is null)
-            {
-                return false;
-            }
-
-            using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(cleaned);
-            System.Text.Json.JsonElement root = doc.RootElement;
-
-            string task = root.TryGetProperty("task", out System.Text.Json.JsonElement taskEl) ? taskEl.GetString() ?? string.Empty : string.Empty;
-            string desiredOutcome = root.TryGetProperty("desiredOutcome", out System.Text.Json.JsonElement outcomeEl) ? outcomeEl.GetString() ?? string.Empty : string.Empty;
-
-            spec = new ClarificationSpec(
-                Task: task,
-                DesiredOutcome: desiredOutcome,
-                InScope: ReadStringArray(root, "inScope"),
-                OutOfScope: ReadStringArray(root, "outOfScope"),
-                Constraints: ReadStringArray(root, "constraints"),
-                Assumptions: ReadStringArray(root, "assumptions"),
-                AcceptanceCriteria: ReadStringArray(root, "acceptanceCriteria"),
-                LikelyTouchpoints: ReadStringArray(root, "likelyTouchpoints"),
-                OpenQuestions: ReadStringArray(root, "openQuestions"),
-                DecisionNotes: ReadStringArray(root, "decisionNotes"),
-                VerificationCommands: ReadVerificationCommands(root));
-
-            return !string.IsNullOrWhiteSpace(spec.Task);
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static IReadOnlyList<string> ReadStringArray(System.Text.Json.JsonElement element, string propertyName)
@@ -832,51 +592,4 @@ public class OrchestrationAgent : AgentBase
             ? NONE_LABEL
             : string.Join(Environment.NewLine, values.Select(value => $"- {value}"));
 
-    private static IReadOnlyList<VerificationCommand> ReadVerificationCommands(System.Text.Json.JsonElement element)
-    {
-        if (!element.TryGetProperty("verificationCommands", out System.Text.Json.JsonElement commandsElement)
-            || commandsElement.ValueKind != System.Text.Json.JsonValueKind.Array)
-        {
-            return Array.Empty<VerificationCommand>();
-        }
-
-        List<VerificationCommand> commands = new List<VerificationCommand>();
-        foreach (System.Text.Json.JsonElement commandElement in commandsElement.EnumerateArray())
-        {
-            VerificationCommand? parsed = TryParseVerificationCommand(commandElement);
-            if (parsed is not null)
-            {
-                commands.Add(parsed);
-            }
-        }
-
-        return commands;
-    }
-
-    private static VerificationCommand? TryParseVerificationCommand(System.Text.Json.JsonElement commandElement)
-    {
-        if (commandElement.ValueKind != System.Text.Json.JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        string? name = commandElement.TryGetProperty("name", out System.Text.Json.JsonElement nameElement) ? nameElement.GetString() : null;
-        string? command = commandElement.TryGetProperty("command", out System.Text.Json.JsonElement commandValueElement) ? commandValueElement.GetString() : null;
-        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(command))
-        {
-            return null;
-        }
-
-        string evidenceType = commandElement.TryGetProperty("evidenceType", out System.Text.Json.JsonElement evidenceTypeElement)
-            ? evidenceTypeElement.GetString() ?? "runtime"
-            : "runtime";
-        string? criterion = commandElement.TryGetProperty("criterion", out System.Text.Json.JsonElement criterionElement)
-            ? criterionElement.GetString()
-            : null;
-        bool required = !commandElement.TryGetProperty("required", out System.Text.Json.JsonElement requiredElement)
-            || requiredElement.ValueKind is not (System.Text.Json.JsonValueKind.True or System.Text.Json.JsonValueKind.False)
-            || requiredElement.GetBoolean();
-
-        return new VerificationCommand(name.Trim(), command.Trim(), evidenceType.Trim(), criterion?.Trim(), required);
-    }
 }

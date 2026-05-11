@@ -104,7 +104,7 @@ export function createDropdown(id, options, selectedValue, { onSelect, registry,
   menu.className = "composer-dropdown-menu hidden";
   menu.setAttribute("role", "menu");
 
-  const hasChoices = options.filter(o => !o.disabled).length > 0;
+  const hasChoices = options.some(o => !o.disabled);
   button.disabled = !hasChoices;
 
   function handleSelect(value) {
@@ -113,7 +113,6 @@ export function createDropdown(id, options, selectedValue, { onSelect, registry,
     labelSpan.textContent = opt?.label ?? value ?? "";
     // Refresh aria states on all items
     menu.querySelectorAll(".composer-dropdown-item").forEach(item => {
-      const active = item.textContent === (opt?.label ?? value);
       item.classList.toggle("current", item.dataset.value === value);
       item.setAttribute("aria-checked", item.dataset.value === value ? "true" : "false");
     });
@@ -159,7 +158,7 @@ export function createDropdown(id, options, selectedValue, { onSelect, registry,
   // Expose update API on the element itself for updateDropdown()
   wrap._update = (newOptions, newValue) => {
     options = newOptions;
-    const newHasChoices = newOptions.filter(o => !o.disabled).length > 0;
+    const newHasChoices = newOptions.some(o => !o.disabled);
     button.disabled = !newHasChoices;
     wrap.dataset.value = newValue || "";
     const newOpt = newOptions.find(o => o.value === newValue);

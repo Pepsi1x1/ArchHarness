@@ -104,74 +104,92 @@ public sealed class CopilotClient : ICopilotClient
             catch (Exception ex)
             {
                 lastException = ex;
-                if (CopilotErrorClassifier.IsPermanent(ex))
-                {
-                    this._logger.LogError(ex, "Permanent Copilot completion error for model '{Model}'.", model);
-                    this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
-                        DateTimeOffset.UtcNow,
-                        "n/a",
-                        model,
-                        "client.completion.permanent_error",
-                        ex.Message));
-                    throw new InvalidOperationException(
-                        $"Permanent Copilot completion error for model '{model}': {ex.Message}",
-                        ex);
-                }
-
-                if (attempt >= this._options.MaxRetries || !CopilotErrorClassifier.IsTransient(ex))
+                this.ThrowIfPermanentCompletionError(model, ex);
+                if (!this.ShouldRetryCompletion(attempt, ex))
                 {
                     break;
                 }
 
-                if (CopilotErrorClassifier.RequiresSessionReset(ex))
-                {
-                    this._sessionFactory.Invalidate(model, options);
-                    this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
-                        DateTimeOffset.UtcNow,
-                        "n/a",
-                        model,
-                        "client.completion.session_reset",
-                        ex.Message));
-
-                    if (CopilotErrorClassifier.RequiresClientRecycle(ex))
-                    {
-                        try
-                        {
-                            await this._clientProvider.InvalidateAsync().ConfigureAwait(false);
-                        }
-                        catch (Exception recycleEx)
-                        {
-                            this._logger.LogDebug(recycleEx, "Client provider recycle failed.");
-                        }
-
-                        this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
-                            DateTimeOffset.UtcNow,
-                            "n/a",
-                            model,
-                            "client.completion.client_recycled",
-                            ex.Message));
-                    }
-                }
-
-                int backoff = this._options.BaseRetryDelayMilliseconds * (int)Math.Pow(2, attempt);
-                this._logger.LogWarning(
-                    ex,
-                    "Transient Copilot completion error for model '{Model}' on attempt {Attempt}; retrying in {BackoffMs}ms.",
-                    model,
-                    attempt + 1,
-                    backoff);
-                this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
-                    DateTimeOffset.UtcNow,
-                    "n/a",
-                    model,
-                    "client.completion.transient_retry",
-                    $"Attempt={attempt + 1}; BackoffMs={backoff}; Error={ex.Message}"));
+                await this.ResetSessionIfNeededAsync(model, options, ex).ConfigureAwait(false);
+                int backoff = this.ReportTransientRetry(model, attempt, ex);
                 await Task.Delay(backoff, cancellationToken);
             }
         }
 
         throw new InvalidOperationException($"Copilot completion failed for model '{model}' after retries.", lastException);
     }
+
+    private void ThrowIfPermanentCompletionError(string model, Exception exception)
+    {
+        if (!CopilotErrorClassifier.IsPermanent(exception))
+        {
+            return;
+        }
+
+        this._logger.LogError(exception, "Permanent Copilot completion error for model '{Model}'.", model);
+        this.PublishClientLifecycleEvent(model, "client.completion.permanent_error", exception.Message);
+        throw new InvalidOperationException(
+            $"Permanent Copilot completion error for model '{model}': {exception.Message}",
+            exception);
+    }
+
+    private bool ShouldRetryCompletion(int attempt, Exception exception)
+        => attempt < this._options.MaxRetries && CopilotErrorClassifier.IsTransient(exception);
+
+    private async Task ResetSessionIfNeededAsync(string model, CopilotCompletionOptions? options, Exception exception)
+    {
+        if (!CopilotErrorClassifier.RequiresSessionReset(exception))
+        {
+            return;
+        }
+
+        this._sessionFactory.Invalidate(model, options);
+        this.PublishClientLifecycleEvent(model, "client.completion.session_reset", exception.Message);
+        await this.RecycleClientIfNeededAsync(model, exception).ConfigureAwait(false);
+    }
+
+    private async Task RecycleClientIfNeededAsync(string model, Exception exception)
+    {
+        if (!CopilotErrorClassifier.RequiresClientRecycle(exception))
+        {
+            return;
+        }
+
+        try
+        {
+            await this._clientProvider.InvalidateAsync().ConfigureAwait(false);
+        }
+        catch (Exception recycleEx)
+        {
+            this._logger.LogDebug(recycleEx, "Client provider recycle failed.");
+        }
+
+        this.PublishClientLifecycleEvent(model, "client.completion.client_recycled", exception.Message);
+    }
+
+    private int ReportTransientRetry(string model, int attempt, Exception exception)
+    {
+        int backoff = this._options.BaseRetryDelayMilliseconds * (int)Math.Pow(2, attempt);
+        this._logger.LogWarning(
+            exception,
+            "Transient Copilot completion error for model '{Model}' on attempt {Attempt}; retrying in {BackoffMs}ms.",
+            model,
+            attempt + 1,
+            backoff);
+        this.PublishClientLifecycleEvent(
+            model,
+            "client.completion.transient_retry",
+            $"Attempt={attempt + 1}; BackoffMs={backoff}; Error={exception.Message}");
+        return backoff;
+    }
+
+    private void PublishClientLifecycleEvent(string model, string eventType, string details)
+        => this._sessionEventStream.Publish(new CopilotSessionLifecycleEvent(
+            DateTimeOffset.UtcNow,
+            "n/a",
+            model,
+            eventType,
+            details));
 
     /// <inheritdoc />
     public IReadOnlyList<CopilotModelUsage> GetUsageSnapshot()

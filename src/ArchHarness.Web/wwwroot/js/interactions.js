@@ -18,7 +18,9 @@ function getPendingInteractionSignature(pending) {
     sessionId: pending.sessionId || "",
     toolName: pending.toolName || "",
     specMarkdown: pending.specMarkdown || "",
-    planSummary: pending.planSummary || ""
+    planSummary: pending.planSummary || "",
+    planReviewMarkdown: pending.planReviewMarkdown || "",
+    runId: pending.runId || ""
   });
 }
 
@@ -80,13 +82,7 @@ export function renderInlineInteraction() {
   const labelTitle = document.createElement("strong");
   const isPlanningQuestion = pending.kind === "user-input"
     && (state.selectedRunState?.workflow === WORKFLOWS.PLANNING || isPlanningModeEnabled());
-  labelTitle.textContent = pending.kind === "permission"
-    ? "Permission"
-    : pending.kind === "plan-approval"
-      ? "Plan Approval"
-      : isPlanningQuestion
-        ? hasQuestionBatch ? "Planning Questions" : "Planning Question"
-        : hasQuestionBatch ? "Questions" : "Input";
+  labelTitle.textContent = getLabelTitle(pending.kind, isPlanningQuestion, hasQuestionBatch);
   const labelQuestion = document.createElement("p");
   labelQuestion.textContent = pending.question || "";
   label.append(labelTitle, labelQuestion);
@@ -107,98 +103,111 @@ export function renderInlineInteraction() {
   }
 
   if (pending.kind === "permission") {
-    const actions = document.createElement("div");
-    actions.className = "button-row";
-    actions.append(
-      interactionAction("Approve", "primary", () => submitPermission(true)),
-      interactionAction("Deny", "danger", () => submitPermission(false))
-    );
-    elements.inlineInteraction.append(actions);
+    renderPermissionInteraction();
   } else if (pending.kind === "plan-approval") {
-    const scroll = document.createElement("div");
-    scroll.className = "inline-interaction-scroll";
-    if (pending.specMarkdown) {
-      const specSection = document.createElement("div");
-      specSection.className = "inline-interaction-spec";
-      specSection.innerHTML = pending.specMarkdown;
-      scroll.append(specSection);
-    }
-    if (pending.planSummary) {
-      const planSection = document.createElement("div");
-      planSection.className = "inline-interaction-plan";
-      const planPre = document.createElement("pre");
-      planPre.textContent = pending.planSummary;
-      planSection.append(planPre);
-      scroll.append(planSection);
-    }
-    const revisionField = document.createElement("label");
-    revisionField.className = "inline-interaction-field inline-interaction-revision";
-    const revisionTitle = document.createElement("span");
-    revisionTitle.textContent = "Revision request";
-    const revisionCopy = document.createElement("p");
-    revisionCopy.className = "inline-interaction-field-copy";
-    revisionCopy.textContent = "Describe specific changes or request a materially different plan.";
-    const revisionInput = document.createElement("textarea");
-    revisionInput.rows = 4;
-    revisionInput.placeholder = "Examples: split backend and frontend work, add migration steps, or reduce scope to API only.";
-    revisionInput.value = state.pendingPlanRevisionDraft;
-    revisionInput.addEventListener("input", () => {
-      state.pendingPlanRevisionDraft = revisionInput.value;
-    });
-    revisionField.append(revisionTitle, revisionCopy, revisionInput);
-    scroll.append(revisionField);
-    elements.inlineInteraction.append(scroll);
-    const actions = document.createElement("div");
-    actions.className = "button-row plan-approval-actions";
-    actions.append(
-      interactionAction("Approve", "primary", () => submitPlanApproval("approved", null)),
-      interactionAction("Revise Plan", "secondary", () => submitPlanApproval("regenerate", state.pendingPlanRevisionDraft.trim() || null)),
-      interactionAction("Cancel", "danger", () => submitPlanApproval("canceled"))
-    );
-    elements.inlineInteraction.append(actions);
+    renderPlanApprovalInteraction();
   } else if (hasQuestionBatch) {
-    const questionList = document.createElement("div");
-    questionList.className = "inline-interaction-question-list";
-    pending.questions.forEach((question, index) => {
-      const field = document.createElement("label");
-      field.className = "inline-interaction-field";
-      const title = document.createElement("span");
-      title.textContent = `Question ${index + 1}`;
-      const copy = document.createElement("p");
-      copy.className = "inline-interaction-field-copy";
-      copy.textContent = question;
-      const input = document.createElement("textarea");
-      input.rows = 3;
-      input.placeholder = "Type your response";
-      const draftKey = String(index);
-      input.value = state.pendingInteractionDrafts[draftKey] || "";
-      input.addEventListener("input", () => {
-        state.pendingInteractionDrafts[draftKey] = input.value;
-      });
-      field.append(title, copy, input);
-      questionList.append(field);
-    });
-    const actions = document.createElement("div");
-    actions.className = "button-row";
-    actions.append(interactionAction("Submit", "primary", () => submitUserInputs(
-      pending.questions.map((_, index) => state.pendingInteractionDrafts[String(index)] || "")
-    )));
-    elements.inlineInteraction.append(questionList, actions);
+    renderQuestionBatchInteraction(pending);
   } else {
-    const input = document.createElement("textarea");
-    input.rows = 3;
-    input.placeholder = "Type your response";
-    input.value = state.pendingInteractionDraft;
-    input.addEventListener("input", () => {
-      state.pendingInteractionDraft = input.value;
-    });
-    const actions = document.createElement("div");
-    actions.className = "button-row";
-    actions.append(interactionAction("Submit", "primary", () => submitUserInput(input.value)));
-    elements.inlineInteraction.append(input, actions);
+    renderFreeTextInteraction();
   }
 
   renderTopbar();
+}
+
+function getLabelTitle(kind, isPlanningQuestion, hasQuestionBatch) {
+  if (kind === "permission") return "Permission";
+  if (kind === "plan-approval") return "Plan Approval";
+  if (isPlanningQuestion) return hasQuestionBatch ? "Planning Questions" : "Planning Question";
+  return hasQuestionBatch ? "Questions" : "Input";
+}
+
+function renderPermissionInteraction() {
+  const actions = document.createElement("div");
+  actions.className = "button-row";
+  actions.append(
+    interactionAction("Approve", "primary", () => submitPermission(true)),
+    interactionAction("Deny", "danger", () => submitPermission(false))
+  );
+  elements.inlineInteraction.append(actions);
+}
+
+function renderPlanApprovalInteraction() {
+  const scroll = document.createElement("div");
+  scroll.className = "inline-interaction-scroll";
+  const planHint = document.createElement("p");
+  planHint.className = "inline-interaction-field-copy";
+  planHint.textContent = "Review the Planning message in the agent stream, then approve it or describe what should change.";
+  scroll.append(planHint);
+  const revisionField = document.createElement("label");
+  revisionField.className = "inline-interaction-field inline-interaction-revision";
+  const revisionTitle = document.createElement("span");
+  revisionTitle.textContent = "Revision request";
+  const revisionCopy = document.createElement("p");
+  revisionCopy.className = "inline-interaction-field-copy";
+  revisionCopy.textContent = "Describe specific changes or request a materially different plan.";
+  const revisionInput = document.createElement("textarea");
+  revisionInput.rows = 4;
+  revisionInput.placeholder = "Examples: split backend and frontend work, add migration steps, or reduce scope to API only.";
+  revisionInput.value = state.pendingPlanRevisionDraft;
+  revisionInput.addEventListener("input", () => {
+    state.pendingPlanRevisionDraft = revisionInput.value;
+  });
+  revisionField.append(revisionTitle, revisionCopy, revisionInput);
+  scroll.append(revisionField);
+  elements.inlineInteraction.append(scroll);
+  const actions = document.createElement("div");
+  actions.className = "button-row plan-approval-actions";
+  actions.append(
+    interactionAction("Approve", "primary", () => submitPlanApproval("approved", null)),
+    interactionAction("Revise Plan", "secondary", () => submitPlanApproval("regenerate", state.pendingPlanRevisionDraft.trim() || null)),
+    interactionAction("Cancel", "danger", () => submitPlanApproval("canceled"))
+  );
+  elements.inlineInteraction.append(actions);
+}
+
+function renderQuestionBatchInteraction(pending) {
+  const questionList = document.createElement("div");
+  questionList.className = "inline-interaction-question-list";
+  pending.questions.forEach((question, index) => {
+    const field = document.createElement("label");
+    field.className = "inline-interaction-field";
+    const title = document.createElement("span");
+    title.textContent = `Question ${index + 1}`;
+    const copy = document.createElement("p");
+    copy.className = "inline-interaction-field-copy";
+    copy.textContent = question;
+    const input = document.createElement("textarea");
+    input.rows = 3;
+    input.placeholder = "Type your response";
+    const draftKey = String(index);
+    input.value = state.pendingInteractionDrafts[draftKey] || "";
+    input.addEventListener("input", () => {
+      state.pendingInteractionDrafts[draftKey] = input.value;
+    });
+    field.append(title, copy, input);
+    questionList.append(field);
+  });
+  const actions = document.createElement("div");
+  actions.className = "button-row";
+  actions.append(interactionAction("Submit", "primary", () => submitUserInputs(
+    pending.questions.map((_, index) => state.pendingInteractionDrafts[String(index)] || "")
+  )));
+  elements.inlineInteraction.append(questionList, actions);
+}
+
+function renderFreeTextInteraction() {
+  const input = document.createElement("textarea");
+  input.rows = 3;
+  input.placeholder = "Type your response";
+  input.value = state.pendingInteractionDraft;
+  input.addEventListener("input", () => {
+    state.pendingInteractionDraft = input.value;
+  });
+  const actions = document.createElement("div");
+  actions.className = "button-row";
+  actions.append(interactionAction("Submit", "primary", () => submitUserInput(input.value)));
+  elements.inlineInteraction.append(input, actions);
 }
 
 function interactionAction(label, tone, onClick) {

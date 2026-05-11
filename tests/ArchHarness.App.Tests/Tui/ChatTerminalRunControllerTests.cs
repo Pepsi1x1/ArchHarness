@@ -48,7 +48,7 @@ public sealed class ChatTerminalRunControllerTests
             _ = progress;
             _ = onRunContextEstablished;
             _ = cancellationToken;
-            throw new NotSupportedException();
+            throw new NotSupportedException("Resume is not exercised by this test double.");
         }
 
         public Task<RunArtefacts> RegenerateMegaWikiAsync(PersistedRunState runState, IProgress<RuntimeProgressEvent>? progress = null, Action<string, string>? onRunContextEstablished = null, CancellationToken cancellationToken = default)
@@ -57,7 +57,7 @@ public sealed class ChatTerminalRunControllerTests
             _ = progress;
             _ = onRunContextEstablished;
             _ = cancellationToken;
-            throw new NotSupportedException();
+            throw new NotSupportedException("MegaWiki regeneration is not exercised by this test double.");
         }
     }
 

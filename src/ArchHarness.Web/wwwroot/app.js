@@ -58,7 +58,9 @@ function attachHandlers() {
   const wikidocScreenButton = document.getElementById("wikidoc-screen-button");
   if (desktopBridge?.openWikiDocScreen) {
     wikidocScreenButton.addEventListener("click", () => {
-      void desktopBridge.openWikiDocScreen();
+      desktopBridge.openWikiDocScreen().catch(error => {
+        console.error("Failed to open WikiDoc screen", error);
+      });
     });
   } else {
     wikidocScreenButton.addEventListener("click", () => {

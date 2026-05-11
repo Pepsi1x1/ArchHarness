@@ -110,7 +110,7 @@ public sealed class RunHistoryServiceTests : IDisposable
     {
         string runDirectory = Path.Combine(this._workspaceRoot, ".agent-harness", "runs", "20260314T121700000");
         Directory.CreateDirectory(runDirectory);
-                File.WriteAllText(Path.Combine(runDirectory, "run-log.json"), $$"""
+        File.WriteAllText(Path.Combine(runDirectory, "run-log.json"), $$"""
                         {
                             "status": "{{RunStatuses.COMPLETED}}",
                             "projectId": "project-alpha",

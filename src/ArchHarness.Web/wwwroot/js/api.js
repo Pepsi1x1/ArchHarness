@@ -126,14 +126,14 @@ export function fetchPlanningSession(sessionId, workspacePath) {
   return requestJson(url);
 }
 
-export function postPlanningFollowUp(sessionId, { workspacePath, text, attachments, relatedRunId }) {
+export function postPlanningFollowUp(sessionId, { workspacePath, text, attachments, relatedRunId, kind = "follow-up" }) {
   return requestJson(`/api/planning-sessions/${encodeURIComponent(sessionId)}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       workspacePath,
       role: "user",
-      kind: "follow-up",
+      kind,
       text: text ?? "",
       authorAgent: null,
       relatedRunId: relatedRunId ?? null,

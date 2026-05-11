@@ -9,13 +9,6 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 public sealed class CodingStyleAgent : AgentBase
 {
-    private const string CODING_STYLE_INSTRUCTIONS_FALLBACK = """
-        You are the Coding Style Agent.
-        Enforce coding style, naming conventions, and language-specific coding standards by directly editing files.
-        Run in agent mode and use built-in tools to apply required style and standards fixes.
-        Keep changes inside WorkspaceRoot and avoid changing behavior unless required by style compliance.
-        Return a concise completion summary after applying changes.
-        """;
 
     /// <summary>
     /// Initializes a new instance of <see cref="CodingStyleAgent"/>.
@@ -69,17 +62,12 @@ public sealed class CodingStyleAgent : AgentBase
     {
         return AgentPromptHelper.BuildGuidanceContext(
             workspaceRoot, filesTouched, diff, languageScope,
-            "CodingStyle",
-            "STYLE GUIDELINES",
-            language => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
-                ? "vue3-style-review-agent.md"
-                : "dotnet-style-review-agent.md",
-            "No coding style guideline file found. Apply strict naming, readability, and language coding standards.");
+            AgentPromptHelper.ReviewGuidelineKind.CodingStyle);
     }
 
     private static string BuildSystemPrompt(string guidelines, string languageLabel)
     {
-        string systemInstructions = PromptLoader.Load("CodingStyle", "system.md", CODING_STYLE_INSTRUCTIONS_FALLBACK);
+        string systemInstructions = PromptLoader.Load("CodingStyle", "system.md");
 
         return $"""
             {systemInstructions}

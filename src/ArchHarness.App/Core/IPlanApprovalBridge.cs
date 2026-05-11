@@ -11,7 +11,10 @@ public sealed record PlanApprovalRequest(
     ClarificationSpec Spec,
     ExecutionPlan Plan,
     string SpecMarkdown,
-    string PlanSummary);
+    string PlanSummary,
+    string? PlanReviewMarkdown = null,
+    string? PlanningSessionId = null,
+    string? RunId = null);
 
 /// <summary>
 /// The user's response to a plan approval request.

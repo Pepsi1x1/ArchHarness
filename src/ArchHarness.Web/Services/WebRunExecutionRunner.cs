@@ -1,5 +1,5 @@
-using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using ArchHarness.App.Storage;
 
 namespace ArchHarness.Web.Services;
@@ -195,12 +195,12 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
             existingState => existingState is null
                 ? null
                 : existingState with
-            {
-                Status = RunStatuses.PAUSED,
-                Phase = RunTerminalPhases.PAUSED,
-                UpdatedAtUtc = DateTimeOffset.UtcNow,
-                FailureMessage = null
-            },
+                {
+                    Status = RunStatuses.PAUSED,
+                    Phase = RunTerminalPhases.PAUSED,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow,
+                    FailureMessage = null
+                },
             CancellationToken.None).ConfigureAwait(false);
 
         if (!updated)
@@ -237,12 +237,12 @@ public sealed class WebRunExecutionRunner : IWebRunExecutionRunner
             existingState => existingState is null
                 ? null
                 : existingState with
-            {
-                Status = status,
-                Phase = phase,
-                UpdatedAtUtc = DateTimeOffset.UtcNow,
-                FailureMessage = failureMessage
-            },
+                {
+                    Status = status,
+                    Phase = phase,
+                    UpdatedAtUtc = DateTimeOffset.UtcNow,
+                    FailureMessage = failureMessage
+                },
             CancellationToken.None).ConfigureAwait(false);
     }
 }

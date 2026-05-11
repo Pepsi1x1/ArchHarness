@@ -9,6 +9,8 @@ namespace ArchHarness.App.Core;
 /// </summary>
 public sealed class AgentStepExecutor : IAgentStepExecutor
 {
+    private const int MAX_NO_CHANGE_CONTINUATIONS = 2;
+
     private readonly IAgentStepDispatcher _stepDispatcher;
     private readonly IStepExecutionStateStore _stateStore;
     private readonly IArtefactStore _artefactStore;
@@ -48,27 +50,14 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         HashSet<int> completedStepIds = new(context.ResumeState?.CompletedStepIds ?? Array.Empty<int>());
 
         // Phase 3b: track full step history so we can grow the plan mid-run with safeguards.
-        List<ExecutionPlanStep> liveSteps = new List<ExecutionPlanStep>(plan.Steps);
-        List<StepOutcome> outcomeHistory = new List<StepOutcome>();
-        ContinuationGuardState guard = new ContinuationGuardState
-        {
-            NoChangeStreak = 0,
-            PreviousFilesTouchedSnapshot = state.FilesTouched.Count,
-            NextWave = liveSteps.Count > 0 ? liveSteps.Max(s => s.Wave) + 1 : 1,
-            NextStepId = liveSteps.Count > 0 ? liveSteps.Max(s => s.Id) + 1 : 1,
-        };
-        const int MAX_NO_CHANGE_CONTINUATIONS = 2;
-
+        ContinuationExecutionState continuationState = new ContinuationExecutionState(plan, state.FilesTouched.Count);
         await this._stateStore.WriteRunStateAsync(
             adapter.RootPath,
             request,
-            context.RunId,
-            context.RunDirectory,
-            context.ResumeState?.ReviewIteration ?? 0,
+            context,
             RunPhases.EXECUTING_PLAN,
             completedStepIds,
             state,
-            null,
             cancellationToken).ConfigureAwait(false);
 
         while (pendingSteps.Count > 0)
@@ -110,7 +99,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
                 completedStepIds.Add(outcome.StepId);
                 pendingSteps.Remove(outcome.StepId);
-                outcomeHistory.Add(outcome);
+                continuationState.RecordOutcome(outcome);
                 await this._artefactStore.AppendEventAsync(context.RunDirectory, new
                 {
                     runId = context.RunId,
@@ -124,26 +113,20 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
             await this._stateStore.WriteRunStateAsync(
                 adapter.RootPath,
                 request,
-                context.RunId,
-                context.RunDirectory,
-                context.ResumeState?.ReviewIteration ?? 0,
+                context,
                 RunPhases.EXECUTING_PLAN,
                 completedStepIds,
                 state,
-                null,
                 cancellationToken).ConfigureAwait(false);
 
             // Phase 3b: after every wave attempt, let the continuation planner grow the plan.
             await this.TryAppendContinuationWaveAsync(
                 plan,
-                liveSteps,
                 pendingSteps,
-                outcomeHistory,
                 batchOutcomes,
                 state,
                 context,
-                guard,
-                MAX_NO_CHANGE_CONTINUATIONS,
+                continuationState,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -278,14 +261,11 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
     private async Task TryAppendContinuationWaveAsync(
         ExecutionPlan originalPlan,
-        List<ExecutionPlanStep> liveSteps,
         Dictionary<int, ExecutionPlanStep> pendingSteps,
-        List<StepOutcome> outcomeHistory,
         IReadOnlyList<StepOutcome> recentOutcomes,
         ExecutionState state,
         StepExecutionContext context,
-        ContinuationGuardState guard,
-        int maxNoChangeStreak,
+        ContinuationExecutionState continuationState,
         CancellationToken cancellationToken)
     {
         if (this._continuationPlanner is null)
@@ -314,15 +294,15 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         // Safeguard: honor cancellation before running the planner.
         cancellationToken.ThrowIfCancellationRequested();
 
-        ExecutionPlan snapshot = new ExecutionPlan(liveSteps.ToArray(), originalPlan.IterationStrategy, originalPlan.CompletionCriteria);
+        ExecutionPlan snapshot = new ExecutionPlan(continuationState.LiveSteps.ToArray(), originalPlan.IterationStrategy, originalPlan.CompletionCriteria);
         ContinuationPlanningContext planningContext = new ContinuationPlanningContext(
             snapshot,
             recentOutcomes,
-            outcomeHistory,
+            continuationState.OutcomeHistory,
             state.FilesTouched,
-            guard.PreviousFilesTouchedSnapshot,
-            guard.NextWave,
-            guard.NextStepId);
+            continuationState.PreviousFilesTouchedSnapshot,
+            continuationState.NextWave,
+            continuationState.NextStepId);
 
         ContinuationPlanningResult result = this._continuationPlanner.PlanNextWave(planningContext);
         if (result.NewSteps.Count == 0)
@@ -332,38 +312,38 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
                 runId = context.RunId,
                 source = WellKnownSources.ORCHESTRATOR,
                 message = $"Continuation planner produced no new steps ({result.Reason}).",
-                wave = guard.NextWave
+                wave = continuationState.NextWave
             }, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         // Safeguard: no-change detection. If the last wave touched no new files, count that as a
         // no-change iteration. Two consecutive no-change iterations abort further continuation.
-        bool touchedNewFiles = state.FilesTouched.Count > guard.PreviousFilesTouchedSnapshot;
+        bool touchedNewFiles = state.FilesTouched.Count > continuationState.PreviousFilesTouchedSnapshot;
         if (!touchedNewFiles)
         {
-            guard.NoChangeStreak++;
-            if (guard.NoChangeStreak >= maxNoChangeStreak)
+            continuationState.NoChangeStreak++;
+            if (continuationState.NoChangeStreak >= MAX_NO_CHANGE_CONTINUATIONS)
             {
                 await this._artefactStore.AppendEventAsync(context.RunDirectory, new
                 {
                     runId = context.RunId,
                     source = WellKnownSources.ORCHESTRATOR,
-                    message = $"Continuation aborted after {guard.NoChangeStreak} no-change waves.",
-                    wave = guard.NextWave
+                    message = $"Continuation aborted after {continuationState.NoChangeStreak} no-change waves.",
+                    wave = continuationState.NextWave
                 }, cancellationToken).ConfigureAwait(false);
                 return;
             }
         }
         else
         {
-            guard.NoChangeStreak = 0;
+            continuationState.NoChangeStreak = 0;
         }
 
         // Safeguard: duplicate-signature detection is handled inside the planner, but double-check
         // here against the live plan before committing the append.
         HashSet<string> liveSignatures = new HashSet<string>(
-            liveSteps.Select(s => $"{s.Agent}::{(s.Objective ?? string.Empty).Trim().ToLowerInvariant()}"),
+            continuationState.LiveSteps.Select(s => $"{s.Agent}::{(s.Objective ?? string.Empty).Trim().ToLowerInvariant()}"),
             StringComparer.OrdinalIgnoreCase);
 
         List<ExecutionPlanStep> accepted = new List<ExecutionPlanStep>();
@@ -385,7 +365,7 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
         foreach (ExecutionPlanStep appended in accepted)
         {
-            liveSteps.Add(appended);
+            continuationState.LiveSteps.Add(appended);
             pendingSteps.Add(appended.Id, appended);
         }
 
@@ -393,18 +373,28 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         {
             runId = context.RunId,
             source = WellKnownSources.ORCHESTRATOR,
-            message = $"Continuation planner appended {accepted.Count} step(s) as wave {guard.NextWave} ({result.Reason}).",
-            wave = guard.NextWave,
+            message = $"Continuation planner appended {accepted.Count} step(s) as wave {continuationState.NextWave} ({result.Reason}).",
+            wave = continuationState.NextWave,
             stepIds = accepted.Select(s => s.Id).ToArray()
         }, cancellationToken).ConfigureAwait(false);
 
-        guard.PreviousFilesTouchedSnapshot = state.FilesTouched.Count;
-        guard.NextWave++;
-        guard.NextStepId = liveSteps.Max(s => s.Id) + 1;
+        continuationState.AdvanceAfterAppend(state.FilesTouched.Count);
     }
 
-    private sealed class ContinuationGuardState
+    private sealed class ContinuationExecutionState
     {
+        public ContinuationExecutionState(ExecutionPlan plan, int previousFilesTouchedSnapshot)
+        {
+            this.LiveSteps = new List<ExecutionPlanStep>(plan.Steps);
+            this.PreviousFilesTouchedSnapshot = previousFilesTouchedSnapshot;
+            this.NextWave = this.LiveSteps.Count > 0 ? this.LiveSteps.Max(s => s.Wave) + 1 : 1;
+            this.NextStepId = this.LiveSteps.Count > 0 ? this.LiveSteps.Max(s => s.Id) + 1 : 1;
+        }
+
+        public List<ExecutionPlanStep> LiveSteps { get; }
+
+        public List<StepOutcome> OutcomeHistory { get; } = new List<StepOutcome>();
+
         public int NoChangeStreak { get; set; }
 
         public int PreviousFilesTouchedSnapshot { get; set; }
@@ -412,6 +402,16 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
         public int NextWave { get; set; }
 
         public int NextStepId { get; set; }
+
+        public void RecordOutcome(StepOutcome outcome)
+            => this.OutcomeHistory.Add(outcome);
+
+        public void AdvanceAfterAppend(int filesTouchedCount)
+        {
+            this.PreviousFilesTouchedSnapshot = filesTouchedCount;
+            this.NextWave++;
+            this.NextStepId = this.LiveSteps.Max(s => s.Id) + 1;
+        }
     }
 
     /// <summary>

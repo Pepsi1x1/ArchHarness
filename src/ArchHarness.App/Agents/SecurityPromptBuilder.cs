@@ -5,13 +5,6 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class SecurityPromptBuilder
 {
-    private const string SECURITY_INSTRUCTIONS_FALLBACK = """
-        You are the Security Agent.
-        Enforce secure coding practices and remediate OWASP Top 10 risks by directly editing files.
-        Run in agent mode and use built-in tools to make required security fixes.
-        Keep changes inside WorkspaceRoot and preserve intended behavior while eliminating vulnerabilities.
-        Return a concise completion summary after applying changes.
-        """;
 
     /// <summary>
     /// Builds the full system prompt including security instructions, language label, and guidelines.
@@ -21,7 +14,7 @@ internal static class SecurityPromptBuilder
     /// <returns>The complete system prompt.</returns>
     public static string BuildSystemPrompt(string guidelines, string languageLabel)
     {
-        string systemInstructions = PromptLoader.Load("Security", "system.md", SECURITY_INSTRUCTIONS_FALLBACK);
+        string systemInstructions = PromptLoader.Load("Security", "system.md");
 
         return $"""
             {systemInstructions}
@@ -48,12 +41,7 @@ internal static class SecurityPromptBuilder
     {
         return AgentPromptHelper.BuildGuidanceContext(
             workspaceRoot, filesTouched, diff, languageScope,
-            "Security",
-            "SECURITY GUIDELINES",
-            language => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
-                ? "vue3-security-review-agent.md"
-                : "dotnet-security-review-agent.md",
-            "No security guideline file found. Review against OWASP Top 10 and remediate vulnerabilities directly.");
+            AgentPromptHelper.ReviewGuidelineKind.Security);
     }
 
 }

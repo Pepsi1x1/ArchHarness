@@ -557,6 +557,19 @@ export function connectEventStream() {
     } else if (kind === "runtime-progress") {
       const message = readEventField(payload, "message") || "";
       const source = readEventField(payload, "source") || "";
+      const details = readEventField(payload, "details") || "";
+      if (source === "Planning" && message === "Plan review ready" && details) {
+        recordStreamEvent({
+          ...payload,
+          kind: "agent-delta",
+          agentId: `planning-review-${state.activeRun?.runId || "active"}`,
+          agentRole: "Planning",
+          message: details,
+          contentFormat: "markdown",
+          streamKind: "assistant",
+          title: "Plan Review"
+        });
+      }
       if (message.endsWith("prompt started") && source) {
         showAgentSpinningUp(source);
       }

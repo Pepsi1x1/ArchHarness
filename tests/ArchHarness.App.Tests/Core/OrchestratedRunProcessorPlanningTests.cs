@@ -12,7 +12,7 @@ namespace ArchHarness.App.Tests.Core;
 public sealed class OrchestratedRunProcessorPlanningTests
 {
     [Fact]
-    public async Task RunClarificationLoopAsync_PlanningWorkflowUsesPlanningAgentModel()
+    public async Task RunClarificationLoopAsync_PlanningWorkflowUsesPlanningAgentModelAsync()
     {
         const string workspaceRoot = "C:\\workspace";
         const string runId = "run-1";
@@ -52,7 +52,6 @@ public sealed class OrchestratedRunProcessorPlanningTests
         OrchestratedRunProcessor processor = new OrchestratedRunProcessor(
             CreateServices(copilotClient, runStateStore),
             CreateStateAccessors(),
-            new StubRunAgentModelUsageBuilder(),
             new OrchestratorPlanningServices(orchestrationAgent, planningAgent, new StubRunVerificationWorkflow()),
             new WikiDocRunServices(new StubWikiDocWorkflow(), new WikiDocResumeStateBuilder(), new WikiDocRepositoryDiscoverer(), new WikiDocOutputResolver()),
             approvalBridge: null,
@@ -78,16 +77,17 @@ public sealed class OrchestratedRunProcessorPlanningTests
 
         MethodInfo method = typeof(OrchestratedRunProcessor).GetMethod("RunClarificationLoopAsync", BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("RunClarificationLoopAsync was not found.");
+        Type checkpointType = typeof(OrchestratedRunProcessor).GetNestedType("RunStateCheckpoint", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("RunStateCheckpoint was not found.");
+        object checkpoint = Activator.CreateInstance(checkpointType, runId, runDirectory, workspaceRoot, request)
+            ?? throw new InvalidOperationException("RunStateCheckpoint could not be created.");
 
         Task<(ClarificationSpec Spec, IReadOnlyList<ClarificationAnswer> Answers)> task =
             (Task<(ClarificationSpec Spec, IReadOnlyList<ClarificationAnswer> Answers)>)method.Invoke(
                 processor,
                 new object?[]
                 {
-                    request,
-                    workspaceRoot,
-                    runId,
-                    runDirectory,
+                    checkpoint,
                     Array.Empty<ClarificationAnswer>(),
                     planningAgent,
                     null,
@@ -116,7 +116,8 @@ public sealed class OrchestratedRunProcessorPlanningTests
         return new OrchestratorRunServices(
             sessionContext,
             infrastructure,
-            new OrchestratorRuntime.RunPhaseDependencies(new StubArchitectureReviewLoop(), new StubPlanExecutor()));
+            new OrchestratorRuntime.RunPhaseDependencies(new StubArchitectureReviewLoop(), new StubPlanExecutor()),
+            new StubRunAgentModelUsageBuilder());
     }
 
     private static RuntimeStateAccessors CreateStateAccessors()
@@ -136,7 +137,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
         public string Resolve(string role, IDictionary<string, string>? overrides)
         {
             _ = overrides;
-            ResolvedRoles.Add(role);
+            this.ResolvedRoles.Add(role);
             return string.Equals(role, "planning", StringComparison.OrdinalIgnoreCase)
                 ? "planning-model"
                 : "orchestration-model";
@@ -167,7 +168,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
             _ = agentId;
             _ = agentRole;
             _ = cancellationToken;
-            Models.Add(model);
+            this.Models.Add(model);
             return Task.FromResult("""
                 {
                   "task": "Plan the change",
@@ -224,10 +225,10 @@ public sealed class OrchestratedRunProcessorPlanningTests
 
     private sealed class StubWikiDocWorkflow : IWikiDocWorkflow
     {
-        public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+        public Task<WikiDocWorkflowResult> RegenerateAggregateAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
             => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
 
-        public Task<WikiDocWorkflowResult> RegenerateAggregateAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
+        public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)
             => this.ExecuteAsync(request, runDirectory, resumeState: null, progress, cancellationToken);
 
         public Task<WikiDocWorkflowResult> ExecuteAsync(RunRequest request, string runDirectory, WikiDocResumeState? resumeState, IProgress<RuntimeProgressEvent>? progress, CancellationToken cancellationToken)

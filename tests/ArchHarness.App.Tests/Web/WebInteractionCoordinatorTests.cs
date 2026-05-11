@@ -140,15 +140,25 @@ public sealed class WebInteractionCoordinatorTests
             new ExecutionPlanStep(1, "backend-developer", "Implement feature", null, null)
         }, new IterationStrategy(3, true), new[] { "Build passes" });
 
-        PlanApprovalRequest approvalRequest = new(spec, plan, "# Spec\nTask: test", "Step 1: Implement feature");
+        PlanApprovalRequest approvalRequest = new(
+            spec,
+            plan,
+            "# Spec\nTask: test",
+            "Step 1: Implement feature",
+            "## Plan: Test\n\nReview this in chat.",
+            "session-1",
+            "run-1");
         Task<PlanApprovalResponse> responseTask = coordinator.RequestPlanApprovalAsync(approvalRequest);
 
         PendingInteractionSnapshot? pending = coordinator.GetPending();
         Assert.NotNull(pending);
         Assert.True(state.IsAwaitingInput);
         Assert.Equal("plan-approval", pending.Kind);
+        Assert.Equal("session-1", pending.SessionId);
+        Assert.Equal("run-1", pending.RunId);
         Assert.Equal("# Spec\nTask: test", pending.SpecMarkdown);
         Assert.Equal("Step 1: Implement feature", pending.PlanSummary);
+        Assert.Equal("## Plan: Test\n\nReview this in chat.", pending.PlanReviewMarkdown);
 
         Assert.True(coordinator.TrySubmitPlanApproval(PlanApprovalDecisions.APPROVED, null));
 

@@ -1,3 +1,5 @@
+using ArchHarness.App.SourceControl;
+
 namespace ArchHarness.App.Core;
 
 /// <summary>
@@ -61,7 +63,7 @@ public sealed class VerificationCommandRunner : IVerificationCommandRunner
                 continue;
             }
 
-            var result = await this._shellCommandExecutor.RunAsync(command.Command, workspaceRoot, cancellationToken).ConfigureAwait(false);
+            LocalCommandResult result = await this._shellCommandExecutor.RunAsync(command.Command, workspaceRoot, cancellationToken).ConfigureAwait(false);
             evidence.Add(new VerificationEvidence(
                 command.EvidenceType,
                 command.Name,

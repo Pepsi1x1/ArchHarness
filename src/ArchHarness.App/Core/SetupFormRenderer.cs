@@ -166,14 +166,14 @@ internal static class SetupFormRenderer
     {
         return fieldId switch
         {
-            "WorkspacePath"        => "W",
-            "WorkspaceMode"        => "M",
+            "WorkspacePath" => "W",
+            "WorkspaceMode" => "M",
             "ReviewLoopCodingStyleEnabled" => "C",
             "ReviewLoopSecurityEnabled" => "S",
             "ReviewLoopArchitectureEnabled" => "R",
             "ArchitectureLoopMode" => "A",
             "ArchitectureLoopPrompt" => "P",
-            _                      => ">",
+            _ => ">",
         };
     }
 }

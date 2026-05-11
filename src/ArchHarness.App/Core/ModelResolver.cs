@@ -10,6 +10,7 @@ namespace ArchHarness.App.Core;
 public sealed class ModelResolver : IModelResolver
 {
     private const string PLANNING_ROLE = "planning";
+    private const string WIKIDOC_ROLE = "wikidoc";
 
     private readonly string _cliPath;
     private readonly AgentsOptions _agentOptions;
@@ -63,7 +64,7 @@ public sealed class ModelResolver : IModelResolver
             "coding-style" => settings.CodingStyleModel,
             "security" => settings.SecurityModel,
             "architecture" => settings.ArchitectureModel,
-            "wikidoc" => settings.WikiDocModel,
+            WIKIDOC_ROLE => settings.WikiDocModel,
             "conversation" => settings.ConversationModel,
             _ => throw new ArgumentOutOfRangeException(nameof(role), $"Unsupported role: {role}")
         };
@@ -79,7 +80,7 @@ public sealed class ModelResolver : IModelResolver
         return role.ToLowerInvariant() switch
         {
             PLANNING_ROLE => NormalizeReasoningEffort(settings.PlanningReasoningEffort),
-            "wikidoc" => NormalizeReasoningEffort(settings.WikiDocReasoningEffort),
+            WIKIDOC_ROLE => NormalizeReasoningEffort(settings.WikiDocReasoningEffort),
             _ => NormalizeReasoningEffort(this._agentOptions.ForRole(role).ReasoningEffort)
         };
     }
@@ -111,7 +112,7 @@ public sealed class ModelResolver : IModelResolver
         }
 
         List<string> invalid = new List<string>();
-        foreach ((string label, string model) in GetConfiguredModels(overrides))
+        foreach ((string label, string model) in this.GetConfiguredModels(overrides))
         {
             if (string.IsNullOrWhiteSpace(model))
             {

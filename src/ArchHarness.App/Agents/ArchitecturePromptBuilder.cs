@@ -5,13 +5,6 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class ArchitecturePromptBuilder
 {
-    private const string ARCHITECTURE_INSTRUCTIONS_FALLBACK = """
-        You are the Architecture Agent.
-        Enforce SOLID, structural cohesion, separation of concerns, and DRY by directly editing files.
-        Run in agent mode and use built-in tools to make required architecture changes.
-        Keep changes inside WorkspaceRoot and update tests when behavior changes.
-        Return a concise completion summary after applying changes.
-        """;
 
     /// <summary>
     /// Builds the full system prompt including architecture instructions, language label, and guidelines.
@@ -21,7 +14,7 @@ internal static class ArchitecturePromptBuilder
     /// <returns>The complete system prompt.</returns>
     public static string BuildSystemPrompt(string guidelines, string languageLabel)
     {
-        string systemInstructions = PromptLoader.Load("Architecture", "system.md", ARCHITECTURE_INSTRUCTIONS_FALLBACK);
+        string systemInstructions = PromptLoader.Load("Architecture", "system.md");
 
         return $"""
             {systemInstructions}
@@ -48,12 +41,7 @@ internal static class ArchitecturePromptBuilder
     {
         return AgentPromptHelper.BuildGuidanceContext(
             workspaceRoot, filesTouched, diff, languageScope,
-            "Architecture Review",
-            "GUIDELINES",
-            language => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
-                ? "vue3-architecture-review-agent.md"
-                : "dotnet-architecture-review-agent.md",
-            "No guideline file found. Apply strict SOLID/DRY review and enforce architecture consistency.");
+            AgentPromptHelper.ReviewGuidelineKind.Architecture);
     }
 
 }

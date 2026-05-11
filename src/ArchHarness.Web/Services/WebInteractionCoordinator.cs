@@ -8,6 +8,8 @@ namespace ArchHarness.Web.Services;
 /// </summary>
 public sealed class WebInteractionCoordinator
 {
+    private const string USER_INPUT_INTERACTION_KIND = "user-input";
+
     private readonly IUserInputState _state;
     private readonly SemaphoreSlim _interactionGate = new SemaphoreSlim(1, 1);
     private readonly object _sync = new object();
@@ -48,7 +50,7 @@ public sealed class WebInteractionCoordinator
             this._state.SetAwaiting(question);
             TaskCompletionSource<object> responseSource = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             PendingInteractionSnapshot snapshot = new PendingInteractionSnapshot(
-                Kind: "user-input",
+                Kind: USER_INPUT_INTERACTION_KIND,
                 Question: question,
                 Choices: request.Choices?.ToArray() ?? Array.Empty<string>(),
                 PermissionKind: null,
@@ -57,7 +59,7 @@ public sealed class WebInteractionCoordinator
 
             lock (this._sync)
             {
-                this._pending = new PendingInteraction("user-input", snapshot, responseSource);
+                this._pending = new PendingInteraction(USER_INPUT_INTERACTION_KIND, snapshot, responseSource);
             }
 
             object response = await responseSource.Task.ConfigureAwait(false);
@@ -101,7 +103,7 @@ public sealed class WebInteractionCoordinator
             this._state.SetAwaiting(question);
             TaskCompletionSource<object> responseSource = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             PendingInteractionSnapshot snapshot = new PendingInteractionSnapshot(
-                Kind: "user-input",
+                Kind: USER_INPUT_INTERACTION_KIND,
                 Question: question,
                 Choices: Array.Empty<string>(),
                 PermissionKind: null,
@@ -111,7 +113,7 @@ public sealed class WebInteractionCoordinator
 
             lock (this._sync)
             {
-                this._pending = new PendingInteraction("user-input", snapshot, responseSource);
+                this._pending = new PendingInteraction(USER_INPUT_INTERACTION_KIND, snapshot, responseSource);
             }
 
             object response = await responseSource.Task.ConfigureAwait(false);
@@ -180,7 +182,7 @@ public sealed class WebInteractionCoordinator
     {
         lock (this._sync)
         {
-            if (this._pending is null || !string.Equals(this._pending.Kind, "user-input", StringComparison.Ordinal))
+            if (this._pending is null || !string.Equals(this._pending.Kind, USER_INPUT_INTERACTION_KIND, StringComparison.Ordinal))
             {
                 return false;
             }
@@ -206,7 +208,7 @@ public sealed class WebInteractionCoordinator
     {
         lock (this._sync)
         {
-            if (this._pending is null || !string.Equals(this._pending.Kind, "user-input", StringComparison.Ordinal))
+            if (this._pending is null || !string.Equals(this._pending.Kind, USER_INPUT_INTERACTION_KIND, StringComparison.Ordinal))
             {
                 return false;
             }
@@ -251,7 +253,7 @@ public sealed class WebInteractionCoordinator
 
             PermissionRequestResultKind kind = approved
                 ? PermissionRequestResultKind.Approved
-                : PermissionRequestResultKind.DeniedInteractivelyByUser;
+                : PermissionRequestResultKind.Rejected;
             return this._pending.ResponseSource.TrySetResult(new PermissionRequestResult { Kind = kind });
         }
     }
@@ -287,10 +289,12 @@ public sealed class WebInteractionCoordinator
                 Question: question,
                 Choices: new[] { "Approve", "Regenerate", "Cancel" },
                 PermissionKind: null,
-                SessionId: null,
+                SessionId: request.PlanningSessionId,
                 ToolName: null,
                 SpecMarkdown: request.SpecMarkdown,
-                PlanSummary: request.PlanSummary);
+                PlanSummary: request.PlanSummary,
+                PlanReviewMarkdown: request.PlanReviewMarkdown,
+                RunId: request.RunId);
 
             lock (this._sync)
             {

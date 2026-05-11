@@ -60,28 +60,16 @@ export async function addComposerFiles(files) {
     if (remaining <= 0) {
       break;
     }
-    if (!file || typeof file !== "object") {
-      continue;
-    }
-    const mimeType = file.type || "";
-    if (!mimeType.startsWith(ACCEPTED_IMAGE_PREFIX)) {
-      continue;
-    }
-    if (typeof file.size === "number" && file.size > MAX_ATTACHMENT_BYTES) {
+    if (!canAttachFile(file)) {
       continue;
     }
 
-    let dataBase64 = "";
-    try {
-      dataBase64 = await readFileAsBase64(file);
-    } catch (error) {
-      console.warn("Failed to read attachment", error);
-      continue;
-    }
+    const dataBase64 = await tryReadAttachment(file);
     if (!dataBase64) {
       continue;
     }
 
+    const mimeType = file.type || "";
     next.push({
       id: randomId(),
       kind: "image",
@@ -97,6 +85,25 @@ export async function addComposerFiles(files) {
   state.composerAttachments = next;
   renderAttachments();
   renderComposerState();
+}
+
+function canAttachFile(file) {
+  if (!file || typeof file !== "object") {
+    return false;
+  }
+
+  const mimeType = file.type || "";
+  return mimeType.startsWith(ACCEPTED_IMAGE_PREFIX)
+    && (typeof file.size !== "number" || file.size <= MAX_ATTACHMENT_BYTES);
+}
+
+async function tryReadAttachment(file) {
+  try {
+    return await readFileAsBase64(file);
+  } catch (error) {
+    console.warn("Failed to read attachment", error);
+    return "";
+  }
 }
 
 export function collectSubmissionAttachments() {
@@ -177,7 +184,7 @@ export function initAttachments() {
       for (const item of items) {
         if (item.kind === "file") {
           const file = item.getAsFile();
-          if (file && file.type && file.type.startsWith(ACCEPTED_IMAGE_PREFIX)) {
+          if (file?.type?.startsWith(ACCEPTED_IMAGE_PREFIX)) {
             files.push(file);
           }
         }
@@ -200,7 +207,7 @@ export function initAttachments() {
     });
 
     textarea.addEventListener("drop", async (event) => {
-      if (!event.dataTransfer || !event.dataTransfer.files || event.dataTransfer.files.length === 0) {
+      if (!event.dataTransfer?.files?.length) {
         return;
       }
       event.preventDefault();

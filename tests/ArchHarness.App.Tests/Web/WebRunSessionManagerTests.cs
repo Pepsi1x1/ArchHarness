@@ -1,6 +1,6 @@
-using ArchHarness.App.Core;
-using ArchHarness.App.Copilot;
 using ArchHarness.App.Constants;
+using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using ArchHarness.App.Storage;
 using ArchHarness.Web.Services;
 
@@ -67,7 +67,7 @@ public sealed class WebRunSessionManagerTests
             _ = runState;
             _ = runCts;
             _ = shutdownToken;
-            throw new NotSupportedException();
+            throw new NotSupportedException("Resume execution is not used by this test double.");
         }
 
         public Task ExecuteRegenerateMegaWikiAsync(PersistedRunState runState, CancellationTokenSource runCts, CancellationToken shutdownToken)
@@ -75,7 +75,7 @@ public sealed class WebRunSessionManagerTests
             _ = runState;
             _ = runCts;
             _ = shutdownToken;
-            throw new NotSupportedException();
+            throw new NotSupportedException("MegaWiki regeneration is not used by this test double.");
         }
     }
 }

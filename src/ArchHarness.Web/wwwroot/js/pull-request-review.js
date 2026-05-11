@@ -1,4 +1,4 @@
-import { WORKFLOWS, REVIEW_PROVIDER_NAME_MAX_LENGTH, REVIEW_PULL_REQUEST_ID_MAX_LENGTH } from './constants.js';
+import { WORKFLOWS, REVIEW_PROVIDER_NAME_MAX_LENGTH } from './constants.js';
 import { state, elements, applyProjectBranchInfo } from './state.js';
 import { requestJson, requestEventStream } from './api.js';
 import { summarizeWorkspacePath, equalIgnoringCase, setSelectValue } from './utils.js';

@@ -12,55 +12,6 @@ public sealed class WikiDocAgent : AgentBase
 {
     private const string WIKIDOC_ROLE = "wikidoc";
     private const string WIKIDOC_AGENT_ROLE = "wikidoc";
-    private const string WIKIDOC_SYSTEM_PROMPT_FALLBACK = """
-        You are the WikiDoc agent.
-        Inspect repositories using available read tools and write thorough, multi-page wiki documentation using available write tools.
-        The documentation you produce must be suitable for publishing directly to an Azure DevOps wiki.
-        Home.md is always an index page that links to sub-pages; the real content lives in the sub-pages.
-        After writing ALL documentation files, return a strict JSON index as specified in the prompt.
-        Do not wrap the JSON in markdown fences.
-        Focus on producing accurate operator-facing documentation from the checked-in source.
-        """;
-    private const string WIKIDOC_REPOSITORY_PROMPT_FALLBACK = """
-        Inspect the repository and write thorough, multi-page wiki documentation suitable for Azure DevOps wiki.
-
-        Steps:
-        1. Read and analyze the repository thoroughly using available read tools.
-           Examine project files, source code, configuration, scripts, READMEs, and directory structure.
-        2. Write multiple documentation pages to the output directory at {{OutputTarget}}.
-           Create sub-pages as individual .md files, one per significant topic you discover.
-           Thoroughly document the solution and any other aspects that an operator, developer, 
-           or new team member would need to understand.
-           Each sub-page should be a deep-dive into its topic with concrete facts from the source code.
-           You may create as many or as few sub-pages as the repository warrants.
-        3. Write Home.md as an INDEX page:
-           - Repository title and a concise summary paragraph.
-           - A table of contents with relative links to every sub-page you wrote (e.g., [Architecture](Architecture.md)).
-           - Do NOT put substantive documentation in Home.md; it is an index only.
-        4. After writing ALL documentation files, return ONLY a JSON summary index:
-        {
-          "repositoryName": "string",
-          "summary": "string",
-          "pages": ["string"],
-          "concepts": [{"name": "string", "summary": "string"}]
-        }
-
-        Rules:
-        - Do not ask follow-up questions.
-        - Write ALL documentation files using file-write tools BEFORE returning the JSON.
-        - `pages` lists every .md filename you wrote (including Home.md), e.g. ["Home.md", "Architecture.md", "Getting-Started.md"].
-        - `concepts` should capture reusable cross-repository ideas, bounded to 8 items maximum.
-        - Prefer concrete facts from the repository over generic advice.
-        - If the repository is sparse, say that explicitly rather than inventing details; still write at least Home.md.
-        - Use relative links between pages so the wiki works when published to Azure DevOps.
-        - The final response text must be ONLY the JSON summary object.
-
-        ScanRoot: {{ScanRoot}}
-        RepositoryRoot: {{RepositoryRoot}}
-        RepositoryRelativePath: {{RepositoryRelativePath}}
-        RepositoryDisplayName: {{RepositoryDisplayName}}
-        OutputTarget: {{OutputTarget}}
-        """;
 
     private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
@@ -105,22 +56,13 @@ public sealed class WikiDocAgent : AgentBase
     /// </summary>
     public Task<WikiDocRepositoryIndex> DocumentRepositoryAsync(
         string scanRoot,
-        string repositoryRoot,
-        string repositoryRelativePath,
-        string repositoryDisplayName,
+        WikiDocRepositoryInfo repository,
         string outputTarget,
         IDictionary<string, string>? modelOverrides,
         string agentId,
         CancellationToken cancellationToken)
     {
-        string template = PromptLoader.Load("WikiDoc", "repository.md", WIKIDOC_REPOSITORY_PROMPT_FALLBACK);
-        string prompt = PromptLoader.Render(
-            template,
-            ("{{ScanRoot}}", scanRoot),
-            ("{{RepositoryRoot}}", repositoryRoot),
-            ("{{RepositoryRelativePath}}", repositoryRelativePath),
-            ("{{RepositoryDisplayName}}", repositoryDisplayName),
-            ("{{OutputTarget}}", outputTarget));
+        string prompt = BuildRepositoryPrompt(scanRoot, repository, outputTarget);
 
         return this.CompleteJsonAsync<WikiDocRepositoryIndex>(
             prompt,
@@ -128,6 +70,18 @@ public sealed class WikiDocAgent : AgentBase
             agentId,
             NormalizeRepositoryIndex,
             cancellationToken);
+    }
+
+    private static string BuildRepositoryPrompt(string scanRoot, WikiDocRepositoryInfo repository, string outputTarget)
+    {
+        string template = PromptLoader.Load("WikiDoc", "repository.md");
+        return PromptLoader.Render(
+            template,
+            ("{{ScanRoot}}", scanRoot),
+            ("{{RepositoryRoot}}", repository.RepositoryRoot),
+            ("{{RepositoryRelativePath}}", repository.RelativePath),
+            ("{{RepositoryDisplayName}}", repository.DisplayName),
+            ("{{OutputTarget}}", outputTarget));
     }
 
     private async Task<T> CompleteJsonAsync<T>(
@@ -141,7 +95,7 @@ public sealed class WikiDocAgent : AgentBase
         string model = roleOverride is not null
             ? base.ResolveModelForRole(roleOverride, modelOverrides)
             : base.ResolveModel(modelOverrides);
-        string systemPrompt = PromptLoader.Load("WikiDoc", "system.md", WIKIDOC_SYSTEM_PROMPT_FALLBACK);
+        string systemPrompt = PromptLoader.Load("WikiDoc", "system.md");
 
         CopilotCompletionOptions baseOptions = new CopilotCompletionOptions
         {
@@ -205,10 +159,17 @@ public sealed class WikiDocAgent : AgentBase
         Func<T, T> trim,
         Func<IEnumerable<T>, IEnumerable<T>>? postProcess = null)
     {
-        IEnumerable<T> items = (source ?? Array.Empty<T>())
+        source ??= [];
+
+        IEnumerable<T> items = source
             .Where(isValid)
             .Select(trim);
-        if (postProcess is not null) items = postProcess(items);
+
+        if (postProcess is not null)
+        {
+            items = postProcess(items);
+        }
+
         return items.ToArray();
     }
 

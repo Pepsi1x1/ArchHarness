@@ -5,17 +5,12 @@ namespace ArchHarness.App.Agents;
 /// </summary>
 internal static class AgentPromptHelper
 {
-    private const string REVIEW_ENFORCEMENT_PROMPT_FALLBACK = """
-        WorkspaceRoot: {{WorkspaceRoot}}
-        Write boundaries: You may modify any file or directory under WorkspaceRoot; do not read or write paths outside WorkspaceRoot.
-
-        DelegatedPrompt:
-        {{DelegatedPrompt}}
-
-        FilesTouched: {{FilesTouched}}
-        CurrentDiffSnapshot:
-        {{CurrentDiffSnapshot}}
-        """;
+    public enum ReviewGuidelineKind
+    {
+        Architecture,
+        Security,
+        CodingStyle
+    }
 
     /// <summary>
     /// Builds the enforcement prompt sent to review agents (CodingStyle, Security, and Architecture).
@@ -33,7 +28,7 @@ internal static class AgentPromptHelper
     {
         string touched = filesTouched.Count == 0 ? "(none)" : string.Join(", ", filesTouched);
         string diffPreview = diff.Length <= 4000 ? diff : diff[..4000];
-        string promptTemplate = PromptLoader.Load("Shared", "review-enforcement.md", REVIEW_ENFORCEMENT_PROMPT_FALLBACK);
+        string promptTemplate = PromptLoader.Load("Shared", "review-enforcement.md");
 
         return PromptLoader.Render(
             promptTemplate,
@@ -61,14 +56,11 @@ internal static class AgentPromptHelper
         IReadOnlyList<string> filesTouched,
         string diff,
         IReadOnlyList<string>? languageScope,
-        string guidelineSubfolder,
-        string sectionTitlePrefix,
-        Func<string, string> fileNameMapper,
-        string fallbackMessage)
+        ReviewGuidelineKind guidelineKind)
     {
         IReadOnlyList<string> languages = ResolveLanguages(workspaceRoot, filesTouched, diff, languageScope);
         string languageLabel = string.Join(", ", languages);
-        string guidelines = LoadGuidelinesForLanguages(languages, guidelineSubfolder, sectionTitlePrefix, fileNameMapper, fallbackMessage);
+        string guidelines = LoadGuidelinesForLanguages(languages, guidelineKind);
         return (languageLabel, guidelines);
     }
 
@@ -77,21 +69,63 @@ internal static class AgentPromptHelper
     /// </summary>
     private static string LoadGuidelinesForLanguages(
         IReadOnlyList<string> languages,
-        string guidelineSubfolder,
-        string sectionTitlePrefix,
-        Func<string, string> fileNameMapper,
-        string fallbackMessage)
+        ReviewGuidelineKind guidelineKind)
     {
         List<string> sections = new List<string>();
         foreach (string language in languages)
         {
-            string fileName = fileNameMapper(language);
-            string text = GuidelineLoader.Load(guidelineSubfolder, fileName, fallbackMessage);
-            sections.Add($"=== {language.ToUpperInvariant()} {sectionTitlePrefix} ==={Environment.NewLine}{text}");
+            string fileName = ResolveGuidelineFileName(guidelineKind, language);
+            string text = GuidelineLoader.Load(
+                ResolveGuidelineSubfolder(guidelineKind),
+                fileName,
+                ResolveMissingGuidelineMessage(guidelineKind));
+            sections.Add($"=== {language.ToUpperInvariant()} {ResolveSectionTitlePrefix(guidelineKind)} ==={Environment.NewLine}{text}");
         }
 
         return string.Join(Environment.NewLine + Environment.NewLine, sections);
     }
+
+    private static string ResolveGuidelineFileName(ReviewGuidelineKind guidelineKind, string language)
+        => guidelineKind switch
+        {
+            ReviewGuidelineKind.Architecture => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+                ? "vue3-architecture-review-agent.md"
+                : "dotnet-architecture-review-agent.md",
+            ReviewGuidelineKind.Security => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+                ? "vue3-security-review-agent.md"
+                : "dotnet-security-review-agent.md",
+            ReviewGuidelineKind.CodingStyle => language.Equals("vue3", StringComparison.OrdinalIgnoreCase)
+                ? "vue3-style-review-agent.md"
+                : "dotnet-style-review-agent.md",
+            _ => throw new ArgumentOutOfRangeException(nameof(guidelineKind), guidelineKind, null)
+        };
+
+    private static string ResolveGuidelineSubfolder(ReviewGuidelineKind guidelineKind)
+        => guidelineKind switch
+        {
+            ReviewGuidelineKind.Architecture => "Architecture Review",
+            ReviewGuidelineKind.Security => "Security",
+            ReviewGuidelineKind.CodingStyle => "CodingStyle",
+            _ => throw new ArgumentOutOfRangeException(nameof(guidelineKind), guidelineKind, null)
+        };
+
+    private static string ResolveSectionTitlePrefix(ReviewGuidelineKind guidelineKind)
+        => guidelineKind switch
+        {
+            ReviewGuidelineKind.Architecture => "GUIDELINES",
+            ReviewGuidelineKind.Security => "SECURITY GUIDELINES",
+            ReviewGuidelineKind.CodingStyle => "STYLE GUIDELINES",
+            _ => throw new ArgumentOutOfRangeException(nameof(guidelineKind), guidelineKind, null)
+        };
+
+    private static string ResolveMissingGuidelineMessage(ReviewGuidelineKind guidelineKind)
+        => guidelineKind switch
+        {
+            ReviewGuidelineKind.Architecture => "No guideline file found. Apply strict SOLID/DRY review and enforce architecture consistency.",
+            ReviewGuidelineKind.Security => "No security guideline file found. Review against OWASP Top 10 and remediate vulnerabilities directly.",
+            ReviewGuidelineKind.CodingStyle => "No coding style guideline file found. Apply strict naming, readability, and language coding standards.",
+            _ => throw new ArgumentOutOfRangeException(nameof(guidelineKind), guidelineKind, null)
+        };
 
     /// <summary>
     /// Resolves the language scope for review agents based on workspace contents, touched files,

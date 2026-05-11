@@ -12,4 +12,6 @@ public sealed record PendingInteractionSnapshot(
     string? ToolName,
     string? SpecMarkdown = null,
     string? PlanSummary = null,
+    string? PlanReviewMarkdown = null,
+    string? RunId = null,
     IReadOnlyList<string>? Questions = null);

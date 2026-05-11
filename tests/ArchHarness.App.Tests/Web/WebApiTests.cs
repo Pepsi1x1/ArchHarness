@@ -1,11 +1,11 @@
+using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Globalization;
-using ArchHarness.App.Core;
 using ArchHarness.App.Constants;
+using ArchHarness.App.Core;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 
@@ -116,7 +116,7 @@ public sealed class WebApiTests
 
         string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", "20260315T120000000");
         Directory.CreateDirectory(runDirectory);
-                await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), $$"""
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), $$"""
                         {
                             "status": "{{RunStatuses.COMPLETED}}",
                             "projectId": "ignored-by-grouping",
@@ -312,7 +312,7 @@ public sealed class WebApiTests
 
         JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
         Assert.True(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
-    Assert.Equal(RunPhases.EXECUTING_PLAN, stateDocument.RootElement.GetProperty("phase").GetString());
+        Assert.Equal(RunPhases.EXECUTING_PLAN, stateDocument.RootElement.GetProperty("phase").GetString());
 
         HttpResponseMessage resumeResponse = await client.PostAsync($"/api/runs/{runId}/resume?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
         Assert.Equal(HttpStatusCode.Accepted, resumeResponse.StatusCode);
@@ -1302,43 +1302,43 @@ public sealed class WebApiTests
         Assert.Equal("21", pullRequest.GetProperty("id").GetString());
     }
 
-        /// <summary>
-        /// ProvidersEndpoint — ClearsGitHubPersonalAccessTokenWhenRequested
-        /// </summary>
-        [Fact]
-        public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenRequested()
+    /// <summary>
+    /// ProvidersEndpoint — ClearsGitHubPersonalAccessTokenWhenRequested
+    /// </summary>
+    [Fact]
+    public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenRequested()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
-                {
-                        Provider = SourceControlProvider.GitHub,
-                        DisplayName = "GitHub",
-                        Organization = "octo-org",
-                        PersonalAccessToken = "github-pat",
-                        IsEnabled = true
-                });
-                factory.ConfigureGitHubResponse((request, _) =>
-                {
-                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        Assert.Null(request.Headers.Authorization);
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureGitHubResponse((request, _) =>
+        {
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            Assert.Null(request.Headers.Authorization);
 
-                        if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
+            if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
                                                 [
                                                     { "name": "archharness" }
                                                 ]
                                                 """, Encoding.UTF8, "application/json")
-                                };
-                        }
+                };
+            }
 
-                        if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
+            if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
                                                 [
                                                     {
                                                         "number": 21,
@@ -1359,36 +1359,36 @@ public sealed class WebApiTests
                                                     }
                                                 ]
                                                 """, Encoding.UTF8, "application/json")
-                                };
-                        }
+                };
+            }
 
-                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
-                });
-                using HttpClient client = factory.CreateClient();
+            throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+        });
+        using HttpClient client = factory.CreateClient();
 
-                HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
-                {
-                        provider = (int)SourceControlProvider.GitHub,
-                        displayName = "GitHub",
-                        serverUrl = (string?)null,
-                        organization = "octo-org",
-                        personalAccessToken = (string?)null,
-                        clearPersonalAccessToken = true,
-                        isEnabled = true
-                });
+        HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
+        {
+            provider = (int)SourceControlProvider.GitHub,
+            displayName = "GitHub",
+            serverUrl = (string?)null,
+            organization = "octo-org",
+            personalAccessToken = (string?)null,
+            clearPersonalAccessToken = true,
+            isEnabled = true
+        });
 
-                Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
 
-                JsonDocument savedDocument = JsonDocument.Parse(await saveResponse.Content.ReadAsStringAsync());
-                Assert.False(savedDocument.RootElement.GetProperty("hasStoredPersonalAccessToken").GetBoolean());
+        JsonDocument savedDocument = JsonDocument.Parse(await saveResponse.Content.ReadAsStringAsync());
+        Assert.False(savedDocument.RootElement.GetProperty("hasStoredPersonalAccessToken").GetBoolean());
 
-                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
+        HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
 
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
-                Assert.Equal("21", pullRequest.GetProperty("id").GetString());
-        }
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("21", pullRequest.GetProperty("id").GetString());
+    }
 
     /// <summary>
     /// ProviderPullRequestsEndpoint — UsesAzureDevOpsProjectFilterWithoutListingAllProjects

@@ -40,6 +40,8 @@ public interface ICopilotSessionFactory
 /// </summary>
 public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDisposable
 {
+    private const string UNKNOWN_LABEL = "unknown";
+
     private readonly CopilotOptions _options;
     private readonly ICopilotClientProvider _clientProvider;
     private readonly SessionHooksDependencies _hooks;
@@ -385,14 +387,14 @@ public sealed class CopilotSessionFactory : ICopilotSessionFactory, IAsyncDispos
     internal static string BuildPostToolUseDetails(PostToolUseHookInput input)
     {
         string toolName;
-        try { toolName = string.IsNullOrEmpty(input.ToolName) ? "unknown" : input.ToolName; } catch { toolName = "unknown"; }
+        try { toolName = string.IsNullOrEmpty(input.ToolName) ? UNKNOWN_LABEL : input.ToolName; } catch { toolName = UNKNOWN_LABEL; }
         return $"tool={toolName}";
     }
 
     internal static string BuildErrorOccurredDetails(ErrorOccurredHookInput input)
     {
-        string errorContext = input.ErrorContext ?? "unknown";
-        string errorType = TryGetErrorType(input.Error) ?? "unknown";
+        string errorContext = input.ErrorContext ?? UNKNOWN_LABEL;
+        string errorType = TryGetErrorType(input.Error) ?? UNKNOWN_LABEL;
         return $"context={errorContext}; recoverable={input.Recoverable}; errorType={errorType}";
     }
 

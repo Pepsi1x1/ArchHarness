@@ -114,51 +114,85 @@ async function startWikiDocRun() {
 async function checkForResumableRun() {
   const scanRoot = folderInput.value.trim();
   if (!scanRoot) {
-    hideResumeButton();
-    hideRegenerateMegaWikiButton();
+    hideResumeActions();
     return;
   }
 
   try {
     const runs = await requestJson(`/api/runs?workspacePath=${encodeURIComponent(scanRoot)}&maxCount=5`);
-    if (!Array.isArray(runs) || runs.length === 0) {
-      hideResumeButton();
-      hideRegenerateMegaWikiButton();
+    await updateResumeActionsFromRuns(runs, scanRoot);
+  } catch {
+    hideResumeActions();
+  }
+}
+
+async function updateResumeActionsFromRuns(runs, scanRoot) {
+  if (!Array.isArray(runs) || runs.length === 0) {
+    hideResumeActions();
+    return;
+  }
+
+  const availability = { foundResumable: false, foundRegenerable: false };
+  await findWikiDocResumeAvailability(runs, scanRoot, availability);
+  if (!availability.foundResumable) hideResumeButton();
+  if (!availability.foundRegenerable) hideRegenerateMegaWikiButton();
+}
+
+async function findWikiDocResumeAvailability(runs, scanRoot, availability) {
+  for (const run of runs) {
+    await applyRunResumeAvailability(run, scanRoot, availability);
+    if (availability.foundResumable && availability.foundRegenerable) {
+      return;
+    }
+  }
+}
+
+async function applyRunResumeAvailability(run, scanRoot, availability) {
+  try {
+    const state = await requestJson(
+      `/api/runs/${encodeURIComponent(run.runId)}/state?workspacePath=${encodeURIComponent(scanRoot)}`
+    );
+    if (state?.workflow !== WIKIDOC_WORKFLOW) {
       return;
     }
 
-    let foundResumable = false;
-    let foundRegenerable = false;
-    for (const run of runs) {
-      try {
-        const state = await requestJson(
-          `/api/runs/${encodeURIComponent(run.runId)}/state?workspacePath=${encodeURIComponent(scanRoot)}`
-        );
-        if (state?.workflow !== WIKIDOC_WORKFLOW) continue;
-        if (!foundResumable && state?.canResume) {
-          resumableRun = { runId: run.runId, workspacePath: scanRoot };
-          showResumeButton();
-          foundResumable = true;
-        }
-        // A completed wikidoc run (or any non-running one with a completed-repo checkpoint)
-        // is eligible for megawiki-only regeneration — pick the most recent match.
-        if (!foundRegenerable && state?.status && state.status !== "running" && state.status !== "starting" && state.status !== "resuming") {
-          regenerableRun = { runId: run.runId, workspacePath: scanRoot };
-          showRegenerateMegaWikiButton();
-          foundRegenerable = true;
-        }
-        if (foundResumable && foundRegenerable) return;
-      } catch {
-        // Skip runs whose state cannot be read.
-      }
-    }
-
-    if (!foundResumable) hideResumeButton();
-    if (!foundRegenerable) hideRegenerateMegaWikiButton();
+    updateResumableRun(run, scanRoot, state, availability);
+    updateRegenerableRun(run, scanRoot, state, availability);
   } catch {
-    hideResumeButton();
-    hideRegenerateMegaWikiButton();
+    // Skip runs whose state cannot be read.
   }
+}
+
+function updateResumableRun(run, scanRoot, state, availability) {
+  if (availability.foundResumable || !state?.canResume) {
+    return;
+  }
+
+  resumableRun = { runId: run.runId, workspacePath: scanRoot };
+  showResumeButton();
+  availability.foundResumable = true;
+}
+
+function updateRegenerableRun(run, scanRoot, state, availability) {
+  if (availability.foundRegenerable || !isRegenerableWikiDocState(state)) {
+    return;
+  }
+
+  regenerableRun = { runId: run.runId, workspacePath: scanRoot };
+  showRegenerateMegaWikiButton();
+  availability.foundRegenerable = true;
+}
+
+function isRegenerableWikiDocState(state) {
+  return !!state?.status
+    && state.status !== "running"
+    && state.status !== "starting"
+    && state.status !== "resuming";
+}
+
+function hideResumeActions() {
+  hideResumeButton();
+  hideRegenerateMegaWikiButton();
 }
 
 function showResumeButton() {
@@ -759,11 +793,11 @@ function handleWikiDocProgress(message) {
   const fraction = parts[3];
   const sessionKey = parts[4] || null;
   const [doneStr, totalStr] = fraction.split("/");
-  const done = parseInt(doneStr, 10);
-  const total = parseInt(totalStr, 10);
+  const done = Number.parseInt(doneStr, 10);
+  const total = Number.parseInt(totalStr, 10);
 
-  if (!isNaN(total) && total > 0) progressTotal = total;
-  if (!isNaN(done)) progressDone = done;
+  if (!Number.isNaN(total) && total > 0) progressTotal = total;
+  if (!Number.isNaN(done)) progressDone = done;
 
   switch (action) {
     case "progress":

@@ -1,15 +1,14 @@
 import { RUN_STATUSES, STREAM_CONNECTION_STATES, DEFAULT_STREAM_EMPTY_MESSAGE } from './constants.js';
 import { state, elements, getActiveProject, getSelectedRun, isSelectedRunLive, getSelectedProjectAndRun } from './state.js';
-import { requestJson } from './api.js';
-import { postPlanningFollowUp } from './api.js';import { formatRunTimestamp, setSelectValue } from './utils.js';
+import { requestJson, postPlanningFollowUp } from './api.js';
+import { formatRunTimestamp, setSelectValue } from './utils.js';
 import { renderComposerState, collectRunRequest, canPauseActiveRun, isWikiDocModeEnabled } from './composer.js';
-import { resetStream, showStreamStarting, closeEventStream, connectEventStream, syncSubmittedPromptSection, applyPersistedRunEvents, scrollStreamToBottom } from './stream.js';
+import { resetStream, showStreamStarting, closeEventStream, connectEventStream, syncSubmittedPromptSection, applyPersistedRunEvents } from './stream.js';
 import { renderTopbar, loadProjects } from './projects.js';
 import { syncKeepAwake, desktopBridge } from './desktop-bridge.js';
 import { saveShellState } from './shell-persistence.js';
 import { openModal } from './modals.js';
-import { clearComposerAttachments } from './attachments.js';
-import { collectSubmissionAttachments } from './attachments.js';
+import { clearComposerAttachments, collectSubmissionAttachments } from './attachments.js';
 
 export function renderActiveRun() {
   const activeRun = state.activeRun;
@@ -104,7 +103,7 @@ export async function loadSelectedRunStream() {
 export async function startRun() {
   if (isWikiDocModeEnabled()) {
     if (desktopBridge?.openWikiDocScreen) {
-      void desktopBridge.openWikiDocScreen();
+      desktopBridge.openWikiDocScreen();
     } else {
       globalThis.open("/wikidoc.html", "_blank");
     }
@@ -228,7 +227,8 @@ export async function sendPlanningFollowUp() {
       workspacePath: project.workspacePath,
       text,
       attachments,
-      relatedRunId: run.runId
+      relatedRunId: run.runId,
+      kind: state.selectedRunState?.handoffRunId ? "follow-up" : "plan-revision"
     });
     elements.taskPrompt.value = "";
     clearComposerAttachments();

@@ -84,7 +84,11 @@ public sealed class OrchestratorRuntime : IOrchestratorRuntime
         Action<string, string>? onRunContextEstablished = null,
         CancellationToken cancellationToken = default)
     {
-        if (runState is null) throw new ArgumentNullException(nameof(runState));
+        if (runState is null)
+        {
+            throw new ArgumentNullException(nameof(runState));
+        }
+
         RunRequest request = RunRequestWorkflowDefaults.Apply(runState.Request);
         if (!string.Equals(request.Workflow, WorkflowNames.WIKIDOC, StringComparison.OrdinalIgnoreCase))
         {

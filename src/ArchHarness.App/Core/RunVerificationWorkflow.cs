@@ -124,7 +124,7 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
             }
 
             remediationPrompt = BuildRemediationPrompt(validationResult, attempt + 1);
-            IReadOnlyList<string> touchedFiles = await ExecuteRemediationAsync(request, adapter, remediationPrompt, progress, cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<string> touchedFiles = await this.ExecuteRemediationAsync(request, adapter, remediationPrompt, progress, cancellationToken).ConfigureAwait(false);
             filesTouched = filesTouched
                 .Concat(touchedFiles)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -168,7 +168,7 @@ public sealed class RunVerificationWorkflow : IRunVerificationWorkflow
         CancellationToken cancellationToken)
     {
         List<string> touchedFiles = new List<string>();
-        foreach (AgentExecutionContext agent in ResolveRemediationAgents(request.Plan))
+        foreach (AgentExecutionContext agent in this.ResolveRemediationAgents(request.Plan))
         {
             progress?.Report(new RuntimeProgressEvent(DateTimeOffset.UtcNow, agent.AgentRole, "Verification remediation started", remediationPrompt));
             AgentExecutionContext? previousContext = this._stateAccessors.AgentExecutionContext.Current;
