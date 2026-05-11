@@ -125,4 +125,29 @@ describe('inline interactions', () => {
     expect(state.pendingInteraction).toBeNull();
     expect(elements.inlineInteraction.classList.contains('hidden')).toBe(true);
   });
+
+  it('posts plan-approval attachments with regenerate decisions', async () => {
+    const { state, submitPlanApproval, clearPendingInteractionPoll } = await loadInteractionModules();
+    resetInteractionState(state);
+    state.pendingInteraction = {
+      kind: 'plan-approval',
+      question: 'Review the plan',
+      choices: ['Approve', 'Cancel']
+    };
+    requestJsonMock
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce(null);
+
+    await submitPlanApproval('regenerate', 'Revise around the screenshot', [{ id: 'img-1', kind: 'image' }]);
+    clearPendingInteractionPoll();
+
+    expect(requestJsonMock).toHaveBeenNthCalledWith(1, '/api/interactions/plan-approval', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        decision: 'regenerate',
+        reason: 'Revise around the screenshot',
+        attachments: [{ id: 'img-1', kind: 'image' }]
+      })
+    }));
+  });
 });

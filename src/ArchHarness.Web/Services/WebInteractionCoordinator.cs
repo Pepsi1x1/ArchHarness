@@ -1,3 +1,4 @@
+using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
 using GitHub.Copilot.SDK;
 
@@ -325,8 +326,9 @@ public sealed class WebInteractionCoordinator
     /// </summary>
     /// <param name="decision">The decision: approved, regenerate, or canceled.</param>
     /// <param name="reason">Optional reason for the decision.</param>
+    /// <param name="attachments">Optional attachments supplied with a regenerate decision.</param>
     /// <returns>True when a pending plan-approval request was completed.</returns>
-    public bool TrySubmitPlanApproval(string decision, string? reason = null)
+    public bool TrySubmitPlanApproval(string decision, string? reason = null, IReadOnlyList<PromptAttachment>? attachments = null)
     {
         lock (this._sync)
         {
@@ -336,7 +338,7 @@ public sealed class WebInteractionCoordinator
             }
 
             return this._pending.ResponseSource.TrySetResult(
-                new ArchHarness.App.Core.PlanApprovalResponse(decision, reason));
+                new ArchHarness.App.Core.PlanApprovalResponse(decision, reason, attachments));
         }
     }
 }

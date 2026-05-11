@@ -127,6 +127,13 @@ public sealed class OrchestratedRunProcessorPlanningTests
             workspaceRootAccessor.SetCurrent(workspaceRoot);
             PlanningSessionRecorder recorder = new PlanningSessionRecorder(new InMemoryPlanningSessionStore());
             await recorder.EnsureAsync(workspaceRoot, runId, runId, CancellationToken.None);
+            PromptAttachment attachment = new(
+                id: "att-1",
+                kind: PromptAttachmentKinds.IMAGE,
+                mimeType: "image/png",
+                fileName: "plan.png",
+                sizeBytes: 8,
+                dataBase64: "AAAA");
 
             runStateStore.Seed(
                 runDirectory,
@@ -153,7 +160,7 @@ public sealed class OrchestratedRunProcessorPlanningTests
                 new WikiDocRunServices(new StubWikiDocWorkflow(), new WikiDocResumeStateBuilder(), new WikiDocRepositoryDiscoverer(), new WikiDocOutputResolver()),
                 approvalBridge: new QueuePlanApprovalBridge(new[]
                 {
-                    new PlanApprovalResponse(PlanApprovalDecisions.REGENERATE, "Do not commit or push to git as part of the plan"),
+                    new PlanApprovalResponse(PlanApprovalDecisions.REGENERATE, "Do not commit or push to git as part of the plan", new[] { attachment }),
                     new PlanApprovalResponse(PlanApprovalDecisions.APPROVED)
                 }),
                 userInputBridge: null,
@@ -207,7 +214,13 @@ public sealed class OrchestratedRunProcessorPlanningTests
                 {
                     Assert.Equal(ConversationMessageKinds.PLAN_REVISION, message.Kind);
                     Assert.Equal("Do not commit or push to git as part of the plan", message.Text);
+                    PromptAttachment planAttachment = Assert.Single(message.Attachments);
+                    Assert.Equal("att-1", planAttachment.Id);
+                    Assert.Equal("plan.png", planAttachment.FileName);
                 });
+            PromptAttachment replanningAttachment = Assert.Single(context.Attachments!);
+            Assert.Equal("att-1", replanningAttachment.Id);
+            Assert.Equal("plan.png", replanningAttachment.FileName);
 
             string[] planReviewAgentIds = eventLogger.Events
                 .Where(evt => string.Equals(ReadStringProperty(evt, "kind"), "agent-delta", StringComparison.Ordinal)

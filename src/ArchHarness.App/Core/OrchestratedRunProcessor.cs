@@ -435,7 +435,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         }
     }
 
-    private async Task<PlanApproval?> RequestPlanApprovalAsync(
+    private async Task<PlanApprovalInteractionResult?> RequestPlanApprovalAsync(
         RunRequest request,
         ClarificationSpec? spec,
         ExecutionPlan plan,
@@ -446,7 +446,9 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
     {
         if (this._approvalBridge is null)
         {
-            return new PlanApproval(PlanApprovalDecisions.APPROVED, DateTimeOffset.UtcNow, string.Empty);
+            return new PlanApprovalInteractionResult(
+                new PlanApproval(PlanApprovalDecisions.APPROVED, DateTimeOffset.UtcNow, string.Empty),
+                Attachments: null);
         }
 
         RunStateCheckpoint checkpoint = new(runId, runDirectory, this._stateAccessors.WorkspaceRoot.Current ?? string.Empty,
@@ -520,7 +522,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
 
         await this.RecordPlanDecisionAsync(request, checkpoint.WorkspaceRoot, runId, approval, cancellationToken).ConfigureAwait(false);
 
-        return approval;
+        return new PlanApprovalInteractionResult(approval, response.Attachments);
     }
 
     private async Task<(ClarificationSpec Spec, IReadOnlyList<ClarificationAnswer> Answers)> RunClarificationLoopAsync(
@@ -669,11 +671,13 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
         RunRequest request = checkpoint.Request;
         while (true)
         {
-            PlanApproval? approval = await this.RequestPlanApprovalAsync(request, spec, plan, checkpoint.RunId, checkpoint.RunDirectory, progress, cancellationToken).ConfigureAwait(false);
-            if (approval is null || string.Equals(approval.Decision, PlanApprovalDecisions.CANCELED, StringComparison.OrdinalIgnoreCase))
+            PlanApprovalInteractionResult? approvalResult = await this.RequestPlanApprovalAsync(request, spec, plan, checkpoint.RunId, checkpoint.RunDirectory, progress, cancellationToken).ConfigureAwait(false);
+            if (approvalResult is null || string.Equals(approvalResult.Approval.Decision, PlanApprovalDecisions.CANCELED, StringComparison.OrdinalIgnoreCase))
             {
                 throw new OperationCanceledException("Plan approval was canceled by user.");
             }
+
+            PlanApproval approval = approvalResult.Approval;
 
             if (!string.Equals(approval.Decision, PlanApprovalDecisions.REGENERATE, StringComparison.OrdinalIgnoreCase))
             {
@@ -684,7 +688,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             ConversationMessage revisionMessage = ArchHarness.App.Storage.PlanningSessionRecorder.CreateMessage(
                 ConversationRoles.USER,
                 ConversationMessageKinds.PLAN_REVISION,
-                approval.Reason ?? string.Empty);
+                approval.Reason ?? string.Empty,
+                approvalResult.Attachments);
 
             await this.AppendPlanningSessionMessageAsync(
                 request,
@@ -710,6 +715,7 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
                     PlanRevisionRequest: null,
                     ConversationHistory: followUpPromptHistory,
                     PlanningSessionId: ResolvePlanningSessionId(request, checkpoint.RunId),
+                    Attachments: approvalResult.Attachments,
                     UseFollowUpOnlyPrompt: true),
                 cancellationToken).ConfigureAwait(false);
         }
@@ -1600,6 +1606,8 @@ public sealed class OrchestratedRunProcessor : IOrchestratedRunProcessor
             : planHash[..Math.Min(12, planHash.Length)];
         return $"planning-review-{runId}-{hashSuffix}";
     }
+
+    private sealed record PlanApprovalInteractionResult(PlanApproval Approval, IReadOnlyList<PromptAttachment>? Attachments);
 
     private static bool IsPlanningWorkflow(string? workflow)
         => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase);

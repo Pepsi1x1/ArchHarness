@@ -18,4 +18,8 @@ public sealed record PermissionSubmission(bool Approved);
 /// </summary>
 /// <param name="Decision">The approval decision: approved, regenerate, or canceled.</param>
 /// <param name="Reason">Optional reason for the decision.</param>
-public sealed record PlanApprovalSubmission(string Decision, string? Reason = null);
+/// <param name="Attachments">Optional prompt attachments supplied with a regenerate decision.</param>
+public sealed record PlanApprovalSubmission(
+	string Decision,
+	string? Reason = null,
+	IReadOnlyList<AppendPlanningSessionAttachmentPayload>? Attachments = null);

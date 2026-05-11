@@ -119,12 +119,13 @@ describe('run screen behavior', () => {
     state.activeRunId = 'run-1';
     state.selectedRunState = { workflow: WORKFLOWS.PLANNING };
     state.pendingInteraction = { kind: 'plan-approval' };
+    collectSubmissionAttachmentsMock.mockReturnValue([{ id: 'img-1', kind: 'image' }]);
     elements.taskPrompt.value = 'Revise this plan';
     elements.planningFollowUp.textContent = 'Send';
 
     await sendPlanningFollowUp();
 
-    expect(submitPlanApprovalMock).toHaveBeenCalledWith('regenerate', 'Revise this plan');
+    expect(submitPlanApprovalMock).toHaveBeenCalledWith('regenerate', 'Revise this plan', [{ id: 'img-1', kind: 'image' }]);
     expect(postPlanningFollowUpMock).not.toHaveBeenCalled();
     expect(elements.taskPrompt.value).toBe('');
     expect(clearComposerAttachmentsMock).toHaveBeenCalledTimes(1);

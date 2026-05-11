@@ -174,7 +174,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestPlanApprovalAsync — ReturnsRegenerateDecisionWithReason
     /// </summary>
     [Fact]
-    public async Task RequestPlanApprovalAsync_ReturnsRegenerateDecisionWithReasonAsync()
+    public async Task RequestPlanApprovalAsync_ReturnsRegenerateDecisionWithReasonAndAttachmentsAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);
@@ -192,10 +192,21 @@ public sealed class WebInteractionCoordinatorTests
         PlanApprovalRequest approvalRequest = new(spec, plan, "spec md", "plan summary");
         Task<PlanApprovalResponse> responseTask = coordinator.RequestPlanApprovalAsync(approvalRequest);
 
-        Assert.True(coordinator.TrySubmitPlanApproval(PlanApprovalDecisions.REGENERATE, "Add more tests"));
+        PromptAttachment attachment = new(
+            id: "att-1",
+            kind: PromptAttachmentKinds.IMAGE,
+            mimeType: "image/png",
+            fileName: "mock.png",
+            sizeBytes: 4,
+            dataBase64: "AAAA");
+
+        Assert.True(coordinator.TrySubmitPlanApproval(PlanApprovalDecisions.REGENERATE, "Add more tests", new[] { attachment }));
 
         PlanApprovalResponse response = await responseTask;
         Assert.Equal(PlanApprovalDecisions.REGENERATE, response.Decision);
         Assert.Equal("Add more tests", response.Reason);
+        PromptAttachment returnedAttachment = Assert.Single(response.Attachments!);
+        Assert.Equal("att-1", returnedAttachment.Id);
+        Assert.Equal("mock.png", returnedAttachment.FileName);
     }
 }

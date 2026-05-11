@@ -21,9 +21,11 @@ public sealed record PlanApprovalRequest(
 /// </summary>
 /// <param name="Decision">The approval decision (approved, regenerate, canceled).</param>
 /// <param name="Reason">Optional reason, especially for regenerate or cancel.</param>
+/// <param name="Attachments">Optional prompt attachments supplied with a regenerate request.</param>
 public sealed record PlanApprovalResponse(
     string Decision,
-    string? Reason = null);
+    string? Reason = null,
+    IReadOnlyList<PromptAttachment>? Attachments = null);
 
 /// <summary>
 /// Host-agnostic bridge that blocks run execution until the user approves, regenerates, or cancels the plan.

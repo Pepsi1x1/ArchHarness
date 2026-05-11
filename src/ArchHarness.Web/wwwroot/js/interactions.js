@@ -385,7 +385,7 @@ async function submitPermission(approved) {
   }
 }
 
-export async function submitPlanApproval(decision, reason) {
+export async function submitPlanApproval(decision, reason, attachments = null) {
   clearPendingInteractionPoll();
   abortPendingInteractionPoll();
   const pendingSnapshot = state.pendingInteraction;
@@ -399,7 +399,11 @@ export async function submitPlanApproval(decision, reason) {
     await requestJson("/api/interactions/plan-approval", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, reason: reason || null })
+      body: JSON.stringify({
+        decision,
+        reason: reason || null,
+        attachments: Array.isArray(attachments) && attachments.length > 0 ? attachments : null
+      })
     });
     await pollPendingInteraction();
   } catch (error) {

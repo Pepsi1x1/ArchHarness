@@ -1274,7 +1274,14 @@ internal static class ProgramHandlers
 
     public static IResult SubmitPlanApproval(PlanApprovalSubmission submission, WebInteractionCoordinator interactions)
     {
-        if (!interactions.TrySubmitPlanApproval(submission.Decision, submission.Reason))
+        IResult? attachmentValidationError = ValidateAttachmentPayloads(submission.Attachments);
+        if (attachmentValidationError is not null)
+        {
+            return attachmentValidationError;
+        }
+
+        IReadOnlyList<PromptAttachment>? attachments = MaterializeAttachments(submission.Attachments);
+        if (!interactions.TrySubmitPlanApproval(submission.Decision, submission.Reason, attachments))
         {
             return Results.Conflict(new { error = "No pending plan-approval request is active." });
         }
@@ -1619,7 +1626,7 @@ internal sealed record AppendPlanningSessionMessageRequest(
     string? RelatedRunId,
     IReadOnlyList<AppendPlanningSessionAttachmentPayload>? Attachments);
 
-internal sealed record AppendPlanningSessionAttachmentPayload(
+public sealed record AppendPlanningSessionAttachmentPayload(
     string? Id,
     string? Kind,
     string? MimeType,

@@ -226,7 +226,7 @@ export async function sendPlanningFollowUp() {
   elements.planningFollowUp.textContent = "Sending...";
   try {
     if (state.pendingInteraction?.kind === "plan-approval") {
-      await submitPlanApproval("regenerate", text);
+      await submitPlanApproval("regenerate", text, attachments);
     } else {
       const sessionId = state.selectedRunState?.planningSessionId
         || state.pendingInteraction?.sessionId
