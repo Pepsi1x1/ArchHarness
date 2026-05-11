@@ -282,9 +282,11 @@ public sealed class AgentStepExecutor : IAgentStepExecutor
 
         // Safeguard: explicit-completion check. If every recent outcome self-reported COMPLETE
         // and none surfaced follow-up hints, stop growing the plan.
+        // Null/empty CompletionStatus is treated as "unknown" (not complete) so that steps whose
+        // dispatcher paths don't populate it (e.g. Build, review) don't prematurely suppress
+        // continuation planning.
         bool allComplete = recentOutcomes.All(o =>
-            string.IsNullOrEmpty(o.CompletionStatus)
-                || string.Equals(o.CompletionStatus, StepCompletionStatuses.COMPLETE, StringComparison.OrdinalIgnoreCase));
+            string.Equals(o.CompletionStatus, StepCompletionStatuses.COMPLETE, StringComparison.OrdinalIgnoreCase));
         bool anyHints = recentOutcomes.Any(o => o.FollowUpHints is { Count: > 0 });
         if (allComplete && !anyHints)
         {

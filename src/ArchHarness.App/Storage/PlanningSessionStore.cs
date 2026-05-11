@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security;
 using System.Text.Json;
 using ArchHarness.App.Core;
 
@@ -22,7 +23,7 @@ public interface IPlanningSessionStore
     Task WriteAsync(string workspaceRoot, PlanningSession session, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Atomically loads, mutates, and writes a session. Returns false when the mutator returns null.
+    /// Atomically loads, mutates, and writes a session. Returns null when the mutator returns null.
     /// </summary>
     Task<PlanningSession?> UpdateAsync(
         string workspaceRoot,
@@ -130,6 +131,18 @@ public sealed class PlanningSessionStore : IPlanningSessionStore
         {
             using FileStream stream = FileSystemStorageHelper.OpenReadStreamShared(filePath);
             return JsonSerializer.Deserialize<PlanningSession>(stream, JsonDefaults.WEB_INDENTED);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (SecurityException)
+        {
+            return null;
         }
         catch (JsonException)
         {

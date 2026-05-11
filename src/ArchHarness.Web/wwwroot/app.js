@@ -132,7 +132,6 @@ function attachHandlers() {
   }));
   elements.taskPrompt.addEventListener("input", () => {
     saveShellState();
-    renderComposerState();
     renderRunDetailsActions();
   });
   [elements.runMode, elements.permissionMode, elements.architectureReviewPreset].forEach(control => {

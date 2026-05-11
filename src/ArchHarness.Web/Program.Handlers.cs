@@ -1530,6 +1530,30 @@ internal static class ProgramHandlers
             return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
+        if (request.Attachments is { Count: > 0 })
+        {
+            for (int i = 0; i < request.Attachments.Count; i++)
+            {
+                AppendPlanningSessionAttachmentPayload? a = request.Attachments[i];
+                if (a is null)
+                {
+                    continue;
+                }
+
+                bool hasData = !string.IsNullOrWhiteSpace(a.DataBase64);
+                bool hasStorage = !string.IsNullOrWhiteSpace(a.StoragePath);
+                if (!hasData && !hasStorage)
+                {
+                    return Results.BadRequest(new { error = $"Attachment at index {i} must supply either dataBase64 or storagePath." });
+                }
+
+                if (hasData && hasStorage)
+                {
+                    return Results.BadRequest(new { error = $"Attachment at index {i} must supply exactly one of dataBase64 or storagePath, not both." });
+                }
+            }
+        }
+
         string role = string.IsNullOrWhiteSpace(request.Role) ? ConversationRoles.USER : request.Role!;
         string kind = string.IsNullOrWhiteSpace(request.Kind) ? ConversationMessageKinds.FOLLOW_UP : request.Kind!;
         string text = request.Text ?? string.Empty;
