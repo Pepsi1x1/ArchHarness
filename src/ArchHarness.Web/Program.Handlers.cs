@@ -1530,46 +1530,16 @@ internal static class ProgramHandlers
             return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
         }
 
-        if (request.Attachments is { Count: > 0 })
+        IResult? attachmentValidationError = ValidateAttachmentPayloads(request.Attachments);
+        if (attachmentValidationError is not null)
         {
-            for (int i = 0; i < request.Attachments.Count; i++)
-            {
-                AppendPlanningSessionAttachmentPayload? a = request.Attachments[i];
-                if (a is null)
-                {
-                    continue;
-                }
-
-                bool hasData = !string.IsNullOrWhiteSpace(a.DataBase64);
-                bool hasStorage = !string.IsNullOrWhiteSpace(a.StoragePath);
-                if (!hasData && !hasStorage)
-                {
-                    return Results.BadRequest(new { error = $"Attachment at index {i} must supply either dataBase64 or storagePath." });
-                }
-
-                if (hasData && hasStorage)
-                {
-                    return Results.BadRequest(new { error = $"Attachment at index {i} must supply exactly one of dataBase64 or storagePath, not both." });
-                }
-            }
+            return attachmentValidationError;
         }
 
         string role = string.IsNullOrWhiteSpace(request.Role) ? ConversationRoles.USER : request.Role!;
         string kind = string.IsNullOrWhiteSpace(request.Kind) ? ConversationMessageKinds.FOLLOW_UP : request.Kind!;
         string text = request.Text ?? string.Empty;
-
-        IReadOnlyList<PromptAttachment>? attachments = request.Attachments?
-            .Where(a => a is not null)
-            .Select(a => new PromptAttachment(
-                string.IsNullOrWhiteSpace(a.Id) ? Guid.NewGuid().ToString("N") : a.Id,
-                string.IsNullOrWhiteSpace(a.Kind) ? PromptAttachmentKinds.IMAGE : a.Kind,
-                a.MimeType ?? "application/octet-stream",
-                a.FileName,
-                a.SizeBytes ?? 0L,
-                a.DataBase64,
-                a.StoragePath)
-            { Caption = a.Caption })
-            .ToArray();
+        IReadOnlyList<PromptAttachment>? attachments = MaterializeAttachments(request.Attachments);
 
         string workspaceRoot = Path.GetFullPath(request.WorkspacePath);
         PlanningSession? updated = await recorder.AppendMessageAsync(
@@ -1591,6 +1561,51 @@ internal static class ProgramHandlers
 
         return Results.Ok(updated);
     }
+
+    private static IResult? ValidateAttachmentPayloads(IReadOnlyList<AppendPlanningSessionAttachmentPayload>? attachments)
+    {
+        if (attachments is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        for (int i = 0; i < attachments.Count; i++)
+        {
+            AppendPlanningSessionAttachmentPayload? a = attachments[i];
+            if (a is null)
+            {
+                continue;
+            }
+
+            bool hasData = !string.IsNullOrWhiteSpace(a.DataBase64);
+            bool hasStorage = !string.IsNullOrWhiteSpace(a.StoragePath);
+            if (!hasData && !hasStorage)
+            {
+                return Results.BadRequest(new { error = $"Attachment at index {i} must supply either dataBase64 or storagePath." });
+            }
+
+            if (hasData && hasStorage)
+            {
+                return Results.BadRequest(new { error = $"Attachment at index {i} must supply exactly one of dataBase64 or storagePath, not both." });
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<PromptAttachment>? MaterializeAttachments(IReadOnlyList<AppendPlanningSessionAttachmentPayload>? payloads)
+        => payloads?
+            .Where(a => a is not null)
+            .Select(a => new PromptAttachment(
+                string.IsNullOrWhiteSpace(a.Id) ? Guid.NewGuid().ToString("N") : a.Id,
+                string.IsNullOrWhiteSpace(a.Kind) ? PromptAttachmentKinds.IMAGE : a.Kind,
+                a.MimeType ?? "application/octet-stream",
+                a.FileName,
+                a.SizeBytes ?? 0L,
+                a.DataBase64,
+                a.StoragePath)
+            { Caption = a.Caption })
+            .ToArray();
 }
 
 internal sealed record PullRequestLookupContext(string ProviderName, string? Project, string? Repository, string? Author);

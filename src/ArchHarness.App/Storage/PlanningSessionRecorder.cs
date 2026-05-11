@@ -29,22 +29,28 @@ public sealed class PlanningSessionRecorder
         string planningRunId,
         CancellationToken cancellationToken)
     {
+        // Fast path: avoid an unnecessary write when the session already exists.
         PlanningSession? existing = this._store.Get(workspaceRoot, sessionId);
         if (existing is not null)
         {
             return existing;
         }
 
+        // Cold path: create atomically under the store's write gate so we cannot race with a
+        // concurrent Ensure/Append on the same session id.
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        PlanningSession created = new(
+        PlanningSession? created = await this._store.UpdateAsync(
+            workspaceRoot,
             sessionId,
-            now,
-            now,
-            planningRunId,
-            ImplementationRunId: null,
-            Messages: Array.Empty<ConversationMessage>());
-        await this._store.WriteAsync(workspaceRoot, created, cancellationToken).ConfigureAwait(false);
-        return created;
+            current => current ?? new PlanningSession(
+                sessionId,
+                now,
+                now,
+                planningRunId,
+                ImplementationRunId: null,
+                Messages: Array.Empty<ConversationMessage>()),
+            cancellationToken).ConfigureAwait(false);
+        return created!;
     }
 
     /// <summary>
