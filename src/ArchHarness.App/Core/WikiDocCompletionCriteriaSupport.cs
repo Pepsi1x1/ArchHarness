@@ -9,6 +9,11 @@ namespace ArchHarness.App.Core;
 /// </summary>
 internal static partial class WikiDocCompletionCriteriaSupport
 {
+    private const string README_FILE_NAME = "README.md";
+    private const string SOURCE_DIRECTORY = "src";
+    private const string WEB_PROJECT_DIRECTORY = "ArchHarness.Web";
+    private const string PROGRAM_HANDLERS_FILE_NAME = "Program.Handlers.cs";
+
     public static bool IsSupportedCriterion(string criterion)
     {
         string normalized = Normalize(criterion);
@@ -175,11 +180,19 @@ internal static partial class WikiDocCompletionCriteriaSupport
             && string.Equals(output.OutputRoot, output.RequestedLocalRoot, StringComparison.OrdinalIgnoreCase)
             && string.Equals(Path.GetFileName(output.OutputRoot), "wiki", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrWhiteSpace(output.RenamedFrom));
-        string evidence = renameEligible.Length == 0
-            ? "No safe documentation folders required rename handling."
-            : passed
-                ? $"Safely adopted {renameEligible.Length} documentation folder(s) as repository-local wiki output."
-                : "At least one safe documentation folder was not renamed or adopted as the repository-local wiki.";
+        string evidence;
+        if (renameEligible.Length == 0)
+        {
+            evidence = "No safe documentation folders required rename handling.";
+        }
+        else if (passed)
+        {
+            evidence = $"Safely adopted {renameEligible.Length} documentation folder(s) as repository-local wiki output.";
+        }
+        else
+        {
+            evidence = "At least one safe documentation folder was not renamed or adopted as the repository-local wiki.";
+        }
         return new CriterionResult(
             criterion,
             passed,
@@ -216,11 +229,19 @@ internal static partial class WikiDocCompletionCriteriaSupport
                 && string.Equals(fallback.OwnerRoot, output.RepositoryRoot, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(fallback.RequestedLocalRoot, output.RequestedLocalRoot, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(fallback.FallbackRoot, output.OutputRoot, StringComparison.OrdinalIgnoreCase)));
-        string evidence = fallbackOutputs.Length == 0
-            ? "No repository required fallback wiki output."
-            : passed
-                ? $"Verified {fallbackOutputs.Length} deterministic repository fallback output location(s)."
-                : "Fallback repository output was missing or not recorded deterministically.";
+        string evidence;
+        if (fallbackOutputs.Length == 0)
+        {
+            evidence = "No repository required fallback wiki output.";
+        }
+        else if (passed)
+        {
+            evidence = $"Verified {fallbackOutputs.Length} deterministic repository fallback output location(s).";
+        }
+        else
+        {
+            evidence = "Fallback repository output was missing or not recorded deterministically.";
+        }
         return new CriterionResult(
             criterion,
             passed,
@@ -273,9 +294,9 @@ internal static partial class WikiDocCompletionCriteriaSupport
             return new CriterionResult(criterion, false, "Could not locate the ArchHarness source root for web workflow verification.");
         }
 
-        string handlersPath = Path.Combine(context.HarnessRoot, "src", "ArchHarness.Web", "Program.Handlers.cs");
-        string endpointsPath = Path.Combine(context.HarnessRoot, "src", "ArchHarness.Web", "ProgramEndpointExtensions.cs");
-        string sessionManagerPath = Path.Combine(context.HarnessRoot, "src", "ArchHarness.Web", "Services", "WebRunSessionManager.cs");
+        string handlersPath = Path.Combine(context.HarnessRoot, SOURCE_DIRECTORY, WEB_PROJECT_DIRECTORY, PROGRAM_HANDLERS_FILE_NAME);
+        string endpointsPath = Path.Combine(context.HarnessRoot, SOURCE_DIRECTORY, WEB_PROJECT_DIRECTORY, "ProgramEndpointExtensions.cs");
+        string sessionManagerPath = Path.Combine(context.HarnessRoot, SOURCE_DIRECTORY, WEB_PROJECT_DIRECTORY, "Services", "WebRunSessionManager.cs");
         bool passed = File.Exists(handlersPath)
             && File.ReadAllText(handlersPath).Contains("WorkflowNames.WIKIDOC", StringComparison.Ordinal)
             && File.ReadAllText(handlersPath).Contains("RunRequestWorkflowDefaults.Apply", StringComparison.Ordinal)
@@ -318,7 +339,7 @@ internal static partial class WikiDocCompletionCriteriaSupport
             return new CriterionResult(criterion, false, "Could not locate README.md for wikidoc operator documentation verification.");
         }
 
-        string readmePath = Path.Combine(context.HarnessRoot, "README.md");
+        string readmePath = Path.Combine(context.HarnessRoot, README_FILE_NAME);
         bool passed = File.Exists(readmePath)
             && File.ReadAllText(readmePath).Contains("wikidoc", StringComparison.OrdinalIgnoreCase)
             && File.ReadAllText(readmePath).Contains("wiki\\Home.md", StringComparison.OrdinalIgnoreCase)
@@ -361,8 +382,8 @@ internal static partial class WikiDocCompletionCriteriaSupport
         while (current is not null)
         {
             string candidate = current.FullName;
-            if (File.Exists(Path.Combine(candidate, "README.md"))
-                && File.Exists(Path.Combine(candidate, "src", "ArchHarness.Web", "Program.Handlers.cs")))
+            if (File.Exists(Path.Combine(candidate, README_FILE_NAME))
+                && File.Exists(Path.Combine(candidate, SOURCE_DIRECTORY, WEB_PROJECT_DIRECTORY, PROGRAM_HANDLERS_FILE_NAME)))
             {
                 return candidate;
             }

@@ -1,9 +1,10 @@
 import { REVIEW_LOOP_DEFAULT_SELECTION, REVIEW_LOOP_AGENT_OPTIONS, WORKFLOWS, LEGACY_AUTOFILL_PROMPTS } from './constants.js';
-import { state, elements, getActiveProject, getSelectedRun, isSelectedRunLive } from './state.js';
+import { state, elements, getActiveProject, getSelectedRun } from './state.js';
 import { setSelectValue, getSelectDisplayLabel } from './utils.js';
 import { saveShellState } from './shell-persistence.js';
 import { closeWorkspaceBranchMenu } from './branch.js';
 import { buildDropdownMenuItems } from './dropdown.js';
+import { collectSubmissionAttachments } from './attachments.js';
 
 export function normalizeReviewLoopAgents(selection) {
   const normalized = {
@@ -72,6 +73,10 @@ export function syncComposerFromProject(project) {
   }
 
   setSelectValue(elements.permissionMode, project.permissionHandlerMode);
+  if (isPlanningModeEnabled() || state.activeRun?.isRunning) {
+    return;
+  }
+
   setSelectValue(elements.runMode, project.architectureReviewMode ? "architecture-review" : "standard");
 }
 
@@ -145,6 +150,8 @@ export function collectRunRequest() {
     ? "Generate comprehensive wiki documentation for this workspace."
     : prompt;
 
+  const attachments = collectSubmissionAttachments();
+
   return {
     taskPrompt: effectivePrompt,
     workspacePath: project.workspacePath,
@@ -157,7 +164,8 @@ export function collectRunRequest() {
     permissionHandlerMode: wikiDocMode ? "approve-all" : (elements.permissionMode.value || project.permissionHandlerMode),
     reviewLoopAgents,
     architectureLoopMode,
-    architectureLoopPrompt
+    architectureLoopPrompt,
+    attachments: attachments.length > 0 ? attachments : null
   };
 }
 
@@ -299,7 +307,7 @@ export function renderComposerState() {
   elements.architectureReviewChip.classList.toggle("hidden", !architectureMode);
   elements.taskPrompt.placeholder = getPromptPlaceholder();
   elements.startRun.disabled = !activeProject || (!wikiDocMode && !elements.taskPrompt.value.trim());
-  elements.startRun.textContent = isPlanningModeEnabled() ? "Plan" : wikiDocMode ? "Generate" : "Send";
+  elements.startRun.textContent = getStartRunButtonText(wikiDocMode);
   elements.resumeRun.classList.toggle("hidden", !showResumeButton);
   elements.resumeRun.disabled = !showResumeButton;
   elements.resumeRun.textContent = "Resume";
@@ -307,4 +315,16 @@ export function renderComposerState() {
   elements.implementRun.disabled = !showImplementButton;
   elements.implementRun.textContent = "Start Implementation";
   renderComposerDropdowns();
+}
+
+function getStartRunButtonText(wikiDocMode) {
+  if (isPlanningModeEnabled()) {
+    return "Plan";
+  }
+
+  if (wikiDocMode) {
+    return "Generate";
+  }
+
+  return "Send";
 }

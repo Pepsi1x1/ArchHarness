@@ -86,8 +86,8 @@ public sealed class RunVerificationWorkflowTests
             _ = commands;
             _ = progress;
             _ = cancellationToken;
-            _invocationCount++;
-            bool passed = _invocationCount >= 2;
+            this._invocationCount++;
+            bool passed = this._invocationCount >= 2;
             return Task.FromResult<IReadOnlyList<VerificationEvidence>>(new[]
             {
                 new VerificationEvidence("test", "API tests", passed, "dotnet test", passed ? 0 : 1, passed ? "API tests passed." : "API tests failed.", "API tests pass")

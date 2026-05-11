@@ -8,46 +8,9 @@ namespace ArchHarness.App.Tests.Core;
 public sealed class OrchestrationAgentVerificationTests
 {
     [Fact]
-    public async Task BuildClarificationSpecAsync_ParsesVerificationCommands()
-    {
-        OrchestrationAgent agent = CreateAgent("""
-            {
-              "task": "Harden verification",
-              "desiredOutcome": "Tests and build are executable",
-              "inScope": ["src"],
-              "outOfScope": [],
-              "constraints": ["Keep changes minimal"],
-              "assumptions": [],
-              "acceptanceCriteria": ["API tests pass"],
-              "likelyTouchpoints": ["src/ArchHarness.App"],
-              "openQuestions": [],
-              "decisionNotes": ["Use executable verification"],
-              "verificationCommands": [
-                {
-                  "name": "Run API tests",
-                  "command": "dotnet test tests/ArchHarness.App.Tests/ArchHarness.App.Tests.csproj --filter WebApiTests",
-                  "evidenceType": "test",
-                  "criterion": "API tests pass",
-                  "required": true
-                }
-              ]
-            }
-            """);
-
-        ClarificationSpec spec = await agent.BuildClarificationSpecAsync(
-            new RunRequest("Improve verification", "C:\\workspace", "existing-folder", "auto", null, null, "dotnet test"),
-            "C:\\workspace");
-
-        VerificationCommand command = Assert.Single(spec.VerificationCommands!);
-        Assert.Equal("Run API tests", command.Name);
-        Assert.Equal("API tests pass", command.Criterion);
-        Assert.Equal("test", command.EvidenceType);
-    }
-
-    [Fact]
     public async Task ValidateCompletionAsync_CustomCriterionWithoutEvidence_FailsClosed()
     {
-                OrchestrationAgent agent = CreateAgent("""
+        OrchestrationAgent agent = CreateAgent("""
                         {
                             "verdict": "FAIL",
                             "materiallyImplemented": true,

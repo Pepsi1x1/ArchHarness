@@ -149,7 +149,7 @@ public sealed class ConsolePlanApprovalBridge : IPlanApprovalBridge
         {
             return;
         }
-        
+
         try { Console.CursorVisible = visible; }
         catch { /* Ignore terminal capability failures. */ }
     }

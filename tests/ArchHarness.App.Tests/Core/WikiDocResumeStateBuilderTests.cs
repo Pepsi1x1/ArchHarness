@@ -13,11 +13,11 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void TryBuild_ReturnsNull_WhenRunDirectoryIsEmpty()
     {
-        string scanRoot = CreateScanRoot("empty");
+        string scanRoot = this.CreateScanRoot("empty");
         string runDir = CreateRunDirectory(scanRoot);
-        IReadOnlyList<WikiDocRepositoryInfo> repos = _discoverer.Discover(scanRoot);
+        IReadOnlyList<WikiDocRepositoryInfo> repos = this._discoverer.Discover(scanRoot);
 
-        WikiDocResumeState? result = _builder.TryBuild(runDir, scanRoot, repos, _resolver);
+        WikiDocResumeState? result = this._builder.TryBuild(runDir, scanRoot, repos, this._resolver);
 
         Assert.Null(result);
     }
@@ -25,7 +25,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void TryBuild_LoadsFromCheckpoint()
     {
-        string scanRoot = CreateScanRoot("checkpoint");
+        string scanRoot = this.CreateScanRoot("checkpoint");
         string runDir = CreateRunDirectory(scanRoot);
 
         // Create a wiki/Home.md on disk (the checkpoint references it).
@@ -58,9 +58,9 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
 
         string checkpointJson = JsonSerializer.Serialize(checkpoint, JsonDefaults.WEB_INDENTED);
         File.WriteAllText(Path.Combine(runDir, "WikiDocCheckpoint.json"), checkpointJson);
-        IReadOnlyList<WikiDocRepositoryInfo> repos = _discoverer.Discover(scanRoot);
+        IReadOnlyList<WikiDocRepositoryInfo> repos = this._discoverer.Discover(scanRoot);
 
-        WikiDocResumeState? result = _builder.TryBuild(runDir, scanRoot, repos, _resolver);
+        WikiDocResumeState? result = this._builder.TryBuild(runDir, scanRoot, repos, this._resolver);
 
         Assert.NotNull(result);
         Assert.Single(result.CompletedRepositories);
@@ -71,7 +71,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void TryBuild_ReconstructsFromSdkEventsAndDisk()
     {
-        string scanRoot = CreateScanRoot("sdk-events");
+        string scanRoot = this.CreateScanRoot("sdk-events");
         string runDir = CreateRunDirectory(scanRoot);
 
         // Create wiki output on disk.
@@ -87,9 +87,9 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
         string turnEndEvent = JsonSerializer.Serialize(new { sessionId, eventType = "assistant.turn.end", payloadJson = "" });
         File.WriteAllLines(sdkEventsPath, new[] { hookEvent, turnEndEvent });
 
-        IReadOnlyList<WikiDocRepositoryInfo> repos = _discoverer.Discover(scanRoot);
+        IReadOnlyList<WikiDocRepositoryInfo> repos = this._discoverer.Discover(scanRoot);
 
-        WikiDocResumeState? result = _builder.TryBuild(runDir, scanRoot, repos, _resolver);
+        WikiDocResumeState? result = this._builder.TryBuild(runDir, scanRoot, repos, this._resolver);
 
         Assert.NotNull(result);
         Assert.Single(result.CompletedRepositories);
@@ -99,7 +99,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void TryBuild_ReturnsNull_WhenSdkEventsExistButNoDiskOutput()
     {
-        string scanRoot = CreateScanRoot("no-disk");
+        string scanRoot = this.CreateScanRoot("no-disk");
         string runDir = CreateRunDirectory(scanRoot);
 
         // SDK events say session completed, but no Home.md on disk.
@@ -110,9 +110,9 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
         string turnEndEvent = JsonSerializer.Serialize(new { sessionId, eventType = "assistant.turn.end", payloadJson = "" });
         File.WriteAllLines(sdkEventsPath, new[] { hookEvent, turnEndEvent });
 
-        IReadOnlyList<WikiDocRepositoryInfo> repos = _discoverer.Discover(scanRoot);
+        IReadOnlyList<WikiDocRepositoryInfo> repos = this._discoverer.Discover(scanRoot);
 
-        WikiDocResumeState? result = _builder.TryBuild(runDir, scanRoot, repos, _resolver);
+        WikiDocResumeState? result = this._builder.TryBuild(runDir, scanRoot, repos, this._resolver);
 
         Assert.Null(result);
     }
@@ -120,7 +120,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void ScanSdkEvents_ExtractsSessionCwdAndTurnEnd()
     {
-        string scanRoot = CreateScanRoot("scan");
+        string scanRoot = this.CreateScanRoot("scan");
         string runDir = CreateRunDirectory(scanRoot);
         string sdkEventsPath = Path.Combine(runDir, "copilot-sdk-events.jsonl");
 
@@ -150,7 +150,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void HasCompletedOutputOnDisk_ReturnsTrueWhenHomeMdExists()
     {
-        string dir = Path.Combine(_root, "has-home");
+        string dir = Path.Combine(this._root, "has-home");
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "Home.md"), "# Home");
 
@@ -160,7 +160,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void HasCompletedOutputOnDisk_ReturnsFalseWhenMissing()
     {
-        string dir = Path.Combine(_root, "no-home");
+        string dir = Path.Combine(this._root, "no-home");
         Directory.CreateDirectory(dir);
 
         Assert.False(WikiDocResumeStateBuilder.HasCompletedOutputOnDisk(dir));
@@ -169,7 +169,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void TryBuild_ReturnsEmptyState_WhenCheckpointHasZeroCompletedRepos()
     {
-        string scanRoot = CreateScanRoot("empty-checkpoint");
+        string scanRoot = this.CreateScanRoot("empty-checkpoint");
         string runDir = CreateRunDirectory(scanRoot);
 
         WikiDocCheckpoint checkpoint = new WikiDocCheckpoint(
@@ -179,9 +179,9 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
 
         string checkpointJson = JsonSerializer.Serialize(checkpoint, JsonDefaults.WEB_INDENTED);
         File.WriteAllText(Path.Combine(runDir, "WikiDocCheckpoint.json"), checkpointJson);
-        IReadOnlyList<WikiDocRepositoryInfo> repos = _discoverer.Discover(scanRoot);
+        IReadOnlyList<WikiDocRepositoryInfo> repos = this._discoverer.Discover(scanRoot);
 
-        WikiDocResumeState? result = _builder.TryBuild(runDir, scanRoot, repos, _resolver);
+        WikiDocResumeState? result = this._builder.TryBuild(runDir, scanRoot, repos, this._resolver);
 
         Assert.NotNull(result);
         Assert.Empty(result.CompletedRepositories);
@@ -190,7 +190,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
     [Fact]
     public void TryBuild_FallsBackToSdkEvents_WhenCheckpointIsCorrupt()
     {
-        string scanRoot = CreateScanRoot("corrupt-checkpoint");
+        string scanRoot = this.CreateScanRoot("corrupt-checkpoint");
         string runDir = CreateRunDirectory(scanRoot);
 
         // Write corrupt JSON to the checkpoint file.
@@ -209,9 +209,9 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
         string turnEndEvent = JsonSerializer.Serialize(new { sessionId, eventType = "assistant.turn.end", payloadJson = "" });
         File.WriteAllLines(sdkEventsPath, new[] { hookEvent, turnEndEvent });
 
-        IReadOnlyList<WikiDocRepositoryInfo> repos = _discoverer.Discover(scanRoot);
+        IReadOnlyList<WikiDocRepositoryInfo> repos = this._discoverer.Discover(scanRoot);
 
-        WikiDocResumeState? result = _builder.TryBuild(runDir, scanRoot, repos, _resolver);
+        WikiDocResumeState? result = this._builder.TryBuild(runDir, scanRoot, repos, this._resolver);
 
         Assert.NotNull(result);
         Assert.Single(result.CompletedRepositories);
@@ -219,7 +219,7 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
 
     private string CreateScanRoot(string name)
     {
-        string scanRoot = Path.Combine(_root, name, "scan-root");
+        string scanRoot = Path.Combine(this._root, name, "scan-root");
         Directory.CreateDirectory(Path.Combine(scanRoot, ".git"));
         return scanRoot;
     }
@@ -233,15 +233,15 @@ public sealed class WikiDocResumeStateBuilderTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_root))
+        if (Directory.Exists(this._root))
         {
-            foreach (string path in Directory.GetFileSystemEntries(_root, "*", SearchOption.AllDirectories))
+            foreach (string path in Directory.GetFileSystemEntries(this._root, "*", SearchOption.AllDirectories))
             {
                 File.SetAttributes(path, FileAttributes.Normal);
             }
 
-            File.SetAttributes(_root, FileAttributes.Normal);
-            Directory.Delete(_root, recursive: true);
+            File.SetAttributes(this._root, FileAttributes.Normal);
+            Directory.Delete(this._root, recursive: true);
         }
     }
 }

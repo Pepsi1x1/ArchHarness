@@ -1,13 +1,15 @@
 import { RUN_STATUSES, STREAM_CONNECTION_STATES, DEFAULT_STREAM_EMPTY_MESSAGE } from './constants.js';
 import { state, elements, getActiveProject, getSelectedRun, isSelectedRunLive, getSelectedProjectAndRun } from './state.js';
-import { requestJson } from './api.js';
+import { requestJson, postPlanningFollowUp } from './api.js';
 import { formatRunTimestamp, setSelectValue } from './utils.js';
 import { renderComposerState, collectRunRequest, canPauseActiveRun, isWikiDocModeEnabled } from './composer.js';
-import { resetStream, showStreamStarting, closeEventStream, connectEventStream, syncSubmittedPromptSection, applyPersistedRunEvents, scrollStreamToBottom } from './stream.js';
+import { resetStream, showStreamStarting, closeEventStream, connectEventStream, syncSubmittedPromptSection, applyPersistedRunEvents } from './stream.js';
 import { renderTopbar, loadProjects } from './projects.js';
 import { syncKeepAwake, desktopBridge } from './desktop-bridge.js';
 import { saveShellState } from './shell-persistence.js';
 import { openModal } from './modals.js';
+import { clearComposerAttachments, collectSubmissionAttachments } from './attachments.js';
+import { submitPlanApproval } from './interactions.js';
 
 export function renderActiveRun() {
   const activeRun = state.activeRun;
@@ -102,7 +104,7 @@ export async function loadSelectedRunStream() {
 export async function startRun() {
   if (isWikiDocModeEnabled()) {
     if (desktopBridge?.openWikiDocScreen) {
-      void desktopBridge.openWikiDocScreen();
+      await desktopBridge.openWikiDocScreen();
     } else {
       globalThis.open("/wikidoc.html", "_blank");
     }
@@ -125,6 +127,7 @@ export async function submitRunRequest(request) {
   state.activeRun = snapshot;
   state.activeRunId = snapshot?.runId || null;
   elements.taskPrompt.value = "";
+  clearComposerAttachments();
   saveShellState();
   renderActiveRun();
   connectEventStream();
@@ -185,6 +188,67 @@ export async function syncSelectedRunStateToCurrentSelection() {
 
 export function renderRunDetailsActions() {
   renderComposerState();
+  renderPlanningFollowUpButton();
+}
+
+function renderPlanningFollowUpButton() {
+  const button = elements.planningFollowUp;
+  if (!button) {
+    return;
+  }
+
+  const { project, run } = getSelectedProjectAndRun();
+  const runState = state.selectedRunState;
+  const isPlanningRun = !!runState && typeof runState.workflow === "string"
+    && runState.workflow.toLowerCase() === "planning";
+  const isPendingPlanApproval = state.pendingInteraction?.kind === "plan-approval";
+  const hasText = (elements.taskPrompt?.value || "").trim().length > 0;
+  const canSend = (isPlanningRun || isPendingPlanApproval) && !!project?.workspacePath && !!run?.runId && hasText;
+
+  button.classList.toggle("hidden", !(isPlanningRun || isPendingPlanApproval));
+  button.disabled = !canSend;
+}
+
+export async function sendPlanningFollowUp() {
+  const { project, run } = getSelectedProjectAndRun();
+  if (!project?.workspacePath || !run?.runId) {
+    return;
+  }
+
+  const text = (elements.taskPrompt?.value || "").trim();
+  if (!text) {
+    return;
+  }
+
+  const attachments = collectSubmissionAttachments();
+  elements.planningFollowUp.disabled = true;
+  const originalLabel = elements.planningFollowUp.textContent;
+  elements.planningFollowUp.textContent = "Sending...";
+  try {
+    if (state.pendingInteraction?.kind === "plan-approval") {
+      await submitPlanApproval("regenerate", text, attachments);
+    } else {
+      const sessionId = state.selectedRunState?.planningSessionId
+        || state.pendingInteraction?.sessionId
+        || run.runId;
+      await postPlanningFollowUp(sessionId, {
+        workspacePath: project.workspacePath,
+        text,
+        attachments,
+        relatedRunId: run.runId,
+        kind: state.selectedRunState?.handoffRunId ? "follow-up" : "plan-revision"
+      });
+    }
+
+    elements.taskPrompt.value = "";
+    clearComposerAttachments();
+    saveShellState();
+  } catch (error) {
+    console.error("Planning follow-up failed:", error);
+  } finally {
+    elements.planningFollowUp.textContent = originalLabel;
+    renderRunDetailsActions();
+  }
 }
 
 async function loadSelectedRunState(project, run) {
@@ -238,20 +302,24 @@ export async function startImplementationFromPlanningRun() {
     return;
   }
 
+  setSelectValue(elements.runMode, "standard");
   elements.implementRun.disabled = true;
   elements.implementRun.textContent = "Starting...";
+  renderComposerState();
 
   try {
     state.activeRun = await requestJson(`/api/runs/${encodeURIComponent(run.runId)}/handoff?workspacePath=${encodeURIComponent(project.workspacePath)}`, {
       method: "POST"
     });
     state.activeRunId = state.activeRun?.runId || null;
-    setSelectValue(elements.runMode, "standard");
     saveShellState();
     renderActiveRun();
     connectEventStream();
     await loadProjects();
     await syncSelectedRunStateToCurrentSelection();
+    setSelectValue(elements.runMode, "standard");
+    renderComposerState();
+    saveShellState();
   } catch (error) {
     console.error("Implementation handoff failed:", error);
     renderComposerState();

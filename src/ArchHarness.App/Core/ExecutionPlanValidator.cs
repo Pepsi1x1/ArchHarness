@@ -74,12 +74,6 @@ internal static class ExecutionPlanValidator
             return false;
         }
 
-        if (stepCount > 10)
-        {
-            error = $"Too many steps ({stepCount}). Maximum 10 steps supported.";
-            return false;
-        }
-
         error = null;
         return true;
     }

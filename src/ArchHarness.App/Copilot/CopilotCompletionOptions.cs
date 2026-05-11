@@ -1,5 +1,6 @@
-namespace ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 
+namespace ArchHarness.App.Copilot;
 /// <summary>
 /// Specifies how the system message is combined with any existing base system message.
 /// </summary>
@@ -31,4 +32,12 @@ public sealed class CopilotCompletionOptions
 
     /// <summary>Gets or sets the list of tools explicitly excluded from this request.</summary>
     public IReadOnlyList<string>? ExcludedTools { get; init; }
+
+    /// <summary>
+    /// Gets or sets optional prompt attachments (e.g., images) to include with the message.
+    /// When non-null and non-empty, the completion request is treated as multimodal and routed
+    /// through the SDK's attachment transport.
+    /// </summary>
+    public IReadOnlyList<PromptAttachment>? Attachments { get; init; }
 }
+

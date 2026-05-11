@@ -53,6 +53,6 @@ public sealed class MulticastEventStreamTests
             => this.PublishCore(evt);
 
         public IAsyncEnumerable<int> ReadAllAsync(CancellationToken cancellationToken)
-            => this.ReadAllAsyncCore(cancellationToken);
+            => this.ReadAllAsyncCoreAsync(cancellationToken);
     }
 }

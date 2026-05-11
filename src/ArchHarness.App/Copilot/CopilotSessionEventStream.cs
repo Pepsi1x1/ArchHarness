@@ -105,7 +105,7 @@ public abstract class MulticastEventStream<TEvent>
         }
     }
 
-    protected async IAsyncEnumerable<TEvent> ReadAllAsyncCore([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    protected async IAsyncEnumerable<TEvent> ReadAllAsyncCoreAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
         Guid subscriberId = Guid.NewGuid();
         Channel<TEvent> channel = Channel.CreateBounded<TEvent>(new BoundedChannelOptions(MAX_BUFFERED_EVENTS)
@@ -150,7 +150,7 @@ public sealed class CopilotSessionEventStream : MulticastEventStream<CopilotSess
 
     /// <inheritdoc />
     IAsyncEnumerable<CopilotSessionLifecycleEvent> ICopilotSessionEventStream.ReadAllAsync(CancellationToken cancellationToken)
-        => this.ReadAllAsyncCore(cancellationToken);
+        => this.ReadAllAsyncCoreAsync(cancellationToken);
 }
 
 /// <summary>
@@ -164,7 +164,7 @@ public sealed class CopilotSdkEventStream : MulticastEventStream<CopilotSdkRawEv
 
     /// <inheritdoc />
     IAsyncEnumerable<CopilotSdkRawEvent> ICopilotSdkEventStream.ReadAllAsync(CancellationToken cancellationToken)
-        => this.ReadAllAsyncCore(cancellationToken);
+        => this.ReadAllAsyncCoreAsync(cancellationToken);
 }
 
 /// <summary>
@@ -178,5 +178,5 @@ public sealed class AgentStreamEventStream : MulticastEventStream<AgentStreamDel
 
     /// <inheritdoc />
     IAsyncEnumerable<AgentStreamDeltaEvent> IAgentStreamEventStream.ReadAllAsync(CancellationToken cancellationToken)
-        => this.ReadAllAsyncCore(cancellationToken);
+        => this.ReadAllAsyncCoreAsync(cancellationToken);
 }

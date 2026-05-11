@@ -86,7 +86,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 false,
                 FAILURE_CODE_INVALID_REQUEST,
                 "Branch name is required.",
-                GetBranchInfo(workspacePath));
+                this.GetBranchInfo(workspacePath));
         }
 
         try
@@ -144,7 +144,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 false,
                 FAILURE_CODE_CHECKOUT_CONFLICT,
                 "Git could not switch branches because the checkout would overwrite local changes.",
-                GetBranchInfo(workspacePath));
+                this.GetBranchInfo(workspacePath));
         }
         catch (RepositoryNotFoundException)
         {
@@ -160,7 +160,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 false,
                 FAILURE_CODE_CHECKOUT_CONFLICT,
                 ex.Message,
-                GetBranchInfo(workspacePath));
+                this.GetBranchInfo(workspacePath));
         }
         catch (IOException)
         {
@@ -168,7 +168,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 false,
                 FAILURE_CODE_CHECKOUT_CONFLICT,
                 "Git could not switch branches because the repository files are not currently accessible.",
-                GetBranchInfo(workspacePath));
+                this.GetBranchInfo(workspacePath));
         }
         catch (UnauthorizedAccessException)
         {
@@ -176,7 +176,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 false,
                 FAILURE_CODE_CHECKOUT_CONFLICT,
                 "Git could not switch branches because the repository files are not currently accessible.",
-                GetBranchInfo(workspacePath));
+                this.GetBranchInfo(workspacePath));
         }
     }
 
@@ -198,7 +198,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                 false,
                 FAILURE_CODE_INVALID_REQUEST,
                 "Repository clone URL is required.",
-                GetBranchInfo(workspacePath));
+                this.GetBranchInfo(workspacePath));
         }
 
         try
@@ -211,7 +211,7 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
                     false,
                     FAILURE_CODE_ALREADY_GIT_REPOSITORY,
                     "The selected folder already contains a Git repository.",
-                    GetBranchInfo(workspacePath));
+                    this.GetBranchInfo(workspacePath));
             }
 
             string? parentDirectory = Path.GetDirectoryName(fullWorkspacePath);
@@ -249,15 +249,15 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
         }
         catch (LibGit2SharpException ex)
         {
-            return new GitCloneResult(false, FAILURE_CODE_CLONE_FAILED, ex.Message, GetBranchInfo(workspacePath));
+            return new GitCloneResult(false, FAILURE_CODE_CLONE_FAILED, ex.Message, this.GetBranchInfo(workspacePath));
         }
         catch (IOException)
         {
-            return new GitCloneResult(false, FAILURE_CODE_CLONE_FAILED, "Git could not clone the repository because the target folder is not currently accessible.", GetBranchInfo(workspacePath));
+            return new GitCloneResult(false, FAILURE_CODE_CLONE_FAILED, "Git could not clone the repository because the target folder is not currently accessible.", this.GetBranchInfo(workspacePath));
         }
         catch (UnauthorizedAccessException)
         {
-            return new GitCloneResult(false, FAILURE_CODE_CLONE_FAILED, "Git could not clone the repository because the target folder is not currently accessible.", GetBranchInfo(workspacePath));
+            return new GitCloneResult(false, FAILURE_CODE_CLONE_FAILED, "Git could not clone the repository because the target folder is not currently accessible.", this.GetBranchInfo(workspacePath));
         }
     }
 
@@ -388,20 +388,20 @@ public sealed class LibGit2SharpRepositoryInfoService : IGitRepositoryInfoServic
         }
         catch (LibGit2SharpException ex)
         {
-            GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
-            GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
+            GitRepositoryBranchInfo branchInfo = this.GetBranchInfo(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = this.GetWorkingTreeStatus(workspacePath);
             return new GitStashChangesResult(false, FAILURE_CODE_STASH_FAILED, ex.Message, branchInfo, workingTreeStatus);
         }
         catch (IOException)
         {
-            GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
-            GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
+            GitRepositoryBranchInfo branchInfo = this.GetBranchInfo(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = this.GetWorkingTreeStatus(workspacePath);
             return new GitStashChangesResult(false, FAILURE_CODE_STASH_FAILED, "Git could not create the stash because the repository files are not currently accessible.", branchInfo, workingTreeStatus);
         }
         catch (UnauthorizedAccessException)
         {
-            GitRepositoryBranchInfo branchInfo = GetBranchInfo(workspacePath);
-            GitWorkingTreeStatus workingTreeStatus = GetWorkingTreeStatus(workspacePath);
+            GitRepositoryBranchInfo branchInfo = this.GetBranchInfo(workspacePath);
+            GitWorkingTreeStatus workingTreeStatus = this.GetWorkingTreeStatus(workspacePath);
             return new GitStashChangesResult(false, FAILURE_CODE_STASH_FAILED, "Git could not create the stash because the repository files are not currently accessible.", branchInfo, workingTreeStatus);
         }
     }

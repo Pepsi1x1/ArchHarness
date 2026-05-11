@@ -15,7 +15,7 @@ export function sanitizeHtmlFragment(html) {
   const doc = parser.parseFromString(html || "", "text/html");
   doc.querySelectorAll("script,iframe,object,embed,form,base,meta,svg,math,use,link[rel=import]").forEach(el => el.remove());
   doc.querySelectorAll("*").forEach(el => {
-    for (const attr of el.attributes) {
+    for (const attr of Array.from(el.attributes)) {
       const name = attr.name.toLowerCase();
       const trimmedValue = attr.value.trimStart().toLowerCase();
       const isUnsafeUri = trimmedValue.startsWith("javascript:")

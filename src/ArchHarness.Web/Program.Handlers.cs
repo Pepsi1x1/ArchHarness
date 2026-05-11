@@ -2,8 +2,8 @@ using System.Net;
 using System.Text.Json;
 using ArchHarness.App;
 using ArchHarness.App.Constants;
-using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
+using ArchHarness.App.Core;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 using ArchHarness.Web.Services;
@@ -19,6 +19,7 @@ internal static class ProgramHandlers
     private const string INVALID_RUN_ID_MESSAGE = "runId must be a single directory name.";
     private const string UNKNOWN_WORKSPACE_MESSAGE = "workspacePath does not match a registered project.";
     private const string WORKSPACE_PATH_REQUIRED_MESSAGE = "workspacePath is required.";
+    private const string ACTIVE_RUNS_API_PATH = "/api/runs/active";
 
     public static IResult GetApiRoot()
         => Results.Ok(new
@@ -989,6 +990,7 @@ internal static class ProgramHandlers
             runState.CanResume,
             canHandoff = CanHandoffToStandardRun(runState),
             runState.HandoffRunId,
+            runState.PlanningSessionId,
             runState.Request.PlanningSourceRunId,
             completedStepIds = runState.CompletedStepIds,
             runState.ReviewIteration
@@ -1048,7 +1050,7 @@ internal static class ProgramHandlers
                 preparedRequest.ArchitectureLoopPrompt);
         }
 
-        return Results.Accepted("/api/runs/active", snapshot);
+        return Results.Accepted(ACTIVE_RUNS_API_PATH, snapshot);
     }
 
     public static async Task<IResult> ResumeRunAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, CancellationToken cancellationToken)
@@ -1081,7 +1083,7 @@ internal static class ProgramHandlers
         }
 
         WebRunSnapshot snapshot = await sessionManager.ResumeRunAsync(runState, cancellationToken);
-        return Results.Accepted("/api/runs/active", snapshot);
+        return Results.Accepted(ACTIVE_RUNS_API_PATH, snapshot);
     }
 
     public static async Task<IResult> RegenerateMegaWikiAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, CancellationToken cancellationToken)
@@ -1120,7 +1122,7 @@ internal static class ProgramHandlers
         }
 
         WebRunSnapshot snapshot = await sessionManager.RegenerateMegaWikiAsync(runState, cancellationToken);
-        return Results.Accepted("/api/runs/active", snapshot);
+        return Results.Accepted(ACTIVE_RUNS_API_PATH, snapshot);
     }
 
     public static async Task<IResult> StartImplementationFromPlanningRunAsync(string runId, string workspacePath, IWebRunSessionManager sessionManager, IRunStateStore runStateStore, IProjectWorkspaceCatalog projectCatalog, SetupSummaryGenerator summaryGenerator, CancellationToken cancellationToken)
@@ -1171,7 +1173,8 @@ internal static class ProgramHandlers
             ProjectId = project?.ProjectId ?? planningState.Request.ProjectId,
             ProjectName = project?.DisplayName ?? planningState.Request.ProjectName,
             RunTitle = null,
-            PlanningSourceRunId = planningState.RunId
+            PlanningSourceRunId = planningState.RunId,
+            PlanningSessionId = string.IsNullOrWhiteSpace(planningState.PlanningSessionId) ? planningState.RunId : planningState.PlanningSessionId
         };
         handoffRequest = await summaryGenerator.PopulateRunTitleAsync(handoffRequest, cancellationToken);
 
@@ -1186,7 +1189,7 @@ internal static class ProgramHandlers
                     HandoffRunId = snapshot.RunId
                 },
                 cancellationToken).ConfigureAwait(false);
-            return Results.Accepted("/api/runs/active", snapshot);
+            return Results.Accepted(ACTIVE_RUNS_API_PATH, snapshot);
         }
         catch (InvalidOperationException ex)
         {
@@ -1271,7 +1274,14 @@ internal static class ProgramHandlers
 
     public static IResult SubmitPlanApproval(PlanApprovalSubmission submission, WebInteractionCoordinator interactions)
     {
-        if (!interactions.TrySubmitPlanApproval(submission.Decision, submission.Reason))
+        IResult? attachmentValidationError = ValidateAttachmentPayloads(submission.Attachments);
+        if (attachmentValidationError is not null)
+        {
+            return attachmentValidationError;
+        }
+
+        IReadOnlyList<PromptAttachment>? attachments = MaterializeAttachments(submission.Attachments);
+        if (!interactions.TrySubmitPlanApproval(submission.Decision, submission.Reason, attachments))
         {
             return Results.Conflict(new { error = "No pending plan-approval request is active." });
         }
@@ -1468,7 +1478,160 @@ internal static class ProgramHandlers
             : "pat";
         return new GitAuthenticationOptions(username, providerSettings.PersonalAccessToken.Trim());
     }
+
+    public static IResult GetPlanningSession(
+        string sessionId,
+        string workspacePath,
+        IPlanningSessionStore store,
+        IProjectWorkspaceCatalog projectCatalog)
+    {
+        if (string.IsNullOrWhiteSpace(workspacePath))
+        {
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return Results.BadRequest(new { error = "sessionId is required." });
+        }
+
+        if (!IsKnownWorkspacePath(workspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
+        }
+
+        string workspaceRoot = Path.GetFullPath(workspacePath);
+        PlanningSession? session = store.Get(workspaceRoot, sessionId);
+        if (session is null)
+        {
+            return Results.NotFound(new { error = $"Planning session '{sessionId}' not found." });
+        }
+
+        return Results.Ok(session);
+    }
+
+    public static async Task<IResult> AppendPlanningSessionMessageAsync(
+        string sessionId,
+        AppendPlanningSessionMessageRequest request,
+        PlanningSessionRecorder recorder,
+        IProjectWorkspaceCatalog projectCatalog,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return Results.BadRequest(new { error = "Request body required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return Results.BadRequest(new { error = "sessionId is required." });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.WorkspacePath))
+        {
+            return Results.BadRequest(new { error = WORKSPACE_PATH_REQUIRED_MESSAGE });
+        }
+
+        if (!IsKnownWorkspacePath(request.WorkspacePath, projectCatalog))
+        {
+            return Results.BadRequest(new { error = UNKNOWN_WORKSPACE_MESSAGE });
+        }
+
+        IResult? attachmentValidationError = ValidateAttachmentPayloads(request.Attachments);
+        if (attachmentValidationError is not null)
+        {
+            return attachmentValidationError;
+        }
+
+        string role = string.IsNullOrWhiteSpace(request.Role) ? ConversationRoles.USER : request.Role!;
+        string kind = string.IsNullOrWhiteSpace(request.Kind) ? ConversationMessageKinds.FOLLOW_UP : request.Kind!;
+        string text = request.Text ?? string.Empty;
+        IReadOnlyList<PromptAttachment>? attachments = MaterializeAttachments(request.Attachments);
+
+        string workspaceRoot = Path.GetFullPath(request.WorkspacePath);
+        PlanningSession? updated = await recorder.AppendMessageAsync(
+            workspaceRoot,
+            sessionId,
+            PlanningSessionRecorder.CreateMessage(
+                role,
+                kind,
+                text,
+                attachments,
+                authorAgent: request.AuthorAgent,
+                relatedRunId: request.RelatedRunId),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (updated is null)
+        {
+            return Results.NotFound(new { error = $"Planning session '{sessionId}' not found." });
+        }
+
+        return Results.Ok(updated);
+    }
+
+    private static IResult? ValidateAttachmentPayloads(IReadOnlyList<AppendPlanningSessionAttachmentPayload>? attachments)
+    {
+        if (attachments is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        for (int i = 0; i < attachments.Count; i++)
+        {
+            AppendPlanningSessionAttachmentPayload? a = attachments[i];
+            if (a is null)
+            {
+                continue;
+            }
+
+            bool hasData = !string.IsNullOrWhiteSpace(a.DataBase64);
+            bool hasStorage = !string.IsNullOrWhiteSpace(a.StoragePath);
+            if (!hasData && !hasStorage)
+            {
+                return Results.BadRequest(new { error = $"Attachment at index {i} must supply either dataBase64 or storagePath." });
+            }
+
+            if (hasData && hasStorage)
+            {
+                return Results.BadRequest(new { error = $"Attachment at index {i} must supply exactly one of dataBase64 or storagePath, not both." });
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<PromptAttachment>? MaterializeAttachments(IReadOnlyList<AppendPlanningSessionAttachmentPayload>? payloads)
+        => payloads?
+            .Where(a => a is not null)
+            .Select(a => new PromptAttachment(
+                string.IsNullOrWhiteSpace(a.Id) ? Guid.NewGuid().ToString("N") : a.Id,
+                string.IsNullOrWhiteSpace(a.Kind) ? PromptAttachmentKinds.IMAGE : a.Kind,
+                a.MimeType ?? "application/octet-stream",
+                a.FileName,
+                a.SizeBytes ?? 0L,
+                a.DataBase64,
+                a.StoragePath)
+            { Caption = a.Caption })
+            .ToArray();
 }
 
 internal sealed record PullRequestLookupContext(string ProviderName, string? Project, string? Repository, string? Author);
 
+internal sealed record AppendPlanningSessionMessageRequest(
+    string? WorkspacePath,
+    string? Role,
+    string? Kind,
+    string? Text,
+    string? AuthorAgent,
+    string? RelatedRunId,
+    IReadOnlyList<AppendPlanningSessionAttachmentPayload>? Attachments);
+
+public sealed record AppendPlanningSessionAttachmentPayload(
+    string? Id,
+    string? Kind,
+    string? MimeType,
+    string? FileName,
+    long? SizeBytes,
+    string? DataBase64,
+    string? StoragePath,
+    string? Caption);

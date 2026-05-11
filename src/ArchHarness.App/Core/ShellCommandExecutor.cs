@@ -38,7 +38,7 @@ public sealed class ShellCommandExecutor : IShellCommandExecutor
 
         if (OperatingSystem.IsWindows())
         {
-            return RunWindowsAsync(command, workingDirectory, cancellationToken);
+            return this.RunWindowsAsync(command, workingDirectory, cancellationToken);
         }
 
         return this._commandRunner.RunAsync(

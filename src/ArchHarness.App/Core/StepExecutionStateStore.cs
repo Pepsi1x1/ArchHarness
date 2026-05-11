@@ -18,13 +18,10 @@ public interface IStepExecutionStateStore
     Task WriteRunStateAsync(
         string workspaceRoot,
         RunRequest request,
-        string runId,
-        string runDirectory,
-        int reviewIteration,
+        StepExecutionContext context,
         string phase,
         IEnumerable<int> completedStepIds,
         AgentStepExecutor.ExecutionState state,
-        string? failureMessage,
         CancellationToken cancellationToken);
 }
 
@@ -58,36 +55,39 @@ public sealed class StepExecutionStateStore : IStepExecutionStateStore
     public Task WriteRunStateAsync(
         string workspaceRoot,
         RunRequest request,
-        string runId,
-        string runDirectory,
-        int reviewIteration,
+        StepExecutionContext context,
         string phase,
         IEnumerable<int> completedStepIds,
         AgentStepExecutor.ExecutionState state,
-        string? failureMessage,
         CancellationToken cancellationToken)
     {
         return this._runStateStore.UpdateStateAsync(
-            runDirectory,
+            context.RunDirectory,
             existingState => new PersistedRunState(
-                runId,
-                runDirectory,
+                context.RunId,
+                context.RunDirectory,
                 workspaceRoot,
-                failureMessage is null ? RunStatuses.RUNNING : RunStatuses.FAILED,
+                RunStatuses.RUNNING,
                 phase,
                 existingState?.StartedAtUtc ?? DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow,
                 request,
                 completedStepIds.OrderBy(id => id).ToArray(),
-                reviewIteration,
+                context.ResumeState?.ReviewIteration ?? 0,
                 state.FrontendPlan,
                 state.FilesTouched.ToArray(),
                 state.Review,
                 state.SecurityReview,
-                failureMessage,
+                FailureMessage: null,
                 Spec: existingState?.Spec,
                 Approval: existingState?.Approval,
-                LastBuildOutcome: state.LastBuildOutcome ?? existingState?.LastBuildOutcome),
+                LastBuildOutcome: state.LastBuildOutcome ?? existingState?.LastBuildOutcome,
+                CompletionValidation: existingState?.CompletionValidation,
+                ClarificationAnswers: existingState?.ClarificationAnswers,
+                HandoffRunId: existingState?.HandoffRunId,
+                PlanningSessionId: existingState?.PlanningSessionId ?? request.PlanningSessionId,
+                ConversationHistory: existingState?.ConversationHistory,
+                CurrentWave: existingState?.CurrentWave ?? 0),
             cancellationToken);
     }
 }

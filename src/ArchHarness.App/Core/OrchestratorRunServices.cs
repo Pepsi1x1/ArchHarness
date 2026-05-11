@@ -11,11 +11,13 @@ public sealed class OrchestratorRunServices
     public OrchestratorRunServices(
         RunSessionContext sessionContext,
         RunInfrastructure runInfrastructure,
-        OrchestratorRuntime.RunPhaseDependencies runPhases)
+        OrchestratorRuntime.RunPhaseDependencies runPhases,
+        IRunAgentModelUsageBuilder agentModelUsageBuilder)
     {
         this.SessionContext = sessionContext;
         this.RunInfrastructure = runInfrastructure;
         this.RunPhases = runPhases;
+        this.AgentModelUsageBuilder = agentModelUsageBuilder;
     }
 
     /// <summary>Gets the session-scoped runtime services.</summary>
@@ -26,4 +28,7 @@ public sealed class OrchestratorRunServices
 
     /// <summary>Gets the run-phase services.</summary>
     public OrchestratorRuntime.RunPhaseDependencies RunPhases { get; }
+
+    /// <summary>Gets the model usage projection service for run logs.</summary>
+    public IRunAgentModelUsageBuilder AgentModelUsageBuilder { get; }
 }

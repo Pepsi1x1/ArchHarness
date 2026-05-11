@@ -57,14 +57,11 @@ public sealed class PlanExecutor : IPlanExecutor
         PlanningContext? planningContext,
         CancellationToken cancellationToken)
     {
-        OrchestrationAgent planningAgent = ResolvePlanningAgent(request.Workflow);
-        ExecutionPlan plan = await planningAgent.BuildExecutionPlanAsync(
+        ExecutionPlan plan = await this.BuildPlanWithResponsibleAgentAsync(
             request,
             adapter.RootPath,
             planningContext,
-            planningAgent.Id,
-            planningAgent.Role,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         await this._eventLogger.AppendEventAsync(runDirectory, new { runId, source = WellKnownSources.ORCHESTRATOR, message = "Execution plan built" }, cancellationToken);
         await this._artifactWriter.WriteExecutionPlanAsync(runDirectory, plan, cancellationToken);
@@ -156,8 +153,24 @@ public sealed class PlanExecutor : IPlanExecutor
         return new PlanExecutionResult(plan, stepResult);
     }
 
-    private OrchestrationAgent ResolvePlanningAgent(string workflow)
-        => string.Equals(workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase)
-            ? this._planningAgent
-            : this._orchestrationAgent;
+    private Task<ExecutionPlan> BuildPlanWithResponsibleAgentAsync(
+        RunRequest request,
+        string workspaceRoot,
+        PlanningContext? planningContext,
+        CancellationToken cancellationToken)
+        => string.Equals(request.Workflow, WorkflowNames.PLANNING, StringComparison.OrdinalIgnoreCase)
+            ? this._planningAgent.BuildExecutionPlanAsync(
+                request,
+                workspaceRoot,
+                planningContext,
+                this._planningAgent.Id,
+                this._planningAgent.Role,
+                cancellationToken)
+            : this._orchestrationAgent.BuildExecutionPlanAsync(
+                request,
+                workspaceRoot,
+                planningContext,
+                this._orchestrationAgent.Id,
+                this._orchestrationAgent.Role,
+                cancellationToken);
 }

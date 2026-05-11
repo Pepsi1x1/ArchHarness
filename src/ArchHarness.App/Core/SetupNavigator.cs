@@ -22,30 +22,32 @@ internal static class SetupNavigator
     {
         if (key == ConsoleKey.UpArrow)
         {
-            int newIdx = selectedIndex == 0 ? fields.Count - 1 : selectedIndex - 1;
-            while (newIdx != selectedIndex && IsNonInteractiveField(fields[newIdx].Id))
-            {
-                newIdx = newIdx == 0 ? fields.Count - 1 : newIdx - 1;
-            }
-
-            selectedIndex = newIdx;
+            selectedIndex = MoveSelection(fields, selectedIndex, -1);
             return true;
         }
 
         if (key == ConsoleKey.DownArrow)
         {
-            int newIdx = selectedIndex == fields.Count - 1 ? 0 : selectedIndex + 1;
-            while (newIdx != selectedIndex && IsNonInteractiveField(fields[newIdx].Id))
-            {
-                newIdx = newIdx == fields.Count - 1 ? 0 : newIdx + 1;
-            }
-
-            selectedIndex = newIdx;
+            selectedIndex = MoveSelection(fields, selectedIndex, 1);
             return true;
         }
 
         return false;
     }
+
+    private static int MoveSelection(IReadOnlyList<SetupField> fields, int selectedIndex, int direction)
+    {
+        int newIndex = WrapIndex(selectedIndex + direction, fields.Count);
+        while (newIndex != selectedIndex && IsNonInteractiveField(fields[newIndex].Id))
+        {
+            newIndex = WrapIndex(newIndex + direction, fields.Count);
+        }
+
+        return newIndex;
+    }
+
+    private static int WrapIndex(int index, int count)
+        => (index + count) % count;
 
     /// <summary>
     /// Returns true when the field ID identifies a non-interactive section header.

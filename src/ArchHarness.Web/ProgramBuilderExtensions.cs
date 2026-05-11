@@ -1,8 +1,8 @@
+using System.Net;
 using ArchHarness.App;
 using ArchHarness.App.Copilot;
 using ArchHarness.App.Core;
 using ArchHarness.Web.Services;
-using System.Net;
 
 namespace ArchHarness.Web;
 

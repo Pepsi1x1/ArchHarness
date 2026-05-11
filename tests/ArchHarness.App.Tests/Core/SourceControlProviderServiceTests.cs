@@ -1,7 +1,7 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
-using System.Globalization;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Tests.TestHelpers;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -681,22 +681,22 @@ public sealed class SourceControlProviderServiceTests
         string? requestUri = null;
         StubHttpMessageHandler handler = new StubHttpMessageHandler((request, _) =>
         {
-          requestUri = request.RequestUri?.ToString();
-          return new HttpResponseMessage(HttpStatusCode.OK)
-          {
-            Content = new StringContent("""{ "count": 1, "value": [] }""", Encoding.UTF8, "application/json")
-          };
+            requestUri = request.RequestUri?.ToString();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{ "count": 1, "value": [] }""", Encoding.UTF8, "application/json")
+            };
         });
 
         AzureDevOpsSourceControlService service = new AzureDevOpsSourceControlService(new HttpClient(handler));
         ProviderConnectionSettings settings = new ProviderConnectionSettings
         {
-          Provider = SourceControlProvider.AzureDevOpsServer,
-          DisplayName = "Contoso Server",
-          ServerUrl = "https://ado.contoso.local/tfs/DefaultCollection",
-          Organization = "DefaultCollection",
-          PersonalAccessToken = "ado-pat",
-          IsEnabled = true
+            Provider = SourceControlProvider.AzureDevOpsServer,
+            DisplayName = "Contoso Server",
+            ServerUrl = "https://ado.contoso.local/tfs/DefaultCollection",
+            Organization = "DefaultCollection",
+            PersonalAccessToken = "ado-pat",
+            IsEnabled = true
         };
 
         ConnectionTestResult result = await service.TestConnectionAsync(settings, CancellationToken.None);

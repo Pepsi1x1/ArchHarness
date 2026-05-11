@@ -1,6 +1,8 @@
 {
   "name": "archharness-electron",
-  "author": { "name": "Pepsi1x1" },
+  "author": {
+    "name": "Pepsi1x1"
+  },
   "version": "0.1.1",
   "private": true,
   "type": "commonjs",
@@ -18,7 +20,7 @@
     "pack:linux": "npm run prepare:win-icon && npm run bundle:web-host && electron-builder --linux AppImage zip --publish never"
   },
   "devDependencies": {
-    "electron": "^41.1.0",
+    "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "png-to-ico": "^3.0.1",
     "rcedit": "^5.0.2",

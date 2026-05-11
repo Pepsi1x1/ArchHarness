@@ -135,8 +135,8 @@ public sealed class CopilotClientTests
             _ = options;
             _ = agentId;
             _ = agentRole;
-            CreateCount++;
-            return _generation == 0
+            this.CreateCount++;
+            return this._generation == 0
                 ? new FailingSession()
                 : new SuccessfulSession();
         }
@@ -145,8 +145,8 @@ public sealed class CopilotClientTests
         {
             _ = model;
             _ = options;
-            InvalidateCount++;
-            _generation++;
+            this.InvalidateCount++;
+            this._generation++;
         }
     }
 
@@ -170,8 +170,8 @@ public sealed class CopilotClientTests
             _ = options;
             _ = agentId;
             _ = agentRole;
-            CreateCount++;
-            return _generation == 0
+            this.CreateCount++;
+            return this._generation == 0
                 ? this._failingSession
                 : new SuccessfulSession();
         }
@@ -180,8 +180,8 @@ public sealed class CopilotClientTests
         {
             _ = model;
             _ = options;
-            InvalidateCount++;
-            _generation++;
+            this.InvalidateCount++;
+            this._generation++;
         }
     }
 
@@ -239,8 +239,8 @@ public sealed class CopilotClientTests
             _ = options;
             _ = agentId;
             _ = agentRole;
-            CreateCount++;
-            return _generation == 0
+            this.CreateCount++;
+            return this._generation == 0
                 ? new CancelingSession()
                 : new SuccessfulSession();
         }
@@ -249,8 +249,8 @@ public sealed class CopilotClientTests
         {
             _ = model;
             _ = options;
-            InvalidateCount++;
-            _generation++;
+            this.InvalidateCount++;
+            this._generation++;
         }
     }
 
@@ -268,7 +268,7 @@ public sealed class CopilotClientTests
         public List<CopilotSessionLifecycleEvent> Events { get; } = new List<CopilotSessionLifecycleEvent>();
 
         public void Publish(CopilotSessionLifecycleEvent evt)
-            => Events.Add(evt);
+            => this.Events.Add(evt);
 
         public async IAsyncEnumerable<CopilotSessionLifecycleEvent> ReadAllAsync([EnumeratorCancellation] CancellationToken cancellationToken)
         {
@@ -325,7 +325,7 @@ public sealed class CopilotClientTests
 
         public Task InvalidateAsync()
         {
-            InvalidateCount++;
+            this.InvalidateCount++;
             return Task.CompletedTask;
         }
     }

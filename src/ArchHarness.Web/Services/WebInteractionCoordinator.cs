@@ -1,3 +1,4 @@
+using ArchHarness.App.Core;
 using ArchHarness.App.Copilot;
 using GitHub.Copilot.SDK;
 
@@ -8,6 +9,8 @@ namespace ArchHarness.Web.Services;
 /// </summary>
 public sealed class WebInteractionCoordinator
 {
+    private const string USER_INPUT_INTERACTION_KIND = "user-input";
+
     private readonly IUserInputState _state;
     private readonly SemaphoreSlim _interactionGate = new SemaphoreSlim(1, 1);
     private readonly object _sync = new object();
@@ -48,7 +51,7 @@ public sealed class WebInteractionCoordinator
             this._state.SetAwaiting(question);
             TaskCompletionSource<object> responseSource = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             PendingInteractionSnapshot snapshot = new PendingInteractionSnapshot(
-                Kind: "user-input",
+                Kind: USER_INPUT_INTERACTION_KIND,
                 Question: question,
                 Choices: request.Choices?.ToArray() ?? Array.Empty<string>(),
                 PermissionKind: null,
@@ -57,7 +60,7 @@ public sealed class WebInteractionCoordinator
 
             lock (this._sync)
             {
-                this._pending = new PendingInteraction("user-input", snapshot, responseSource);
+                this._pending = new PendingInteraction(USER_INPUT_INTERACTION_KIND, snapshot, responseSource);
             }
 
             object response = await responseSource.Task.ConfigureAwait(false);
@@ -101,7 +104,7 @@ public sealed class WebInteractionCoordinator
             this._state.SetAwaiting(question);
             TaskCompletionSource<object> responseSource = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             PendingInteractionSnapshot snapshot = new PendingInteractionSnapshot(
-                Kind: "user-input",
+                Kind: USER_INPUT_INTERACTION_KIND,
                 Question: question,
                 Choices: Array.Empty<string>(),
                 PermissionKind: null,
@@ -111,7 +114,7 @@ public sealed class WebInteractionCoordinator
 
             lock (this._sync)
             {
-                this._pending = new PendingInteraction("user-input", snapshot, responseSource);
+                this._pending = new PendingInteraction(USER_INPUT_INTERACTION_KIND, snapshot, responseSource);
             }
 
             object response = await responseSource.Task.ConfigureAwait(false);
@@ -180,7 +183,7 @@ public sealed class WebInteractionCoordinator
     {
         lock (this._sync)
         {
-            if (this._pending is null || !string.Equals(this._pending.Kind, "user-input", StringComparison.Ordinal))
+            if (this._pending is null || !string.Equals(this._pending.Kind, USER_INPUT_INTERACTION_KIND, StringComparison.Ordinal))
             {
                 return false;
             }
@@ -206,7 +209,7 @@ public sealed class WebInteractionCoordinator
     {
         lock (this._sync)
         {
-            if (this._pending is null || !string.Equals(this._pending.Kind, "user-input", StringComparison.Ordinal))
+            if (this._pending is null || !string.Equals(this._pending.Kind, USER_INPUT_INTERACTION_KIND, StringComparison.Ordinal))
             {
                 return false;
             }
@@ -251,7 +254,7 @@ public sealed class WebInteractionCoordinator
 
             PermissionRequestResultKind kind = approved
                 ? PermissionRequestResultKind.Approved
-                : PermissionRequestResultKind.DeniedInteractivelyByUser;
+                : PermissionRequestResultKind.Rejected;
             return this._pending.ResponseSource.TrySetResult(new PermissionRequestResult { Kind = kind });
         }
     }
@@ -279,18 +282,20 @@ public sealed class WebInteractionCoordinator
         await this._interactionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            string question = $"Review and approve the execution plan:\n{request.SpecMarkdown}";
+            string question = "Review the proposed plan in chat, then approve it or describe what should change.";
             this._state.SetAwaiting(question);
             TaskCompletionSource<object> responseSource = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
             PendingInteractionSnapshot snapshot = new PendingInteractionSnapshot(
                 Kind: "plan-approval",
                 Question: question,
-                Choices: new[] { "Approve", "Regenerate", "Cancel" },
+                Choices: new[] { "Approve", "Cancel" },
                 PermissionKind: null,
-                SessionId: null,
+                SessionId: request.PlanningSessionId,
                 ToolName: null,
                 SpecMarkdown: request.SpecMarkdown,
-                PlanSummary: request.PlanSummary);
+                PlanSummary: request.PlanSummary,
+                PlanReviewMarkdown: request.PlanReviewMarkdown,
+                RunId: request.RunId);
 
             lock (this._sync)
             {
@@ -321,8 +326,9 @@ public sealed class WebInteractionCoordinator
     /// </summary>
     /// <param name="decision">The decision: approved, regenerate, or canceled.</param>
     /// <param name="reason">Optional reason for the decision.</param>
+    /// <param name="attachments">Optional attachments supplied with a regenerate decision.</param>
     /// <returns>True when a pending plan-approval request was completed.</returns>
-    public bool TrySubmitPlanApproval(string decision, string? reason = null)
+    public bool TrySubmitPlanApproval(string decision, string? reason = null, IReadOnlyList<PromptAttachment>? attachments = null)
     {
         lock (this._sync)
         {
@@ -332,7 +338,7 @@ public sealed class WebInteractionCoordinator
             }
 
             return this._pending.ResponseSource.TrySetResult(
-                new ArchHarness.App.Core.PlanApprovalResponse(decision, reason));
+                new ArchHarness.App.Core.PlanApprovalResponse(decision, reason, attachments));
         }
     }
 }

@@ -81,6 +81,10 @@ export async function requestEventStream(url, options) {
       }
     });
 
+    if (dataLines.length === 0) {
+      return;
+    }
+
     let data = null;
     const serialized = dataLines.join("\n");
     if (serialized) {
@@ -119,4 +123,25 @@ export async function requestEventStream(url, options) {
     buffer += decoder.decode(value, { stream: true });
     flushBuffer(false);
   }
+}
+
+export function fetchPlanningSession(sessionId, workspacePath) {
+  const url = `/api/planning-sessions/${encodeURIComponent(sessionId)}?workspacePath=${encodeURIComponent(workspacePath)}`;
+  return requestJson(url);
+}
+
+export function postPlanningFollowUp(sessionId, { workspacePath, text, attachments, relatedRunId, kind = "follow-up" }) {
+  return requestJson(`/api/planning-sessions/${encodeURIComponent(sessionId)}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspacePath,
+      role: "user",
+      kind,
+      text: text ?? "",
+      authorAgent: null,
+      relatedRunId: relatedRunId ?? null,
+      attachments: Array.isArray(attachments) && attachments.length > 0 ? attachments : null
+    })
+  });
 }

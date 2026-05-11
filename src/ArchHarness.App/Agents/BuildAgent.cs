@@ -45,19 +45,10 @@ public sealed class BuildAgent : AgentBase
     /// <returns>A structured build outcome indicating pass/fail and summary.</returns>
     public async Task<BuildOutcome> RunBuildAsync(
         IWorkspaceAdapter workspace,
-        string objective,
         string? buildCommand,
-        IDictionary<string, string>? modelOverrides,
         int stepId = 0,
-        string? agentId = null,
-        string? agentRole = null,
         CancellationToken cancellationToken = default)
     {
-        _ = objective;
-        _ = modelOverrides;
-        _ = agentId;
-        _ = agentRole;
-
         if (string.IsNullOrWhiteSpace(buildCommand))
         {
             return new BuildOutcome(false, "No build command was configured for the build step.", stepId, DateTimeOffset.UtcNow);

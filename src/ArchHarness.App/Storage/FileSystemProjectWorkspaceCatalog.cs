@@ -67,7 +67,7 @@ public sealed class FileSystemProjectWorkspaceCatalog : IProjectWorkspaceCatalog
             string normalizedWorkspacePath = NormalizeWorkspacePath(workspacePath);
             if (projects.Any(project => string.Equals(project.WorkspacePath, normalizedWorkspacePath, StringComparison.OrdinalIgnoreCase)))
             {
-                return EnsureProject(normalizedWorkspacePath, displayName, workspaceMode, permissionHandlerMode, architectureReviewMode, architectureReviewPrompt);
+                return this.EnsureProject(normalizedWorkspacePath, displayName, workspaceMode, permissionHandlerMode, architectureReviewMode, architectureReviewPrompt);
             }
 
             DateTimeOffset now = DateTimeOffset.UtcNow;

@@ -8,6 +8,148 @@ internal sealed record SessionIdentity(string? AgentId, string? AgentRole);
 
 internal sealed record SessionTimeoutSettings(int InactivityTimeoutSeconds, int AbsoluteTimeoutSeconds);
 
+internal sealed class SdkSessionEventTracker
+{
+    private string _lastEventType = "none";
+    private long _lastEventTicks;
+
+    public SdkSessionEventTracker(DateTimeOffset startedAt)
+        => this._lastEventTicks = startedAt.UtcTicks;
+
+    public string LastEventType => this._lastEventType;
+
+    public long LastEventTicks => Interlocked.Read(ref this._lastEventTicks);
+
+    public void Record(string eventType)
+    {
+        this._lastEventType = eventType;
+        Interlocked.Exchange(ref this._lastEventTicks, DateTimeOffset.UtcNow.UtcTicks);
+    }
+}
+
+internal sealed class CopilotTurnCompletionMonitor(
+    Func<Task> abortAsync,
+    IUserInputState userInputState,
+    string prompt,
+    string model,
+    DateTimeOffset startedAt,
+    SdkSessionEventTracker eventTracker,
+    SessionTimeoutSettings timeoutSettings)
+{
+    public async Task AwaitCompletionAsync(
+        Task sendTask,
+        Task completionTask,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            if (sendTask.IsCompleted)
+            {
+                await sendTask.ConfigureAwait(false);
+            }
+
+            if (completionTask.IsCompleted)
+            {
+                await completionTask.ConfigureAwait(false);
+            }
+
+            if (sendTask.IsCompleted && completionTask.IsCompleted)
+            {
+                return;
+            }
+
+            TimeoutState timeoutState = this.EvaluateTimeoutState();
+            await this.ThrowIfTimedOutAsync(timeoutState).ConfigureAwait(false);
+
+            Task pendingSendTask = sendTask.IsCompleted
+                ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                : sendTask;
+            Task pendingCompletionTask = completionTask.IsCompleted
+                ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+                : completionTask;
+
+            await Task.WhenAny(
+                pendingSendTask,
+                pendingCompletionTask,
+                Task.Delay(timeoutState.WaitDuration, cancellationToken)).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+    }
+
+    private TimeoutState EvaluateTimeoutState()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        DateTimeOffset lastEventAt = new(eventTracker.LastEventTicks, TimeSpan.Zero);
+
+        TimeSpan inactivityRemaining = timeoutSettings.InactivityTimeoutSeconds > 0
+            ? TimeSpan.FromSeconds(timeoutSettings.InactivityTimeoutSeconds) - (now - lastEventAt)
+            : Timeout.InfiniteTimeSpan;
+        TimeSpan absoluteRemaining = timeoutSettings.AbsoluteTimeoutSeconds > 0
+            ? TimeSpan.FromSeconds(timeoutSettings.AbsoluteTimeoutSeconds) - (now - startedAt)
+            : Timeout.InfiniteTimeSpan;
+
+        TimeSpan waitDuration = MinRemaining(inactivityRemaining, absoluteRemaining);
+        if (waitDuration != Timeout.InfiniteTimeSpan && waitDuration < TimeSpan.Zero)
+        {
+            waitDuration = TimeSpan.Zero;
+        }
+
+        return new TimeoutState(lastEventAt, inactivityRemaining, absoluteRemaining, waitDuration);
+    }
+
+    private static TimeSpan MinRemaining(TimeSpan first, TimeSpan second)
+    {
+        if (first == Timeout.InfiniteTimeSpan)
+        {
+            return second;
+        }
+
+        if (second == Timeout.InfiniteTimeSpan)
+        {
+            return first;
+        }
+
+        return first < second ? first : second;
+    }
+
+    private async Task ThrowIfTimedOutAsync(TimeoutState timeoutState)
+    {
+        string? timeoutKind = this.ResolveTimeoutKind(timeoutState);
+        if (timeoutKind is null)
+        {
+            return;
+        }
+
+        await abortAsync().ConfigureAwait(false);
+        string promptPreview = prompt.Length <= 140 ? prompt : prompt[..137] + "...";
+        throw new TimeoutException(
+            $"Copilot SDK timed out ({timeoutKind}) for model '{model}'. " +
+            $"LastEvent='{eventTracker.LastEventType}' at {timeoutState.LastEventAt:HH:mm:ss}. " +
+            $"AwaitingUserInput={userInputState.IsAwaitingInput}. Prompt='{promptPreview}'");
+    }
+
+    private string? ResolveTimeoutKind(TimeoutState timeoutState)
+    {
+        if (timeoutState.AbsoluteRemaining <= TimeSpan.Zero)
+        {
+            return $"absolute timeout {timeoutSettings.AbsoluteTimeoutSeconds}s";
+        }
+
+        if (timeoutSettings.InactivityTimeoutSeconds > 0 && timeoutState.InactivityRemaining <= TimeSpan.Zero)
+        {
+            return $"inactivity timeout {timeoutSettings.InactivityTimeoutSeconds}s";
+        }
+
+        return null;
+    }
+
+    private sealed record TimeoutState(
+        DateTimeOffset LastEventAt,
+        TimeSpan InactivityRemaining,
+        TimeSpan AbsoluteRemaining,
+        TimeSpan WaitDuration);
+}
+
 /// <summary>
 /// SDK-backed implementation of <see cref="ICopilotSession"/> that handles event streaming,
 /// timeout evaluation, and completion orchestration for a single session.
@@ -28,9 +170,8 @@ internal sealed class SdkCopilotSession(
         StringBuilder completion = new();
         TaskCompletionSource done = new(TaskCreationOptions.RunContinuationsAsynchronously);
         string? finalMessage = null;
-        string lastEventType = "none";
         DateTimeOffset startedAt = DateTimeOffset.UtcNow;
-        long lastEventTicks = startedAt.UtcTicks;
+        SdkSessionEventTracker eventTracker = new(startedAt);
 
         string agentId = string.IsNullOrWhiteSpace(sessionIdentity.AgentId) ? "unknown" : sessionIdentity.AgentId;
         string agentRole = string.IsNullOrWhiteSpace(sessionIdentity.AgentRole) ? "unknown" : sessionIdentity.AgentRole;
@@ -47,8 +188,7 @@ internal sealed class SdkCopilotSession(
 
         using IDisposable subscription = handle.Session.On(evt =>
         {
-            lastEventType = evt.Type;
-            Interlocked.Exchange(ref lastEventTicks, DateTimeOffset.UtcNow.UtcTicks);
+            eventTracker.Record(evt.Type);
 
             string eventType = ResolveEventType(evt);
             sessionContext.SdkEventStream.Publish(CreateRawSdkEvent(evt, handle.Session.SessionId, model, eventType));
@@ -92,25 +232,25 @@ internal sealed class SdkCopilotSession(
                     // returning and allowing the next step to send another prompt.
                     break;
                 case ToolExecutionStartEvent toolStart:
-                {
-                    string? toolName = TryGetToolName(toolStart.Data);
-                    if (!string.IsNullOrWhiteSpace(toolName))
                     {
-                        string argsJson = TryGetToolArgs(toolStart.Data) ?? "{}";
-                        string escapedName = System.Text.Json.JsonSerializer.Serialize(toolName);
-                        string message = $"{{\"name\":{escapedName},\"args\":{argsJson}}}";
-                        sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
-                            DateTimeOffset.UtcNow,
-                            agentId,
-                            agentRole,
-                            message,
-                            ContentFormat: "text",
-                            StreamKind: "tool-call",
-                            Title: toolName));
-                    }
+                        string? toolName = TryGetToolName(toolStart.Data);
+                        if (!string.IsNullOrWhiteSpace(toolName))
+                        {
+                            string argsJson = TryGetToolArgs(toolStart.Data) ?? "{}";
+                            string escapedName = System.Text.Json.JsonSerializer.Serialize(toolName);
+                            string message = $"{{\"name\":{escapedName},\"args\":{argsJson}}}";
+                            sessionContext.AgentStream.Publish(new AgentStreamDeltaEvent(
+                                DateTimeOffset.UtcNow,
+                                agentId,
+                                agentRole,
+                                message,
+                                ContentFormat: "text",
+                                StreamKind: "tool-call",
+                                Title: toolName));
+                        }
 
-                    break;
-                }
+                        break;
+                    }
                 case SessionErrorEvent err:
                     // Only treat the error as fatal if the SDK did not already
                     // surface it as a recoverable tool-use failure via the
@@ -133,21 +273,18 @@ internal sealed class SdkCopilotSession(
         try
         {
             using CancellationTokenRegistration registration = cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
-            Task sendTask = BeginSendAsync(() => handle.Session.SendAsync(new MessageOptions { Prompt = prompt, Mode = "immediate" }));
-
-            await AwaitTurnCompletionAsync(
-                sendTask,
-                done.Task,
+            MessageOptions messageOptions = BuildMessageOptions(prompt, options);
+            Task sendTask = BeginSendAsync(() => handle.Session.SendAsync(messageOptions));
+            CopilotTurnCompletionMonitor turnCompletionMonitor = new(
                 () => handle.Session.AbortAsync(),
                 sessionContext.UserInputState,
                 prompt,
                 model,
                 startedAt,
-                () => lastEventType,
-                () => Interlocked.Read(ref lastEventTicks),
-                timeoutSettings.InactivityTimeoutSeconds,
-                timeoutSettings.AbsoluteTimeoutSeconds,
-                cancellationToken).ConfigureAwait(false);
+                eventTracker,
+                timeoutSettings);
+
+            await turnCompletionMonitor.AwaitCompletionAsync(sendTask, done.Task, cancellationToken).ConfigureAwait(false);
 
             string response = !string.IsNullOrWhiteSpace(finalMessage)
                 ? finalMessage
@@ -161,154 +298,8 @@ internal sealed class SdkCopilotSession(
         }
     }
 
-    internal static Task AwaitTurnCompletionAsync(
-        Task sendTask,
-        Task completionTask,
-        Func<Task> abortAsync,
-        IUserInputState userInputState,
-        string prompt,
-        string model,
-        DateTimeOffset startedAt,
-        Func<string> getLastEventType,
-        Func<long> getLastEventTicks,
-        int inactivityTimeoutSeconds,
-        int absoluteTimeoutSeconds,
-        CancellationToken cancellationToken)
-        => AwaitTurnCompletionCoreAsync(
-            sendTask,
-            completionTask,
-            new SessionTimeoutContext(
-                abortAsync,
-                userInputState,
-                prompt,
-                model,
-                startedAt,
-                getLastEventType,
-                getLastEventTicks,
-                inactivityTimeoutSeconds,
-                absoluteTimeoutSeconds),
-            cancellationToken);
-
     internal static Task BeginSendAsync(Func<Task> sendAsync)
         => Task.Run(sendAsync, CancellationToken.None);
-
-    private static async Task AwaitTurnCompletionCoreAsync(
-        Task sendTask,
-        Task completionTask,
-        SessionTimeoutContext context,
-        CancellationToken cancellationToken)
-    {
-        while (true)
-        {
-            if (sendTask.IsCompleted)
-            {
-                await sendTask.ConfigureAwait(false);
-            }
-
-            if (completionTask.IsCompleted)
-            {
-                await completionTask.ConfigureAwait(false);
-            }
-
-            if (sendTask.IsCompleted && completionTask.IsCompleted)
-            {
-                return;
-            }
-
-            TimeoutState timeoutState = EvaluateTimeoutState(
-                context.StartedAt,
-                context.GetLastEventTicks(),
-                context.InactivityTimeoutSeconds,
-                context.AbsoluteTimeoutSeconds);
-            await ThrowIfTimedOutAsync(context, timeoutState).ConfigureAwait(false);
-
-            Task pendingSendTask = sendTask.IsCompleted
-                ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
-                : sendTask;
-            Task pendingCompletionTask = completionTask.IsCompleted
-                ? Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
-                : completionTask;
-
-            await Task.WhenAny(
-                pendingSendTask,
-                pendingCompletionTask,
-                Task.Delay(timeoutState.WaitDuration, cancellationToken)).ConfigureAwait(false);
-            cancellationToken.ThrowIfCancellationRequested();
-        }
-    }
-
-    private static TimeoutState EvaluateTimeoutState(
-        DateTimeOffset startedAt,
-        long lastEventTicks,
-        int inactivityTimeoutSeconds,
-        int absoluteTimeoutSeconds)
-    {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        DateTimeOffset lastEventAt = new(lastEventTicks, TimeSpan.Zero);
-
-        TimeSpan inactivityRemaining = inactivityTimeoutSeconds > 0
-            ? TimeSpan.FromSeconds(inactivityTimeoutSeconds) - (now - lastEventAt)
-            : Timeout.InfiniteTimeSpan;
-        TimeSpan absoluteRemaining = absoluteTimeoutSeconds > 0
-            ? TimeSpan.FromSeconds(absoluteTimeoutSeconds) - (now - startedAt)
-            : Timeout.InfiniteTimeSpan;
-
-        // Pick the shorter of the two remaining budgets, treating Timeout.InfiniteTimeSpan
-        // as "no budget" rather than a negative TimeSpan. A prior version compared the two
-        // TimeSpan values directly, which let Timeout.InfiniteTimeSpan (-1 ms) win over any
-        // finite remaining budget and produced Task.Delay(Timeout.InfiniteTimeSpan) — so the
-        // loop never woke up to check the absolute timeout when the SDK stopped emitting
-        // events mid-turn (e.g. stalled reasoning in parallel sessions).
-        TimeSpan waitDuration = MinRemaining(inactivityRemaining, absoluteRemaining);
-        if (waitDuration != Timeout.InfiniteTimeSpan && waitDuration < TimeSpan.Zero)
-        {
-            waitDuration = TimeSpan.Zero;
-        }
-
-        return new TimeoutState(lastEventAt, inactivityRemaining, absoluteRemaining, waitDuration);
-    }
-
-    private static TimeSpan MinRemaining(TimeSpan a, TimeSpan b)
-    {
-        if (a == Timeout.InfiniteTimeSpan)
-        {
-            return b;
-        }
-
-        if (b == Timeout.InfiniteTimeSpan)
-        {
-            return a;
-        }
-
-        return a < b ? a : b;
-    }
-
-    private static async Task ThrowIfTimedOutAsync(
-        SessionTimeoutContext context,
-        TimeoutState timeoutState)
-    {
-        string? timeoutKind = null;
-        if (timeoutState.AbsoluteRemaining <= TimeSpan.Zero)
-        {
-            timeoutKind = $"absolute timeout {context.AbsoluteTimeoutSeconds}s";
-        }
-        else if (context.InactivityTimeoutSeconds > 0 && timeoutState.InactivityRemaining <= TimeSpan.Zero)
-        {
-            timeoutKind = $"inactivity timeout {context.InactivityTimeoutSeconds}s";
-        }
-
-        if (timeoutKind is null)
-        {
-            return;
-        }
-
-        await context.AbortAsync().ConfigureAwait(false);
-        string promptPreview = context.Prompt.Length <= 140 ? context.Prompt : context.Prompt[..137] + "...";
-        throw new TimeoutException(
-            $"Copilot SDK timed out ({timeoutKind}) for model '{context.Model}'. " +
-            $"LastEvent='{context.GetLastEventType()}' at {timeoutState.LastEventAt:HH:mm:ss}. " +
-            $"AwaitingUserInput={context.UserInputState.IsAwaitingInput}. Prompt='{promptPreview}'");
-    }
 
     internal static bool IsRecoverableSessionError(SessionErrorEvent err)
     {
@@ -391,20 +382,39 @@ internal sealed class SdkCopilotSession(
         };
     }
 
-    private sealed record TimeoutState(
-        DateTimeOffset LastEventAt,
-        TimeSpan InactivityRemaining,
-        TimeSpan AbsoluteRemaining,
-        TimeSpan WaitDuration);
+    internal static MessageOptions BuildMessageOptions(string prompt, CopilotCompletionOptions? options)
+    {
+        MessageOptions messageOptions = new() { Prompt = prompt, Mode = "immediate" };
+        IReadOnlyList<PromptAttachment>? attachments = options?.Attachments;
+        if (attachments is null || attachments.Count == 0)
+        {
+            return messageOptions;
+        }
 
-    private sealed record SessionTimeoutContext(
-        Func<Task> AbortAsync,
-        IUserInputState UserInputState,
-        string Prompt,
-        string Model,
-        DateTimeOffset StartedAt,
-        Func<string> GetLastEventType,
-        Func<long> GetLastEventTicks,
-        int InactivityTimeoutSeconds,
-        int AbsoluteTimeoutSeconds);
+        List<UserMessageAttachment> sdkItems = new(attachments.Count);
+        foreach (PromptAttachment attachment in attachments)
+        {
+            if (string.IsNullOrWhiteSpace(attachment.DataBase64))
+            {
+                // Only inline blob attachments are transported to the SDK today. Skip references
+                // that only carry a StoragePath; callers that persisted attachments must load
+                // the payload into DataBase64 before dispatch.
+                continue;
+            }
+
+            sdkItems.Add(new UserMessageAttachmentBlob
+            {
+                Data = attachment.DataBase64,
+                MimeType = attachment.MimeType,
+                DisplayName = attachment.FileName,
+            });
+        }
+
+        if (sdkItems.Count > 0)
+        {
+            messageOptions.Attachments = sdkItems;
+        }
+
+        return messageOptions;
+    }
 }

@@ -31,7 +31,7 @@ public sealed class InteractivePermissionPromptHandler : ICopilotPermissionPromp
     {
         if (Console.IsInputRedirected)
         {
-            return CreatePermissionResult(PermissionRequestResultKind.DeniedCouldNotRequestFromUser);
+            return CreatePermissionResult(PermissionRequestResultKind.UserNotAvailable);
         }
 
         await this._permissionPromptGate.WaitAsync().ConfigureAwait(false);
@@ -71,7 +71,7 @@ public sealed class InteractivePermissionPromptHandler : ICopilotPermissionPromp
 
             return IsApprovalAnswer(answer)
                 ? CreatePermissionResult(PermissionRequestResultKind.Approved)
-                : CreatePermissionResult(PermissionRequestResultKind.DeniedInteractivelyByUser);
+                : CreatePermissionResult(PermissionRequestResultKind.Rejected);
         }
         finally
         {

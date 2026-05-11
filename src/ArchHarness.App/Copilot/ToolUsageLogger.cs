@@ -1,6 +1,6 @@
-using System.Text.Json;
-using System.Text;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using ArchHarness.App.Core;
 using ArchHarness.App.Storage;
 using GitHub.Copilot.SDK;
@@ -261,24 +261,7 @@ public sealed class ToolUsageLogger : IToolUsageLogger
         }
 
         Type type = value.GetType();
-        if (value is string
-            || value is bool
-            || value is char
-            || value is byte
-            || value is sbyte
-            || value is short
-            || value is ushort
-            || value is int
-            || value is uint
-            || value is long
-            || value is ulong
-            || value is float
-            || value is double
-            || value is decimal
-            || value is Guid
-            || value is DateTime
-            || value is DateTimeOffset
-            || value is TimeSpan)
+        if (IsScalarValue(value))
         {
             return value;
         }
@@ -302,56 +285,15 @@ public sealed class ToolUsageLogger : IToolUsageLogger
         {
             if (value is System.Collections.IDictionary dictionary)
             {
-                Dictionary<string, object?> snapshot = new Dictionary<string, object?>();
-                foreach (System.Collections.DictionaryEntry entry in dictionary)
-                {
-                    string key = entry.Key?.ToString() ?? string.Empty;
-                    snapshot[key] = SnapshotValue(entry.Value, depth + 1, visited);
-                }
-
-                return snapshot;
+                return SnapshotDictionary(dictionary, depth, visited);
             }
 
             if (value is System.Collections.IEnumerable enumerable && value is not string)
             {
-                List<object?> items = new List<object?>();
-                int count = 0;
-                foreach (object? item in enumerable)
-                {
-                    if (count++ >= 32)
-                    {
-                        items.Add("(truncated)");
-                        break;
-                    }
-
-                    items.Add(SnapshotValue(item, depth + 1, visited));
-                }
-
-                return items;
+                return SnapshotEnumerable(enumerable, depth, visited);
             }
 
-            Dictionary<string, object?> objectSnapshot = new Dictionary<string, object?>();
-            foreach (System.Reflection.PropertyInfo property in type.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
-            {
-                if (property.GetIndexParameters().Length > 0 || !property.CanRead)
-                {
-                    continue;
-                }
-
-                object? propertyValue;
-                try
-                {
-                    propertyValue = property.GetValue(value);
-                }
-                catch (Exception ex)
-                {
-                    propertyValue = $"(unavailable: {ex.GetType().Name})";
-                }
-
-                objectSnapshot[property.Name] = SnapshotValue(propertyValue, depth + 1, visited);
-            }
-
-            return objectSnapshot.Count == 0 ? value.ToString() : objectSnapshot;
+            return SnapshotObject(value, type, depth, visited);
         }
         finally
         {
@@ -360,6 +302,92 @@ public sealed class ToolUsageLogger : IToolUsageLogger
                 visited.Remove(value);
             }
         }
+    }
+
+    private static bool IsScalarValue(object value)
+        => value is string
+            || value is bool
+            || value is char
+            || value is byte
+            || value is sbyte
+            || value is short
+            || value is ushort
+            || value is int
+            || value is uint
+            || value is long
+            || value is ulong
+            || value is float
+            || value is double
+            || value is decimal
+            || value is Guid
+            || value is DateTime
+            || value is DateTimeOffset
+            || value is TimeSpan;
+
+    private static Dictionary<string, object?> SnapshotDictionary(System.Collections.IDictionary dictionary, int depth, HashSet<object> visited)
+    {
+        Dictionary<string, object?> snapshot = new Dictionary<string, object?>();
+        foreach (System.Collections.DictionaryEntry entry in dictionary)
+        {
+            string key = entry.Key?.ToString() ?? string.Empty;
+            snapshot[key] = SnapshotValue(entry.Value, depth + 1, visited);
+        }
+
+        return snapshot;
+    }
+
+    private static List<object?> SnapshotEnumerable(System.Collections.IEnumerable enumerable, int depth, HashSet<object> visited)
+    {
+        List<object?> items = new List<object?>();
+        int count = 0;
+        foreach (object? item in enumerable)
+        {
+            if (count++ >= 32)
+            {
+                items.Add("(truncated)");
+                break;
+            }
+
+            items.Add(SnapshotValue(item, depth + 1, visited));
+        }
+
+        return items;
+    }
+
+    private static object? SnapshotObject(object value, Type type, int depth, HashSet<object> visited)
+    {
+        Dictionary<string, object?> objectSnapshot = new Dictionary<string, object?>();
+        foreach (System.Reflection.PropertyInfo property in type.GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+        {
+            AddPropertySnapshot(objectSnapshot, value, property, depth, visited);
+        }
+
+        return objectSnapshot.Count == 0 ? value.ToString() : objectSnapshot;
+    }
+
+    private static void AddPropertySnapshot(
+        Dictionary<string, object?> objectSnapshot,
+        object value,
+        System.Reflection.PropertyInfo property,
+        int depth,
+        HashSet<object> visited)
+    {
+        if (property.GetIndexParameters().Length > 0 || !property.CanRead)
+        {
+            return;
+        }
+
+        object? propertyValue;
+        try
+        {
+            propertyValue = property.GetValue(value);
+        }
+        catch (Exception ex)
+        {
+            propertyValue = $"(unavailable: {ex.GetType().Name})";
+        }
+
+        objectSnapshot[property.Name] = SnapshotValue(propertyValue, depth + 1, visited);
     }
 
     private static object? TryReadProperty(object instance, string propertyName)

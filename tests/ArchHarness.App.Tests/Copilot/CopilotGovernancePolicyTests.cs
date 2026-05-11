@@ -54,7 +54,7 @@ public sealed class CopilotGovernancePolicyTests
 
         public Task LogPostToolUseAsync(PostToolUseHookInput input)
         {
-            LogPostCalled = true;
+            this.LogPostCalled = true;
             throw new InvalidOperationException("Failure post hooks should bypass the logger.");
         }
     }
@@ -68,7 +68,7 @@ public sealed class CopilotGovernancePolicyTests
 
         public Task LogPostToolUseAsync(PostToolUseHookInput input)
         {
-            LogPostCalled = true;
+            this.LogPostCalled = true;
             return Task.CompletedTask;
         }
     }

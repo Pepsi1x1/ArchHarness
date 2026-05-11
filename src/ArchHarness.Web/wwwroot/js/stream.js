@@ -117,6 +117,10 @@ function restoreDetailsState(container, map) {
   });
 }
 
+function notifyStreamRendered() {
+  globalThis.dispatchEvent(new CustomEvent("archharness:stream-rendered"));
+}
+
 function buildSectionBodyHtml(section) {
   if (section.segments.length === 0) {
     return `<pre>Waiting for rendered markdown...</pre>`;
@@ -175,6 +179,7 @@ export function renderStream() {
 
   scrollStreamToBottom();
   renderTopbar();
+  notifyStreamRendered();
 }
 
 export function syncSubmittedPromptSection(promptText) {
@@ -308,6 +313,8 @@ function flushPendingRenders() {
   for (const agentId of agentIds) {
     scheduleStreamRender(agentId);
   }
+
+  notifyStreamRendered();
 }
 
 export function scheduleIncrementalRender(agentId) {
@@ -371,6 +378,7 @@ async function renderStreamSectionMarkdown(agentId) {
     setSanitizedHtml(container, buildSectionBodyHtml(section));
     restoreDetailsState(container, openState);
     scrollStreamToBottom();
+    notifyStreamRendered();
   } else {
     renderStream();
   }
@@ -557,6 +565,20 @@ export function connectEventStream() {
     } else if (kind === "runtime-progress") {
       const message = readEventField(payload, "message") || "";
       const source = readEventField(payload, "source") || "";
+      const details = readEventField(payload, "details") || "";
+      if (source === "Planning" && message === "Plan review ready" && details) {
+        const planReviewAgentId = readEventField(payload, "agentId") || `planning-review-${state.activeRun?.runId || "active"}`;
+        recordStreamEvent({
+          ...payload,
+          kind: "agent-delta",
+          agentId: planReviewAgentId,
+          agentRole: "Planning",
+          message: details,
+          contentFormat: "markdown",
+          streamKind: "assistant",
+          title: "Plan Review"
+        });
+      }
       if (message.endsWith("prompt started") && source) {
         showAgentSpinningUp(source);
       }

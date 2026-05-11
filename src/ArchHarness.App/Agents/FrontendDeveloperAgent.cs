@@ -11,23 +11,6 @@ namespace ArchHarness.App.Agents;
 public sealed class FrontendDeveloperAgent : AgentBase
 {
     private static readonly SearchOption RECURSIVE = SearchOption.AllDirectories;
-    private const string FRONTEND_DEVELOPER_INSTRUCTIONS_FALLBACK = """
-        You are the Frontend Developer Agent.
-        Execute delegated frontend tasks using agent-mode built-in tools.
-        Focus on UI/UX design, component architecture, accessibility, and state management decisions.
-        Create and edit frontend-related files directly within the workspace.
-        Do not run baseline or validation builds unless the delegated prompt explicitly requires a build-related frontend change.
-        The dedicated Build agent owns routine build execution and build-result triage.
-        Return a concise completion summary.
-        """;
-    private const string FRONTEND_DEVELOPER_EXECUTION_PROMPT_FALLBACK = """
-        WorkspaceRoot: {{WorkspaceRoot}}
-
-        DelegatedPrompt:
-        {{DelegatedPrompt}}
-
-        Return a concise completion summary.
-        """;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FrontendDeveloperAgent"/> class.
@@ -60,7 +43,7 @@ public sealed class FrontendDeveloperAgent : AgentBase
         Dictionary<string, (long Length, long LastWriteUtcTicks)> baseline = WorkspaceSnapshotHelper.CaptureSnapshot(workspace.RootPath);
         string guidelines = base.IsGuidelinesDisabled ? string.Empty : LoadFrontendGuidelines(workspace.RootPath, delegatedPrompt);
         string systemPrompt = BuildSystemPrompt(guidelines, base.IsGuidelinesDisabled);
-        string promptTemplate = PromptLoader.Load("Frontend Developer", "execution.md", FRONTEND_DEVELOPER_EXECUTION_PROMPT_FALLBACK);
+        string promptTemplate = PromptLoader.Load("Frontend Developer", "execution.md");
         string prompt = PromptLoader.Render(
             promptTemplate,
             ("{{WorkspaceRoot}}", workspace.RootPath),
@@ -85,7 +68,7 @@ public sealed class FrontendDeveloperAgent : AgentBase
 
     private static string BuildSystemPrompt(string guidelines, bool disableGuidelines)
     {
-        string systemInstructions = PromptLoader.Load("Frontend Developer", "system.md", FRONTEND_DEVELOPER_INSTRUCTIONS_FALLBACK);
+        string systemInstructions = PromptLoader.Load("Frontend Developer", "system.md");
         if (disableGuidelines)
         {
             return systemInstructions;

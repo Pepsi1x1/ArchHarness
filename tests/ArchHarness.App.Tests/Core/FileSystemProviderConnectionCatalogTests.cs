@@ -105,7 +105,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     {
         string storagePath = Path.Combine(this._root, "providers.json");
         Directory.CreateDirectory(this._root);
-                await File.WriteAllTextAsync(storagePath, """
+        await File.WriteAllTextAsync(storagePath, """
             [
               {
                 "provider": 2,
@@ -309,7 +309,7 @@ public sealed class FileSystemProviderConnectionCatalogTests : IDisposable
     {
         string storagePath = Path.Combine(this._root, "providers.json");
         Directory.CreateDirectory(this._root);
-                await File.WriteAllTextAsync(storagePath, """
+        await File.WriteAllTextAsync(storagePath, """
             [
               {
                 "provider": 2,

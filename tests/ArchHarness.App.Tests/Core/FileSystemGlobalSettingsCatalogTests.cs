@@ -13,7 +13,7 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
     [Fact]
     public void GetSettings_WithoutFile_ReturnsDefaultsFromConfiguredOptions()
     {
-        FileSystemGlobalSettingsCatalog catalog = CreateCatalog();
+        FileSystemGlobalSettingsCatalog catalog = this.CreateCatalog();
 
         PersistedGlobalSettings settings = catalog.GetSettings();
 
@@ -32,7 +32,7 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
     [Fact]
     public void UpdateSettings_PersistsUpdatedValues()
     {
-        FileSystemGlobalSettingsCatalog catalog = CreateCatalog();
+        FileSystemGlobalSettingsCatalog catalog = this.CreateCatalog();
 
         PersistedGlobalSettings updated = catalog.UpdateSettings(new UpdatePersistedGlobalSettings(
             ConversationModel: WellKnownModelNames.GPT_5_4,
@@ -52,7 +52,7 @@ public sealed partial class FileSystemGlobalSettingsCatalogTests : IDisposable
             DefaultArchitectureReviewMode: false,
             DefaultArchitectureReviewPrompt: null));
 
-        FileSystemGlobalSettingsCatalog reloaded = CreateCatalog();
+        FileSystemGlobalSettingsCatalog reloaded = this.CreateCatalog();
         PersistedGlobalSettings reloadedSettings = reloaded.GetSettings();
 
         Assert.Equal(WellKnownModelNames.GPT_5_4, updated.ConversationModel);

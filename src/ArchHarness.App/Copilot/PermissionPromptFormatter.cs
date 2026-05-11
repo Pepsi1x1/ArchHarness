@@ -24,52 +24,20 @@ public static class PermissionPromptFormatter
         switch (request)
         {
             case PermissionRequestShell shell:
-                if (!string.IsNullOrWhiteSpace(shell.Intention))
-                {
-                    lines.Add($"Intent: {shell.Intention}");
-                }
-
-                if (!string.IsNullOrWhiteSpace(shell.FullCommandText))
-                {
-                    lines.Add($"Command: {shell.FullCommandText}");
-                }
-
+                AddIntent(lines, shell.Intention);
+                AddDetail(lines, "Command", shell.FullCommandText);
                 break;
             case PermissionRequestWrite write:
-                if (!string.IsNullOrWhiteSpace(write.Intention))
-                {
-                    lines.Add($"Intent: {write.Intention}");
-                }
-
-                if (!string.IsNullOrWhiteSpace(write.FileName))
-                {
-                    lines.Add($"File: {write.FileName}");
-                }
-
+                AddIntent(lines, write.Intention);
+                AddDetail(lines, "File", write.FileName);
                 break;
             case PermissionRequestRead read:
-                if (!string.IsNullOrWhiteSpace(read.Intention))
-                {
-                    lines.Add($"Intent: {read.Intention}");
-                }
-
-                if (!string.IsNullOrWhiteSpace(read.Path))
-                {
-                    lines.Add($"Path: {read.Path}");
-                }
-
+                AddIntent(lines, read.Intention);
+                AddDetail(lines, "Path", read.Path);
                 break;
             case PermissionRequestUrl url:
-                if (!string.IsNullOrWhiteSpace(url.Intention))
-                {
-                    lines.Add($"Intent: {url.Intention}");
-                }
-
-                if (!string.IsNullOrWhiteSpace(url.Url))
-                {
-                    lines.Add($"URL: {url.Url}");
-                }
-
+                AddIntent(lines, url.Intention);
+                AddDetail(lines, "URL", url.Url);
                 break;
             case PermissionRequestMcp mcp:
                 lines.Add($"Tool: {mcp.ServerName}/{mcp.ToolName}");
@@ -81,15 +49,22 @@ public static class PermissionPromptFormatter
                 lines.Add($"Hook: {hook.ToolName}");
                 break;
             case PermissionRequestMemory memory:
-                if (!string.IsNullOrWhiteSpace(memory.Subject))
-                {
-                    lines.Add($"Subject: {memory.Subject}");
-                }
-
+                AddDetail(lines, "Subject", memory.Subject);
                 break;
         }
 
         lines.Add("Approve this request?");
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AddIntent(List<string> lines, string? intention)
+        => AddDetail(lines, "Intent", intention);
+
+    private static void AddDetail(List<string> lines, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            lines.Add($"{label}: {value}");
+        }
     }
 }

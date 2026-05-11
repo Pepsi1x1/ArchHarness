@@ -1,11 +1,11 @@
+using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
-using System.Globalization;
-using ArchHarness.App.Core;
 using ArchHarness.App.Constants;
+using ArchHarness.App.Core;
 using ArchHarness.App.SourceControl;
 using ArchHarness.App.Storage;
 
@@ -116,7 +116,7 @@ public sealed class WebApiTests
 
         string runDirectory = Path.Combine(workspacePath, ".agent-harness", "runs", "20260315T120000000");
         Directory.CreateDirectory(runDirectory);
-                await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), $$"""
+        await File.WriteAllTextAsync(Path.Combine(runDirectory, "run-log.json"), $$"""
                         {
                             "status": "{{RunStatuses.COMPLETED}}",
                             "projectId": "ignored-by-grouping",
@@ -312,7 +312,7 @@ public sealed class WebApiTests
 
         JsonDocument stateDocument = JsonDocument.Parse(await client.GetStringAsync($"/api/runs/{runId}/state?workspacePath={Uri.EscapeDataString(workspacePath)}"));
         Assert.True(stateDocument.RootElement.GetProperty("canResume").GetBoolean());
-    Assert.Equal(RunPhases.EXECUTING_PLAN, stateDocument.RootElement.GetProperty("phase").GetString());
+        Assert.Equal(RunPhases.EXECUTING_PLAN, stateDocument.RootElement.GetProperty("phase").GetString());
 
         HttpResponseMessage resumeResponse = await client.PostAsync($"/api/runs/{runId}/resume?workspacePath={Uri.EscapeDataString(workspacePath)}", null);
         Assert.Equal(HttpStatusCode.Accepted, resumeResponse.StatusCode);
@@ -1302,43 +1302,43 @@ public sealed class WebApiTests
         Assert.Equal("21", pullRequest.GetProperty("id").GetString());
     }
 
-        /// <summary>
-        /// ProvidersEndpoint — ClearsGitHubPersonalAccessTokenWhenRequested
-        /// </summary>
-        [Fact]
-        public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenRequested()
+    /// <summary>
+    /// ProvidersEndpoint — ClearsGitHubPersonalAccessTokenWhenRequested
+    /// </summary>
+    [Fact]
+    public async Task ProvidersEndpoint_ClearsGitHubPersonalAccessTokenWhenRequested()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
         {
-                using TestWebApplicationFactory factory = new TestWebApplicationFactory();
-                await factory.SeedProviderConnectionsAsync(new ProviderConnectionSettings
-                {
-                        Provider = SourceControlProvider.GitHub,
-                        DisplayName = "GitHub",
-                        Organization = "octo-org",
-                        PersonalAccessToken = "github-pat",
-                        IsEnabled = true
-                });
-                factory.ConfigureGitHubResponse((request, _) =>
-                {
-                        string requestUri = request.RequestUri?.ToString() ?? string.Empty;
-                        Assert.Null(request.Headers.Authorization);
+            Provider = SourceControlProvider.GitHub,
+            DisplayName = "GitHub",
+            Organization = "octo-org",
+            PersonalAccessToken = "github-pat",
+            IsEnabled = true
+        });
+        factory.ConfigureGitHubResponse((request, _) =>
+        {
+            string requestUri = request.RequestUri?.ToString() ?? string.Empty;
+            Assert.Null(request.Headers.Authorization);
 
-                        if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
+            if (requestUri == "https://api.github.com/orgs/octo-org/repos?type=all&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
                                                 [
                                                     { "name": "archharness" }
                                                 ]
                                                 """, Encoding.UTF8, "application/json")
-                                };
-                        }
+                };
+            }
 
-                        if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
-                        {
-                                return new HttpResponseMessage(HttpStatusCode.OK)
-                                {
-                                        Content = new StringContent("""
+            if (requestUri == "https://api.github.com/repos/octo-org/archharness/pulls?state=open&per_page=100&page=1")
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""
                                                 [
                                                     {
                                                         "number": 21,
@@ -1359,36 +1359,36 @@ public sealed class WebApiTests
                                                     }
                                                 ]
                                                 """, Encoding.UTF8, "application/json")
-                                };
-                        }
+                };
+            }
 
-                        throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
-                });
-                using HttpClient client = factory.CreateClient();
+            throw new Xunit.Sdk.XunitException($"Unexpected GitHub request URI: {requestUri}");
+        });
+        using HttpClient client = factory.CreateClient();
 
-                HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
-                {
-                        provider = (int)SourceControlProvider.GitHub,
-                        displayName = "GitHub",
-                        serverUrl = (string?)null,
-                        organization = "octo-org",
-                        personalAccessToken = (string?)null,
-                        clearPersonalAccessToken = true,
-                        isEnabled = true
-                });
+        HttpResponseMessage saveResponse = await client.PostAsJsonAsync("/api/providers", new
+        {
+            provider = (int)SourceControlProvider.GitHub,
+            displayName = "GitHub",
+            serverUrl = (string?)null,
+            organization = "octo-org",
+            personalAccessToken = (string?)null,
+            clearPersonalAccessToken = true,
+            isEnabled = true
+        });
 
-                Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, saveResponse.StatusCode);
 
-                JsonDocument savedDocument = JsonDocument.Parse(await saveResponse.Content.ReadAsStringAsync());
-                Assert.False(savedDocument.RootElement.GetProperty("hasStoredPersonalAccessToken").GetBoolean());
+        JsonDocument savedDocument = JsonDocument.Parse(await saveResponse.Content.ReadAsStringAsync());
+        Assert.False(savedDocument.RootElement.GetProperty("hasStoredPersonalAccessToken").GetBoolean());
 
-                HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
+        HttpResponseMessage response = await client.GetAsync("/api/providers/GitHub/pullrequests?repository=archharness");
 
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
-                Assert.Equal("21", pullRequest.GetProperty("id").GetString());
-        }
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        JsonElement pullRequest = Assert.Single(document.RootElement.EnumerateArray());
+        Assert.Equal("21", pullRequest.GetProperty("id").GetString());
+    }
 
     /// <summary>
     /// ProviderPullRequestsEndpoint — UsesAzureDevOpsProjectFilterWithoutListingAllProjects
@@ -1990,5 +1990,121 @@ public sealed class WebApiTests
         Assert.True(root.TryGetProperty("agentModels", out _));
         Assert.True(root.TryGetProperty("defaults", out _));
         Assert.True(root.TryGetProperty("updatedAtUtc", out _));
+    }
+
+    /// <summary>
+    /// PlanningSessionEndpoint — ReturnsBadRequestWhenWorkspacePathMissing
+    /// </summary>
+    [Fact]
+    public async Task PlanningSessionEndpoint_ReturnsBadRequestWhenWorkspacePathMissing()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+
+        HttpResponseMessage response = await client.GetAsync("/api/planning-sessions/s-1?workspacePath=");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    /// <summary>
+    /// PlanningSessionEndpoint — ReturnsNotFoundForUnknownSession
+    /// </summary>
+    [Fact]
+    public async Task PlanningSessionEndpoint_ReturnsNotFoundForUnknownSession()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("planning-session-missing");
+
+        await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Planning Session Missing",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+
+        HttpResponseMessage response = await client.GetAsync($"/api/planning-sessions/missing-id?workspacePath={Uri.EscapeDataString(workspacePath)}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    /// <summary>
+    /// PlanningSessionEndpoint — RoundTripsFollowUpMessageWithAttachment
+    /// </summary>
+    [Fact]
+    public async Task PlanningSessionEndpoint_RoundTripsFollowUpMessageWithAttachment()
+    {
+        using TestWebApplicationFactory factory = new TestWebApplicationFactory();
+        using HttpClient client = factory.CreateClient();
+        string workspacePath = factory.CreateWorkspace("planning-session-roundtrip");
+
+        HttpResponseMessage createResponse = await client.PostAsJsonAsync("/api/projects", new
+        {
+            displayName = "Planning Session Roundtrip",
+            workspacePath,
+            workspaceMode = "existing-folder",
+            permissionHandlerMode = "approve-all",
+            architectureReviewMode = false,
+            architectureReviewPrompt = (string?)null
+        });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        // Seed a planning session via the store so the recorder can append to it.
+        PlanningSessionStore store = new PlanningSessionStore();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        PlanningSession seed = new PlanningSession(
+            "session-web-1",
+            now,
+            now,
+            "plan-run-1",
+            ImplementationRunId: null,
+            Messages: Array.Empty<ConversationMessage>());
+        await store.WriteAsync(workspacePath, seed, CancellationToken.None);
+
+        object payload = new
+        {
+            workspacePath,
+            role = ConversationRoles.USER,
+            kind = ConversationMessageKinds.FOLLOW_UP,
+            text = "please tweak the dashboard",
+            authorAgent = (string?)null,
+            relatedRunId = "impl-1",
+            attachments = new[]
+            {
+                new
+                {
+                    id = "att-1",
+                    kind = PromptAttachmentKinds.IMAGE,
+                    mimeType = "image/png",
+                    fileName = "mock.png",
+                    sizeBytes = 512L,
+                    dataBase64 = "AAA=",
+                    storagePath = (string?)null,
+                    caption = "screenshot"
+                }
+            }
+        };
+
+        HttpResponseMessage appendResponse = await client.PostAsJsonAsync(
+            "/api/planning-sessions/session-web-1/messages",
+            payload);
+        Assert.Equal(HttpStatusCode.OK, appendResponse.StatusCode);
+
+        HttpResponseMessage getResponse = await client.GetAsync(
+            $"/api/planning-sessions/session-web-1?workspacePath={Uri.EscapeDataString(workspacePath)}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+
+        JsonDocument document = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync());
+        JsonElement messages = document.RootElement.GetProperty("messages");
+        JsonElement message = Assert.Single(messages.EnumerateArray());
+        Assert.Equal(ConversationMessageKinds.FOLLOW_UP, message.GetProperty("kind").GetString());
+        Assert.Equal("please tweak the dashboard", message.GetProperty("text").GetString());
+        Assert.Equal("impl-1", message.GetProperty("relatedRunId").GetString());
+        JsonElement attachment = Assert.Single(message.GetProperty("attachments").EnumerateArray());
+        Assert.Equal("att-1", attachment.GetProperty("id").GetString());
+        Assert.Equal("mock.png", attachment.GetProperty("fileName").GetString());
     }
 }

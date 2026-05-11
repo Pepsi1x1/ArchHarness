@@ -111,28 +111,28 @@ public sealed class SessionEventPumpTests
     {
         private readonly Channel<CopilotSessionLifecycleEvent> _channel = Channel.CreateUnbounded<CopilotSessionLifecycleEvent>();
 
-        public void Enqueue(CopilotSessionLifecycleEvent evt) => _channel.Writer.TryWrite(evt);
+        public void Enqueue(CopilotSessionLifecycleEvent evt) => this._channel.Writer.TryWrite(evt);
 
-        public void Complete() => _channel.Writer.Complete();
+        public void Complete() => this._channel.Writer.Complete();
 
-        public void Publish(CopilotSessionLifecycleEvent evt) => _channel.Writer.TryWrite(evt);
+        public void Publish(CopilotSessionLifecycleEvent evt) => this._channel.Writer.TryWrite(evt);
 
         public IAsyncEnumerable<CopilotSessionLifecycleEvent> ReadAllAsync(CancellationToken cancellationToken)
-            => _channel.Reader.ReadAllAsync(cancellationToken);
+            => this._channel.Reader.ReadAllAsync(cancellationToken);
     }
 
     private sealed class FakeSdkEventStream : ICopilotSdkEventStream
     {
         private readonly Channel<CopilotSdkRawEvent> _channel = Channel.CreateUnbounded<CopilotSdkRawEvent>();
 
-        public void Enqueue(CopilotSdkRawEvent evt) => _channel.Writer.TryWrite(evt);
+        public void Enqueue(CopilotSdkRawEvent evt) => this._channel.Writer.TryWrite(evt);
 
-        public void Complete() => _channel.Writer.Complete();
+        public void Complete() => this._channel.Writer.Complete();
 
-        public void Publish(CopilotSdkRawEvent evt) => _channel.Writer.TryWrite(evt);
+        public void Publish(CopilotSdkRawEvent evt) => this._channel.Writer.TryWrite(evt);
 
         public IAsyncEnumerable<CopilotSdkRawEvent> ReadAllAsync(CancellationToken cancellationToken)
-            => _channel.Reader.ReadAllAsync(cancellationToken);
+            => this._channel.Reader.ReadAllAsync(cancellationToken);
     }
 
     private sealed class FakeArtefactStore : IArtefactStore
@@ -160,13 +160,13 @@ public sealed class SessionEventPumpTests
 
         public Task AppendEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
         {
-            AppendedEvents.Add(evt);
+            this.AppendedEvents.Add(evt);
             return Task.CompletedTask;
         }
 
         public Task AppendSdkEventAsync(string runDirectory, object evt, CancellationToken cancellationToken)
         {
-            AppendedSdkEvents.Add(evt);
+            this.AppendedSdkEvents.Add(evt);
             return Task.CompletedTask;
         }
 

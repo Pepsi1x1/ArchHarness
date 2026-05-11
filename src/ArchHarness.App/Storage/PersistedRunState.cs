@@ -26,7 +26,10 @@ public sealed record PersistedRunState(
     BuildOutcome? LastBuildOutcome = null,
     CompletionValidationResult? CompletionValidation = null,
     ClarificationAnswer[]? ClarificationAnswers = null,
-    string? HandoffRunId = null)
+    string? HandoffRunId = null,
+    string? PlanningSessionId = null,
+    ConversationMessage[]? ConversationHistory = null,
+    int CurrentWave = 0)
 {
     public bool CanResume
         => !string.Equals(this.Status, RunStatuses.COMPLETED, StringComparison.OrdinalIgnoreCase)

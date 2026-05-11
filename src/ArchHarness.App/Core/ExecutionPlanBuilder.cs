@@ -97,7 +97,7 @@ internal sealed class ExecutionPlanBuilder
     {
         reviewLoopAgents ??= this.GetCurrentReviewLoopAgents();
 
-        (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorizedSteps = CategorizeSteps(steps, reviewLoopAgents);
+        (List<ExecutionPlanStep> NonReview, List<ExecutionPlanStep> CodeStyle, List<ExecutionPlanStep> Security, List<ExecutionPlanStep> Architecture, List<ExecutionPlanStep> TerminalValidationBuilds, int CodingStyleIndex, int SecurityIndex, int ArchitectureIndex) categorizedSteps = this.CategorizeSteps(steps, reviewLoopAgents);
 
         if (categorizedSteps.NonReview.Count == 0 && categorizedSteps.TerminalValidationBuilds.Count == 0)
         {
@@ -106,12 +106,12 @@ internal sealed class ExecutionPlanBuilder
 
         InjectMissingReviewSteps(categorizedSteps, reviewLoopAgents, workspaceLanguages);
 
-        List<ExecutionPlanStep> reordered = BuildReorderedList(categorizedSteps);
-        RemapStepIds(reordered);
-        EnforceCodingStyleDependencies(reordered);
-        EnforceSecurityDependencies(reordered);
-        EnforceArchitectureDependencies(reordered);
-        EnforceTerminalBuildDependencies(reordered);
+        List<ExecutionPlanStep> reordered = this.BuildReorderedList(categorizedSteps);
+        this.RemapStepIds(reordered);
+        this.EnforceCodingStyleDependencies(reordered);
+        this.EnforceSecurityDependencies(reordered);
+        this.EnforceArchitectureDependencies(reordered);
+        this.EnforceTerminalBuildDependencies(reordered);
 
         return reordered;
     }
@@ -125,7 +125,7 @@ internal sealed class ExecutionPlanBuilder
         List<ExecutionPlanStep> codingStyle = enabledReview.Where(s => s.Agent == CODING_STYLE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
         List<ExecutionPlanStep> security = enabledReview.Where(s => s.Agent == SECURITY_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
         List<ExecutionPlanStep> architecture = enabledReview.Where(s => s.Agent == ARCHITECTURE_AGENT_NAME && this._workspaceContext.IsReviewObjective(s.Objective)).ToList();
-        
+
         return (nonReview, codingStyle, security, architecture, terminalBuilds, -1, -1, -1);
     }
 
@@ -173,7 +173,7 @@ internal sealed class ExecutionPlanBuilder
         int nextGroup = maxImplGroup + 1;
 
         List<ExecutionPlanStep> reviewSteps = new List<ExecutionPlanStep>();
-        
+
         if (categorized.CodeStyle.Count > 0)
         {
             reviewSteps.Add(categorized.CodeStyle[^1] with
@@ -243,7 +243,10 @@ internal sealed class ExecutionPlanBuilder
     private void EnforceCodingStyleDependencies(List<ExecutionPlanStep> reordered)
     {
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
-        if (codingStyleIndex < 0) return;
+        if (codingStyleIndex < 0)
+        {
+            return;
+        }
 
         ExecutionPlanStep codingStyleStep = reordered[codingStyleIndex];
         int[] codingStyleDepends = reordered
@@ -262,7 +265,10 @@ internal sealed class ExecutionPlanBuilder
     private void EnforceSecurityDependencies(List<ExecutionPlanStep> reordered)
     {
         int securityIndex = reordered.FindLastIndex(s => s.Agent == SECURITY_AGENT_NAME);
-        if (securityIndex < 0) return;
+        if (securityIndex < 0)
+        {
+            return;
+        }
 
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
         ExecutionPlanStep securityStep = reordered[securityIndex];
@@ -293,14 +299,17 @@ internal sealed class ExecutionPlanBuilder
     private void EnforceArchitectureDependencies(List<ExecutionPlanStep> reordered)
     {
         int architectureIndex = reordered.FindLastIndex(s => s.Agent == ARCHITECTURE_AGENT_NAME);
-        if (architectureIndex < 0) return;
+        if (architectureIndex < 0)
+        {
+            return;
+        }
 
         int securityIndex = reordered.FindLastIndex(s => s.Agent == SECURITY_AGENT_NAME);
         int codingStyleIndex = reordered.FindLastIndex(s => s.Agent == CODING_STYLE_AGENT_NAME);
-        
+
         ExecutionPlanStep architectureStep = reordered[architectureIndex];
         int[] enforcedDepends = GetArchitectureDependencies(reordered, architectureIndex, securityIndex, codingStyleIndex);
-        
+
         reordered[architectureIndex] = architectureStep with
         {
             DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
@@ -311,12 +320,12 @@ internal sealed class ExecutionPlanBuilder
     {
         int securityStepId = securityIndex >= 0 ? reordered[securityIndex].Id : 0;
         int codingStyleStepId = codingStyleIndex >= 0 ? reordered[codingStyleIndex].Id : 0;
-        
+
         if (securityStepId > 0)
         {
             return new[] { securityStepId };
         }
-        
+
         if (codingStyleStepId > 0)
         {
             return new[] { codingStyleStepId };
@@ -334,7 +343,7 @@ internal sealed class ExecutionPlanBuilder
     {
         int architectureIndex = reordered.FindLastIndex(s => s.Agent == ARCHITECTURE_AGENT_NAME);
         int previousDependencyId = architectureIndex >= 0 ? reordered[architectureIndex].Id : 0;
-        
+
         int[] terminalBuildIndexes = reordered
             .Select((step, index) => new { step, index })
             .Where(x => IsTerminalValidationBuildStep(x.step))
@@ -345,12 +354,12 @@ internal sealed class ExecutionPlanBuilder
         {
             ExecutionPlanStep buildStep = reordered[buildIndex];
             int[] enforcedDepends = previousDependencyId > 0 ? new[] { previousDependencyId } : Array.Empty<int>();
-            
+
             reordered[buildIndex] = buildStep with
             {
                 DependsOnStepIds = enforcedDepends.Length > 0 ? enforcedDepends : null
             };
-            
+
             previousDependencyId = reordered[buildIndex].Id;
         }
     }
@@ -431,12 +440,36 @@ internal sealed class ExecutionPlanBuilder
     /// <returns>The canonical agent name, or <c>null</c> if unrecognized.</returns>
     internal static string? NormalizeAgent(string raw)
     {
-        if (raw.Equals("frontenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("frontend-developer", StringComparison.OrdinalIgnoreCase)) return FRONTEND_DEVELOPER_AGENT_NAME;
-        if (raw.Equals("backenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("backend-developer", StringComparison.OrdinalIgnoreCase)) return BACKEND_DEVELOPER_AGENT_NAME;
-        if (raw.Equals("build", StringComparison.OrdinalIgnoreCase)) return BUILD_AGENT_NAME;
-        if (raw.Equals("codingstyle", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase)) return CODING_STYLE_AGENT_NAME;
-        if (raw.Equals("security", StringComparison.OrdinalIgnoreCase) || raw.Equals("secure", StringComparison.OrdinalIgnoreCase)) return SECURITY_AGENT_NAME;
-        if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase)) return ARCHITECTURE_AGENT_NAME;
+        if (raw.Equals("frontenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("frontend-developer", StringComparison.OrdinalIgnoreCase))
+        {
+            return FRONTEND_DEVELOPER_AGENT_NAME;
+        }
+
+        if (raw.Equals("backenddeveloper", StringComparison.OrdinalIgnoreCase) || raw.Equals("backend-developer", StringComparison.OrdinalIgnoreCase))
+        {
+            return BACKEND_DEVELOPER_AGENT_NAME;
+        }
+
+        if (raw.Equals("build", StringComparison.OrdinalIgnoreCase))
+        {
+            return BUILD_AGENT_NAME;
+        }
+
+        if (raw.Equals("codingstyle", StringComparison.OrdinalIgnoreCase) || raw.Equals("coding-style", StringComparison.OrdinalIgnoreCase))
+        {
+            return CODING_STYLE_AGENT_NAME;
+        }
+
+        if (raw.Equals("security", StringComparison.OrdinalIgnoreCase) || raw.Equals("secure", StringComparison.OrdinalIgnoreCase))
+        {
+            return SECURITY_AGENT_NAME;
+        }
+
+        if (raw.Equals("architecture", StringComparison.OrdinalIgnoreCase) || raw.Equals("review", StringComparison.OrdinalIgnoreCase))
+        {
+            return ARCHITECTURE_AGENT_NAME;
+        }
+
         return null;
     }
 

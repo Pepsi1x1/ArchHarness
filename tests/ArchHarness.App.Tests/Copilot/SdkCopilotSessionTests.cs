@@ -11,12 +11,10 @@ public sealed class SdkCopilotSessionTests
         TaskCompletionSource send = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         DateTimeOffset startedAt = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(2);
-        DateTimeOffset lastEventAt = startedAt;
+        SdkSessionEventTracker eventTracker = new(startedAt);
+        eventTracker.Record("report_intent");
         int abortCount = 0;
-
-        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => SdkCopilotSession.AwaitTurnCompletionAsync(
-            send.Task,
-            completion.Task,
+        CopilotTurnCompletionMonitor monitor = new(
             () =>
             {
                 Interlocked.Increment(ref abortCount);
@@ -26,10 +24,12 @@ public sealed class SdkCopilotSessionTests
             "Investigate env API",
             WellKnownModelNames.GPT_5_4,
             startedAt,
-            () => "report_intent",
-            () => lastEventAt.UtcTicks,
-            inactivityTimeoutSeconds: 0,
-            absoluteTimeoutSeconds: 1,
+            eventTracker,
+            new SessionTimeoutSettings(InactivityTimeoutSeconds: 0, AbsoluteTimeoutSeconds: 1));
+
+        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => monitor.AwaitCompletionAsync(
+            send.Task,
+            completion.Task,
             CancellationToken.None));
 
         Assert.Equal(1, abortCount);
@@ -43,18 +43,10 @@ public sealed class SdkCopilotSessionTests
         using ManualResetEventSlim releaseSend = new(false);
         TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         DateTimeOffset startedAt = DateTimeOffset.UtcNow - TimeSpan.FromSeconds(2);
-        DateTimeOffset lastEventAt = startedAt;
+        SdkSessionEventTracker eventTracker = new(startedAt);
+        eventTracker.Record("report_intent");
         int abortCount = 0;
-
-        Task sendTask = SdkCopilotSession.BeginSendAsync(() =>
-        {
-            releaseSend.Wait();
-            return Task.CompletedTask;
-        });
-
-        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => SdkCopilotSession.AwaitTurnCompletionAsync(
-            sendTask,
-            completion.Task,
+        CopilotTurnCompletionMonitor monitor = new(
             () =>
             {
                 Interlocked.Increment(ref abortCount);
@@ -64,10 +56,18 @@ public sealed class SdkCopilotSessionTests
             "Investigate env API",
             WellKnownModelNames.GPT_5_4,
             startedAt,
-            () => "report_intent",
-            () => lastEventAt.UtcTicks,
-            inactivityTimeoutSeconds: 0,
-            absoluteTimeoutSeconds: 1,
+            eventTracker,
+            new SessionTimeoutSettings(InactivityTimeoutSeconds: 0, AbsoluteTimeoutSeconds: 1));
+
+        Task sendTask = SdkCopilotSession.BeginSendAsync(() =>
+        {
+            releaseSend.Wait();
+            return Task.CompletedTask;
+        });
+
+        TimeoutException exception = await Assert.ThrowsAsync<TimeoutException>(() => monitor.AwaitCompletionAsync(
+            sendTask,
+            completion.Task,
             CancellationToken.None));
 
         releaseSend.Set();

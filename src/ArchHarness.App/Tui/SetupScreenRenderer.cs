@@ -222,11 +222,11 @@ public static class SetupScreenRenderer
         return label.ToUpperInvariant() switch
         {
             "WORKSPACE" => "⊞",
-            "MODE"      => "◎",
+            "MODE" => "◎",
             "PERMISSIONS" => "!",
-            "WORKFLOW"  => "◎",
-            "BUILD"     => "⚡",
-            _           => "▸",
+            "WORKFLOW" => "◎",
+            "BUILD" => "⚡",
+            _ => "▸",
         };
     }
 }

@@ -140,15 +140,26 @@ public sealed class WebInteractionCoordinatorTests
             new ExecutionPlanStep(1, "backend-developer", "Implement feature", null, null)
         }, new IterationStrategy(3, true), new[] { "Build passes" });
 
-        PlanApprovalRequest approvalRequest = new(spec, plan, "# Spec\nTask: test", "Step 1: Implement feature");
+        PlanApprovalRequest approvalRequest = new(
+            spec,
+            plan,
+            "# Spec\nTask: test",
+            "Step 1: Implement feature",
+            "## Plan: Test\n\nReview this in chat.",
+            "session-1",
+            "run-1");
         Task<PlanApprovalResponse> responseTask = coordinator.RequestPlanApprovalAsync(approvalRequest);
 
         PendingInteractionSnapshot? pending = coordinator.GetPending();
         Assert.NotNull(pending);
         Assert.True(state.IsAwaitingInput);
         Assert.Equal("plan-approval", pending.Kind);
+        Assert.Equal("Review the proposed plan in chat, then approve it or describe what should change.", pending.Question);
+        Assert.Equal("session-1", pending.SessionId);
+        Assert.Equal("run-1", pending.RunId);
         Assert.Equal("# Spec\nTask: test", pending.SpecMarkdown);
         Assert.Equal("Step 1: Implement feature", pending.PlanSummary);
+        Assert.Equal("## Plan: Test\n\nReview this in chat.", pending.PlanReviewMarkdown);
 
         Assert.True(coordinator.TrySubmitPlanApproval(PlanApprovalDecisions.APPROVED, null));
 
@@ -163,7 +174,7 @@ public sealed class WebInteractionCoordinatorTests
     /// RequestPlanApprovalAsync — ReturnsRegenerateDecisionWithReason
     /// </summary>
     [Fact]
-    public async Task RequestPlanApprovalAsync_ReturnsRegenerateDecisionWithReasonAsync()
+    public async Task RequestPlanApprovalAsync_ReturnsRegenerateDecisionWithReasonAndAttachmentsAsync()
     {
         UserInputState state = new UserInputState();
         WebInteractionCoordinator coordinator = new WebInteractionCoordinator(state);
@@ -181,10 +192,21 @@ public sealed class WebInteractionCoordinatorTests
         PlanApprovalRequest approvalRequest = new(spec, plan, "spec md", "plan summary");
         Task<PlanApprovalResponse> responseTask = coordinator.RequestPlanApprovalAsync(approvalRequest);
 
-        Assert.True(coordinator.TrySubmitPlanApproval(PlanApprovalDecisions.REGENERATE, "Add more tests"));
+        PromptAttachment attachment = new(
+            id: "att-1",
+            kind: PromptAttachmentKinds.IMAGE,
+            mimeType: "image/png",
+            fileName: "mock.png",
+            sizeBytes: 4,
+            dataBase64: "AAAA");
+
+        Assert.True(coordinator.TrySubmitPlanApproval(PlanApprovalDecisions.REGENERATE, "Add more tests", new[] { attachment }));
 
         PlanApprovalResponse response = await responseTask;
         Assert.Equal(PlanApprovalDecisions.REGENERATE, response.Decision);
         Assert.Equal("Add more tests", response.Reason);
+        PromptAttachment returnedAttachment = Assert.Single(response.Attachments!);
+        Assert.Equal("att-1", returnedAttachment.Id);
+        Assert.Equal("mock.png", returnedAttachment.FileName);
     }
 }
