@@ -81,6 +81,10 @@ export async function requestEventStream(url, options) {
       }
     });
 
+    if (dataLines.length === 0) {
+      return;
+    }
+
     let data = null;
     const serialized = dataLines.join("\n");
     if (serialized) {
