@@ -2053,22 +2053,22 @@ public sealed class WebApiTests
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
 
         // Seed a planning session via the store so the recorder can append to it.
-        ArchHarness.App.Storage.PlanningSessionStore store = new ArchHarness.App.Storage.PlanningSessionStore();
+        PlanningSessionStore store = new PlanningSessionStore();
         DateTimeOffset now = DateTimeOffset.UtcNow;
-        ArchHarness.App.Core.PlanningSession seed = new ArchHarness.App.Core.PlanningSession(
+        PlanningSession seed = new PlanningSession(
             "session-web-1",
             now,
             now,
             "plan-run-1",
             ImplementationRunId: null,
-            Messages: Array.Empty<ArchHarness.App.Core.ConversationMessage>());
+            Messages: Array.Empty<ConversationMessage>());
         await store.WriteAsync(workspacePath, seed, CancellationToken.None);
 
         object payload = new
         {
             workspacePath,
-            role = ArchHarness.App.Core.ConversationRoles.USER,
-            kind = ArchHarness.App.Core.ConversationMessageKinds.FOLLOW_UP,
+            role = ConversationRoles.USER,
+            kind = ConversationMessageKinds.FOLLOW_UP,
             text = "please tweak the dashboard",
             authorAgent = (string?)null,
             relatedRunId = "impl-1",
@@ -2077,7 +2077,7 @@ public sealed class WebApiTests
                 new
                 {
                     id = "att-1",
-                    kind = ArchHarness.App.Core.PromptAttachmentKinds.IMAGE,
+                    kind = PromptAttachmentKinds.IMAGE,
                     mimeType = "image/png",
                     fileName = "mock.png",
                     sizeBytes = 512L,
@@ -2100,7 +2100,7 @@ public sealed class WebApiTests
         JsonDocument document = JsonDocument.Parse(await getResponse.Content.ReadAsStringAsync());
         JsonElement messages = document.RootElement.GetProperty("messages");
         JsonElement message = Assert.Single(messages.EnumerateArray());
-        Assert.Equal(ArchHarness.App.Core.ConversationMessageKinds.FOLLOW_UP, message.GetProperty("kind").GetString());
+        Assert.Equal(ConversationMessageKinds.FOLLOW_UP, message.GetProperty("kind").GetString());
         Assert.Equal("please tweak the dashboard", message.GetProperty("text").GetString());
         Assert.Equal("impl-1", message.GetProperty("relatedRunId").GetString());
         JsonElement attachment = Assert.Single(message.GetProperty("attachments").EnumerateArray());
