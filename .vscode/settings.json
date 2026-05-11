@@ -1,1 +1,4 @@
-{}
+{
+	"dotnet.defaultSolution": "ArchHarness.App.sln",
+	"vitest.commandLine": "npm --prefix src/ArchHarness.Web exec vitest -- --config src/ArchHarness.Web/vitest.config.js"
+}
