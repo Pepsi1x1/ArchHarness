@@ -77,9 +77,11 @@ export function renderInlineInteraction() {
   const hasQuestionBatch = pending.kind === "user-input"
     && Array.isArray(pending.questions)
     && pending.questions.length > 0;
+  const hasFreeTextInput = pending.kind === "user-input" && !hasQuestionBatch;
 
   elements.inlineInteraction.classList.toggle("plan-approval", pending.kind === "plan-approval");
   elements.inlineInteraction.classList.toggle("question-batch", hasQuestionBatch);
+  elements.inlineInteraction.classList.toggle("single-input", hasFreeTextInput);
 
   if (pending.kind === "plan-approval") {
     renderPlanApprovalInteraction(pending);
@@ -186,13 +188,15 @@ function renderPlanApprovalChatControls(pending) {
 
 function findLatestPlanReviewSurface(runId) {
   const baseId = `planning-review-${runId}`;
+  const baseDashId = `${baseId}-`;
+  const baseHashId = `${baseId}#`;
   const selector = [
     `[data-agent-id="${CSS.escape(baseId)}"]`,
-    `[data-agent-id^="${CSS.escape(`${baseId}-`)}"]`,
-    `[data-agent-id^="${CSS.escape(`${baseId}#`)}"]`
+    `[data-agent-id^="${CSS.escape(baseDashId)}"]`,
+    `[data-agent-id^="${CSS.escape(baseHashId)}"]`
   ].join(", ");
   const surfaces = Array.from(document.querySelectorAll(selector));
-  return surfaces.length > 0 ? surfaces[surfaces.length - 1] : null;
+  return surfaces.at(-1) || null;
 }
 
 function clearPlanApprovalChatControls() {
@@ -306,6 +310,11 @@ async function submitUserInput(answer) {
     });
     await pollPendingInteraction();
   } catch (error) {
+    if (isStaleInteractionConflict(error, "user-input")) {
+      schedulePendingInteractionPoll(IDLE_INTERACTION_POLL_MS);
+      return;
+    }
+
     state.dismissedPendingInteractionSignature = null;
     setPendingInteraction(pendingSnapshot);
     state.pendingInteractionDraft = pendingInteractionDraft;
@@ -334,6 +343,11 @@ async function submitUserInputs(answers) {
     });
     await pollPendingInteraction();
   } catch (error) {
+    if (isStaleInteractionConflict(error, "user-input")) {
+      schedulePendingInteractionPoll(IDLE_INTERACTION_POLL_MS);
+      return;
+    }
+
     state.dismissedPendingInteractionSignature = null;
     setPendingInteraction(pendingSnapshot);
     state.pendingInteractionDraft = pendingInteractionDraft;
@@ -359,6 +373,11 @@ async function submitPermission(approved) {
     });
     await pollPendingInteraction();
   } catch (error) {
+    if (isStaleInteractionConflict(error, "permission")) {
+      schedulePendingInteractionPoll(IDLE_INTERACTION_POLL_MS);
+      return;
+    }
+
     state.dismissedPendingInteractionSignature = null;
     setPendingInteraction(pendingSnapshot);
     renderInlineInteraction();
@@ -384,6 +403,11 @@ export async function submitPlanApproval(decision, reason) {
     });
     await pollPendingInteraction();
   } catch (error) {
+    if (isStaleInteractionConflict(error, "plan-approval")) {
+      schedulePendingInteractionPoll(IDLE_INTERACTION_POLL_MS);
+      return;
+    }
+
     state.dismissedPendingInteractionSignature = null;
     setPendingInteraction(pendingSnapshot);
     state.pendingInteractionDraft = pendingInteractionDraft;
@@ -392,6 +416,12 @@ export async function submitPlanApproval(decision, reason) {
     renderInlineInteraction();
     throw error;
   }
+}
+
+function isStaleInteractionConflict(error, kind) {
+  return error?.status === 409
+    && typeof error.message === "string"
+    && error.message.includes(`No pending ${kind} request is active.`);
 }
 
 export function clearPendingInteractionPoll() {

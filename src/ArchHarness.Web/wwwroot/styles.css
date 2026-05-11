@@ -1420,6 +1420,14 @@ html[data-desktop-platform="win32"] .field select option:hover {
   overflow: hidden;
 }
 
+.inline-interaction.single-input {
+  padding: 0;
+  gap: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .inline-interaction-scroll {
   flex: 1;
   overflow-y: auto;
@@ -1456,8 +1464,24 @@ html[data-desktop-platform="win32"] .field select option:hover {
   width: 100%;
 }
 
+.inline-interaction.single-input > .inline-interaction-copy {
+  padding: 12px 12px 0;
+  flex-shrink: 0;
+}
+
+.inline-interaction.single-input > .choice-row {
+  padding: 0 12px;
+  margin-top: 10px;
+  flex-shrink: 0;
+}
+
 .inline-interaction-free-text {
-  padding-top: 4px;
+  padding: 12px 12px 0;
+}
+
+.inline-interaction.single-input > .button-row {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
 }
 
 .inline-interaction-revision {
