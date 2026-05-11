@@ -104,7 +104,7 @@ export async function loadSelectedRunStream() {
 export async function startRun() {
   if (isWikiDocModeEnabled()) {
     if (desktopBridge?.openWikiDocScreen) {
-      desktopBridge.openWikiDocScreen();
+      await desktopBridge.openWikiDocScreen();
     } else {
       globalThis.open("/wikidoc.html", "_blank");
     }
@@ -228,7 +228,8 @@ export async function sendPlanningFollowUp() {
     if (state.pendingInteraction?.kind === "plan-approval") {
       await submitPlanApproval("regenerate", text);
     } else {
-      await postPlanningFollowUp(run.runId, {
+      const sessionId = state.selectedRunState?.planningSessionId || run.runId;
+      await postPlanningFollowUp(sessionId, {
         workspacePath: project.workspacePath,
         text,
         attachments,

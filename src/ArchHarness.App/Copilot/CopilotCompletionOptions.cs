@@ -1,7 +1,6 @@
-namespace ArchHarness.App.Copilot;
-
 using ArchHarness.App.Core;
 
+namespace ArchHarness.App.Copilot;
 /// <summary>
 /// Specifies how the system message is combined with any existing base system message.
 /// </summary>
