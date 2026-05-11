@@ -15,16 +15,15 @@ public sealed class PlanningSessionRecorderTests : IDisposable
 
     public void Dispose()
     {
-        try
+        if (Directory.Exists(this._workspaceRoot))
         {
-            if (Directory.Exists(this._workspaceRoot))
+            foreach (string path in Directory.GetFileSystemEntries(this._workspaceRoot, "*", SearchOption.AllDirectories))
             {
-                Directory.Delete(this._workspaceRoot, recursive: true);
+                File.SetAttributes(path, FileAttributes.Normal);
             }
-        }
-        catch
-        {
-            // best effort
+
+            File.SetAttributes(this._workspaceRoot, FileAttributes.Normal);
+            Directory.Delete(this._workspaceRoot, recursive: true);
         }
     }
 
