@@ -15,7 +15,7 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.7" />
-    <PackageReference Include="Nerdbank.MessagePack" Version="1.1.62" />
+    <PackageReference Include="Nerdbank.MessagePack" Version="1.2.4" />
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.25.0.139117">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
